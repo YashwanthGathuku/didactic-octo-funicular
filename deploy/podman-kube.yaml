@@ -1,0 +1,65 @@
+# Kubernetes / Podman Play Kube Spec: Sentinel Flow Multi-Tier Ingestion Pod
+# Run locally with: podman play kube deploy/podman-kube.yaml
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sentinel-flow-pod
+  labels:
+    app.kubernetes.io/name: sentinel-flow
+    app.kubernetes.io/part-of: financial-file-reliability-gateway
+spec:
+  containers:
+    # 1. Operations UI Cockpit (Port 3000)
+    - name: sentinel-ui
+      image: localhost/sentinel-ui:latest
+      ports:
+        - containerPort: 3000
+          hostPort: 3000
+      resources:
+        limits:
+          memory: "128Mi"
+          cpu: "250m"
+
+    # 2. Go Pre-Ledger Gateway Monolith (Port 8080)
+    - name: sentinel-gateway
+      image: localhost/sentinel-gateway:latest
+      ports:
+        - containerPort: 8080
+          hostPort: 8080
+      env:
+        - name: PORT
+          value: "8080"
+        - name: AI_TIER_URL
+          value: "http://localhost:8000"
+      volumeMounts:
+        - name: inbox-volume
+          mountPath: /app/inbox
+        - name: data-volume
+          mountPath: /app/data
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "1000m"
+
+    # 3. Python FastAPI AI Exception Analyst (Port 8000)
+    - name: sentinel-ai-tier
+      image: localhost/sentinel-ai-tier:latest
+      ports:
+        - containerPort: 8000
+          hostPort: 8000
+      env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+      resources:
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+
+  volumes:
+    - name: inbox-volume
+      hostPath:
+        path: ./gateway/inbox
+        type: DirectoryOrCreate
+    - name: data-volume
+      emptyDir: {}

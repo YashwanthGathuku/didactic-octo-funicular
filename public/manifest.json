@@ -1,0 +1,18 @@
+{
+  "short_name": "SentinelFlow",
+  "name": "Sentinel Flow - Financial File Reliability Gateway",
+  "description": "Pre-ledger file reliability, NACHA streaming validator, and governed Eliza 2.0 AI triage copilot.",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#070B12",
+  "theme_color": "#0284C7",
+  "display": "standalone",
+  "orientation": "landscape-primary",
+  "categories": ["finance", "business", "productivity"]
+}

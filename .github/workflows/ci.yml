@@ -1,0 +1,78 @@
+name: Sentinel Flow CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  gateway-tests:
+    name: Go Gateway Test Matrix
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ./gateway
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: gateway/go.sum
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run Go Unit, Benchmark & E2E Tests
+        run: go test -v ./...
+
+  ai-evals:
+    name: Astra 2.0 Adversarial AI Evals
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./ai-tier
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install fastapi uvicorn pydantic requests
+
+      - name: Run 5-Vector Adversarial Security Evals
+        run: python evals/runner.py
+
+  ui-build:
+    name: React 18 PWA TypeScript Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate TypeScript & Compile Production Bundle
+        run: npm run build

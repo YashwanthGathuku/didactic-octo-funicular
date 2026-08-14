@@ -1,0 +1,177 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Sentinel Flow: Operational Reliability & Throughput Telemetry",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "title": "Streaming Parse Velocity (Records / Second)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "sentinel_streaming_parse_rate_records_per_sec",
+          "legendFormat": "Records/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "dark-green", "value": 200000 }
+            ]
+          },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Total Files Ingested",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(sentinel_files_ingested_total{status=\"ALL\"})",
+          "legendFormat": "Files Processed",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Quarantined Files (Dead-Letter Isolation)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "sentinel_files_ingested_total{status=\"QUARANTINED\"}",
+          "legendFormat": "Quarantined",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Merkle Hash Chain Height",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+      "targets": [
+        {
+          "expr": "sentinel_merkle_chain_height",
+          "legendFormat": "Chain Height",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "cyan", "mode": "fixed" },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Ingestion & Quarantine Volume Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 7 },
+      "targets": [
+        {
+          "expr": "rate(sentinel_files_ingested_total{status=\"VALID\"}[1m])",
+          "legendFormat": "Valid Files / sec",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(sentinel_files_ingested_total{status=\"QUARANTINED\"}[1m])",
+          "legendFormat": "Quarantined / sec",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Active Operational Incidents",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 7 },
+      "targets": [
+        {
+          "expr": "sentinel_active_incidents",
+          "legendFormat": "Open Incidents",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 10,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["sentinel-flow", "fintech", "payments", "reliability"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m"]
+  },
+  "timezone": "browser",
+  "title": "Sentinel Flow - Executive Reliability Dashboard",
+  "uid": "sentinel-flow-reliability"
+}

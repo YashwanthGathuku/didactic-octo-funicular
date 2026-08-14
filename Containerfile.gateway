@@ -1,0 +1,36 @@
+# Stage 1: Build the Go binary
+FROM docker.io/library/golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git gcc musl-dev
+
+COPY gateway/go.mod gateway/go.sum ./
+RUN go mod download
+
+COPY gateway/ ./
+
+# Build statically linked CGO-free binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o sentinel-gateway .
+
+# Stage 2: Minimal runtime image
+FROM docker.io/library/alpine:3.20
+
+WORKDIR /app
+
+RUN apk --no-cache add ca-certificates tzdata && \
+    addgroup -S sentinel && adduser -S sentinel -G sentinel && \
+    mkdir -p /app/inbox /app/data && \
+    chown -R sentinel:sentinel /app
+
+COPY --from=builder /app/sentinel-gateway /app/sentinel-gateway
+COPY gateway/migrations/ /app/migrations/
+
+USER sentinel
+
+EXPOSE 8080
+
+VOLUME ["/app/inbox", "/app/data"]
+
+ENTRYPOINT ["/app/sentinel-gateway"]
