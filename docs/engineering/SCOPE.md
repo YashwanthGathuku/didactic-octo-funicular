@@ -1,0 +1,147 @@
+# Sentinel Flow — Scope
+
+**Established by:** Prompt 01 (Truth reset and scope reduction)
+**Date:** 14 August 2026
+
+This document is the authority on what Sentinel Flow claims to do. If code, README, UI copy, or a
+demo asserts a capability that is not marked **Implemented** below, the assertion is a defect.
+
+---
+
+## 1. Version-one promise
+
+> Sentinel Flow knows which financial files are expected, records finalized arrivals, validates
+> NACHA files deterministically, quarantines unsafe inputs, and gives operators a traceable
+> evidence path from source object to human release decision.
+
+Everything else is out of scope until that sentence is true end to end, measurable, and covered by
+tests.
+
+---
+
+## 2. Capability status
+
+Status meanings are strict:
+
+- **Implemented** — the behaviour exists, is exercised by a test, and no part of its result is a
+  source constant.
+- **Partial** — real behaviour exists but a named gap makes it unsafe to rely on.
+- **Experimental** — code exists and may be useful, but it is not production-claimed, not covered
+  by conformance fixtures, and must never gate a release decision.
+- **Planned** — not built. Named here only so nobody claims it early.
+
+### Ingestion and validation
+
+| Capability | Status | Notes |
+|---|---|---|
+| Authenticated multipart upload | Partial | Works, but reads the whole file into memory (`processor.go` `ProcessFile`) and applies no size or quota bound. Streaming ingress is Prompt 06. |
+| SHA-256 content hashing | Implemented | Real digest over the received bytes. |
+| ABA routing Mod10 check digit | Implemented | `ValidateRoutingMod10`, covered by `TestMod10RoutingValidation`. |
+| NACHA record-length and structure checks | Partial | Record width, entry hash, and batch control arithmetic are checked. This is not the full Nacha rule set; see Prompt 07. |
+| **Fail-closed on empty / unparseable input** | Implemented | Prompt 01 fixed this. A zero-byte or unparseable file now quarantines. Covered by `quarantine_test.go`. |
+| Quarantine on validation findings | Implemented | Any finding at or above `ERROR` prevents release. |
+| Versioned release policy | Planned | Prompt 07. Today the release decision is a hardcoded severity rule, not a versioned policy document. |
+| ISO 20022 XML parsing | **Experimental** | Small XML projection only. No XSD, no market-practice validation, money handled as `float64`. Must not be production-claimed. |
+| BAI2 parsing | **Experimental** | Record and transaction-code logic is superficial. |
+| SWIFT MT103 / MT940 parsing | **Experimental** | Regex and tag checks, not message validation. |
+| Duplicate / idempotent delivery | Planned | Prompt 08. Redelivery currently creates a second file instance. |
+| Immutable object storage | Planned | Prompt 06. Files are not currently persisted to object storage; `storage_path` is a synthesised string. |
+
+### Evidence and audit
+
+| Capability | Status | Notes |
+|---|---|---|
+| Application hash chain (append) | Partial | Real SHA-256 chaining, but append is not serialised — concurrent writers can fork the chain (`ledger.go` `AppendAuditEvent`). Prompt 09. |
+| Tamper detection by recomputation | Implemented | `GetLedger` recomputes each row's hash; detects payload, actor, event-type and timestamp edits. Covered by `TestLedgerDetectsContentTampering` and `TestLedgerDetectsActorTampering`. |
+| Evidence export | Implemented | Exports the chain and its verification result. Carries no regulatory claim. |
+| External anchoring / signed checkpoints | Planned | Required before any tamper-evidence claim beyond "application hash chain". |
+
+### Statistics
+
+| Capability | Status | Notes |
+|---|---|---|
+| Two-sample Kolmogorov–Smirnov test | Implemented | `kstest.go`. Exact D, Stephens (1970) correction, theta-transformed series cross-validated to 1e-17. Twelve tests. **Not wired to any production decision.** |
+| Benjamini–Hochberg FDR control | Implemented | `kstest.go`, covered by `TestBenjaminiHochbergControlsFDR`. Not wired to production. |
+| Robust median/MAD anomaly detection | Implemented | `robust_anomaly.go`. 50% breakdown, handles MAD=0, refuses thin history. Not wired to production. |
+| Predictive breach probability | **Non-goal for v1** | See §3. |
+
+### Security
+
+| Capability | Status | Notes |
+|---|---|---|
+| PGP detached-signature verification | Implemented | Fails closed on missing keyring, unknown signer, or mismatch. Test signs real bytes then flips one. |
+| SSH public-key parsing | Implemented | RFC 4253 wire parsing, algorithm-match enforcement, 2048-bit floor. |
+| API authentication | **Partial — unsafe** | Shared bearer token, and **the API runs fully open when `SENTINEL_API_TOKEN` is unset**. Prompt 04 replaces this with OIDC and makes it fail closed. |
+| Authorization / roles | Planned | Prompt 04. |
+| Tenant isolation | **Not implemented** | No business table has a `tenant_id` column. Prompt 04. |
+| Secret management | Planned | Prompt 05. |
+
+### Operations
+
+| Capability | Status | Notes |
+|---|---|---|
+| Prometheus metrics | Partial | Counters are real. The parse-rate gauge reports `-1` until genuinely measured — keep that pattern. |
+| Server-Sent Events endpoint | **Partial — emits nothing** | `stream.go` is real bounded pub/sub (buffered channels, non-blocking send, unsubscribe on disconnect), but **no code calls `Broadcast`**, so a subscriber receives only the connect heartbeat. Retained deliberately: it is honest infrastructure Prompt 12 wires to real events. |
+| Inbox watcher | **Partial — unsafe** | Polls once per second and reads files that may still be uploading. Prompt 17. |
+| Health / readiness | Partial | `/health` returns a static string; it checks no dependency. Prompt 02. |
+| Measured performance figures | **None** | No performance number may appear in README, UI, or API until a reproducible result artifact exists (Prompt 13). |
+
+---
+
+## 3. Explicit non-goals
+
+Sentinel Flow does **not** do these things, and no surface may imply otherwise:
+
+1. **Payment initiation, settlement, or rail connectivity.** Settlement is not a state in this
+   product (§4).
+2. **Autonomous repair or autonomous release.** Every release is a human decision.
+3. **Arbitrary SQL consoles, SSH shells, or remote filesystem browsers.**
+4. **Production support for BAI2, ISO 20022, or SWIFT.** Experimental only.
+5. **Predictive breach probability.** Deterministic deadline state only. A calibrated probability
+   requires real per-feed history and prospective evaluation that does not exist yet.
+6. **Assurance labels** — "FIPS certified", "SOC 2 compliant", "bank-grade", "zero trust",
+   "Merkle", "WORM", "SEC 17a-4 compliant". None of these are earned by code alone.
+7. **Multi-agent AI orchestration.** One read-only analyst, after the deterministic pipeline is
+   correct (Prompt 15).
+8. **Live connector platform.** Prompt 16, and only per-connector after conformance tests pass.
+
+---
+
+## 4. Vocabulary rules
+
+These words have exactly one meaning in this codebase, its API, its UI, and its documentation.
+Using them loosely is a defect.
+
+| Term | Means | Does **not** mean |
+|---|---|---|
+| **Delivery** | A file arrived and its upload is finalized. Nothing about its contents is known. | That the file is usable, valid, or accepted. |
+| **Validation** | Deterministic rule evaluation against the file's bytes, producing typed findings. | A human judgement, an approval, or an AI opinion. |
+| **Quarantine** | A terminal-until-reviewed state meaning the artifact must not be consumed downstream. Applied on any finding at or above `ERROR`, on parser failure, on zero records, and on unverifiable input. | That the file is deleted, or that it is merely flagged. |
+| **Approval** | A named, authenticated human recorded a decision against a specific artifact hash, validation run, and policy version. | That the file moved anywhere. |
+| **Release** | The artifact is marked usable by downstream ledger processes. Requires successful validation **and** a policy decision. | Payment, settlement, transmission, or any external effect. |
+| **Settlement** | **Not a state in this product.** Money movement is performed by systems Sentinel Flow does not touch. | Anything Sentinel Flow can observe, assert, or cause. |
+
+Two supporting rules:
+
+- **"Application hash chain", never "Merkle".** The ledger is a linear predecessor chain. It has no
+  history tree, no membership proofs, no consistency proofs, and no external anchor. A SHA-256
+  digest is not a digital signature.
+- **Demo and synthetic data must be labelled at the point of display.** If a screen or response
+  contains generated data, it says so where the operator reads it. A dependency failure renders as
+  `Unavailable` or `Degraded` — never as healthy state, and never as a silent empty list.
+
+---
+
+## 5. Patterns carried forward from removed code
+
+Prompt 01 deleted roughly 5,900 lines. These patterns from that code are worth reusing and are
+archived verbatim in `REMOVED_CODE_ARCHIVE.md` and `REMOVED_CODE_ARCHIVE_UI.md`:
+
+| Pattern | Was in | Reuse in |
+|---|---|---|
+| Constant-time credential comparison, refuses to operate unconfigured, logs denied attempts before returning | `vault.go` `authorizeDetokenize` | Prompt 04, Prompt 05 |
+| HMAC-SHA256 payload signing | `webhook.go` | Prompt 05 |
+| Secret **reference** indirection — store a pointer, never the value | `connector.go` `SecretReference` | Prompt 05 |
+| Honest demo labelling: `IsScriptedDemo: true`, `*Target` suffix on unmeasured figures, `NOT_PROVISIONED` for absent dependencies | `failover.go` | Everywhere |
+| Measured-or-sentinel metrics: report `-1` until a real measurement exists | `metrics.go` (retained) | Prompt 13 |
+| Capability, health and data-classification modelling | `connector.go` | Prompt 16 |
