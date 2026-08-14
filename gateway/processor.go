@@ -63,11 +63,28 @@ func ValidateRoutingMod10(routing string) bool {
 	return checkDigit == expected
 }
 
+// hasBlockingFinding reports whether any finding disqualifies the artifact from
+// release. FATAL, CRITICAL and ERROR block; WARNING and INFO are advisory.
+//
+// Severity strings are still free-form here. Prompt 07 replaces them with a
+// typed severity and a versioned release policy.
+func hasBlockingFinding(findings []ValidationFindingRecord) bool {
+	for _, f := range findings {
+		switch f.Severity {
+		case "FATAL", "CRITICAL", "ERROR":
+			return true
+		}
+	}
+	return false
+}
+
 // ProcessFileBytes processes raw file contents, calculates SHA256, validates NACHA, and persists to DB.
 func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionResult, error) {
+	// Every financial input begins untrusted and unreleased. RELEASED is only
+	// ever reached through the explicit terminal decision below.
 	result := &IngestionResult{
 		Filename:   filename,
-		Status:     "RELEASED",
+		Status:     "RECEIVED",
 		Findings:   make([]ValidationFindingRecord, 0),
 		RawContent: string(content),
 		SizeBytes:  int64(len(content)),
@@ -79,6 +96,11 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 	result.Hash = hex.EncodeToString(hasher.Sum(nil))
 
 	trimmed := strings.TrimSpace(string(content))
+
+	// parserSucceeded records whether the format parser could read the file at
+	// all. Only the NACHA branch sets it false today; the experimental parsers
+	// report through findings instead.
+	parserSucceeded := true
 
 	// 2. Multi-Format Detection: ISO 20022 XML vs BAI2 vs SWIFT MT vs NACHA ACH
 	if strings.HasPrefix(trimmed, "<?xml") || strings.HasPrefix(trimmed, "<Document") || strings.HasSuffix(strings.ToLower(filename), ".xml") {
@@ -228,20 +250,43 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 		result.Status = "QUARANTINED"
 	}
 
-	// Also parse with Moov ACH if format allows
+	// Also parse with Moov ACH if format allows.
+	//
+	// A parser that cannot read the file is disqualifying, not advisory. This
+	// finding was previously recorded at WARNING and was the only finding
+	// branch that did not affect the release decision, which is how a zero-byte
+	// file reached RELEASED.
 	reader := ach.NewReader(strings.NewReader(string(content)))
 	if _, err := reader.Read(); err != nil {
+		parserSucceeded = false
 		if len(result.Findings) == 0 {
 			result.Findings = append(result.Findings, ValidationFindingRecord{
 				Code:          "ACH_ERR_0099_PARSER_EXCEPTION",
 				Description:   fmt.Sprintf("Moov ACH Parser reported: %v", err),
-				Severity:      "WARNING",
+				Severity:      "FATAL",
 				LineNumber:    1,
 				RawData:       "",
 				RuleReference: "Nacha Standard Specification 2025",
 			})
 		}
 	}
+	}
+
+	// Terminal release decision.
+	//
+	// Deliberately minimal fail-closed behaviour, not the versioned policy
+	// engine (Prompt 07). It can only make the outcome stricter: a status
+	// already set to QUARANTINED above is never promoted back to RELEASED.
+	if result.TotalRecordsParsed == 0 {
+		// debits == credits over zero records is arithmetically true and
+		// operationally meaningless: it asserts a property of records that do
+		// not exist.
+		result.IsBalanced = false
+	}
+	if !parserSucceeded || result.TotalRecordsParsed == 0 || hasBlockingFinding(result.Findings) {
+		result.Status = "QUARANTINED"
+	} else if result.Status == "RECEIVED" {
+		result.Status = "RELEASED"
 	}
 
 	// 3. Persist to Database
