@@ -16,7 +16,7 @@ import (
 func TestPrometheusMetricsExposition(t *testing.T) {
 	GlobalMetrics.RecordFileIngested("VALID", 1024)
 	GlobalMetrics.RecordFileIngested("QUARANTINED", 2048)
-	GlobalMetrics.SetMerkleHeight(42)
+	GlobalMetrics.SetAuditChainHeight(42)
 	GlobalMetrics.SetActiveIncidents(1)
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -33,7 +33,7 @@ func TestPrometheusMetricsExposition(t *testing.T) {
 		"sentinel_files_ingested_total{status=\"VALID\"}",
 		"sentinel_files_ingested_total{status=\"QUARANTINED\"}",
 		"sentinel_bytes_ingested_total",
-		"sentinel_merkle_chain_height 42",
+		"sentinel_audit_chain_height 42",
 	}
 
 	// The parse-rate gauge must reflect a real measurement, never a constant.

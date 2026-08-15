@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -178,7 +179,7 @@ func TestE2E_Iso20022XmlValidation(t *testing.T) {
 	}
 }
 
-func TestE2E_MerkleLedgerAndCompliancePackage(t *testing.T) {
+func TestE2E_AuditChainAndEvidenceExport(t *testing.T) {
 	db := setupTestDb(t)
 	defer db.Close()
 
@@ -192,7 +193,7 @@ func TestE2E_MerkleLedgerAndCompliancePackage(t *testing.T) {
 
 	ledger, err := GetLedger(db)
 	if err != nil || !ledger.IsChainValid {
-		t.Errorf("Expected valid Merkle chain, err=%v", err)
+		t.Errorf("Expected valid application hash chain, err=%v", err)
 	}
 
 	pkg, err := GenerateCompliancePackage(db)
@@ -200,10 +201,29 @@ func TestE2E_MerkleLedgerAndCompliancePackage(t *testing.T) {
 		t.Fatalf("GenerateCompliancePackage failed: %v", err)
 	}
 
-	if !strings.Contains(pkg.RegulatoryStandard, "SEC Rule 17a-4") {
-		t.Errorf("Unexpected compliance standard: %s", pkg.RegulatoryStandard)
-	}
 	if !pkg.ChainIntegrityVerified {
-		t.Errorf("Expected compliance package chain integrity to be verified")
+		t.Errorf("Expected evidence export chain integrity to be verified")
+	}
+
+	// The export must carry no regulatory or assurance claim. This assertion
+	// previously required the string "SEC Rule 17a-4" to be PRESENT, which made
+	// the test a guarantee that an unsupported compliance claim kept shipping.
+	//
+	// Limitations are excluded from the scan: that field is where the export
+	// says what it is not ("not a Merkle history tree"), and naming the thing
+	// you are disclaiming is the point of a disclaimer.
+	if len(pkg.Limitations) == 0 {
+		t.Errorf("evidence export must state its limitations")
+	}
+	scanned := *pkg
+	scanned.Limitations = nil
+	blob, err := json.Marshal(&scanned)
+	if err != nil {
+		t.Fatalf("failed to marshal evidence export: %v", err)
+	}
+	for _, banned := range []string{"SEC Rule 17a-4", "SOX 404", "FINRA", "Merkle", "SIMD", "Simd", "FIPS", "WORM"} {
+		if strings.Contains(string(blob), banned) {
+			t.Errorf("evidence export contains unsupported assurance claim %q", banned)
+		}
 	}
 }

@@ -14,7 +14,7 @@ type MetricsCollector struct {
 	TotalValid         uint64
 	TotalBytesIngested uint64
 	ActiveIncidents    uint64
-	MerkleHeight       uint64
+	AuditChainHeight   uint64
 	StartTime          time.Time
 	// parseRateBits holds the last MEASURED records/sec as float64 bits.
 	// math.Float64bits(-1) until a benchmark actually runs.
@@ -46,8 +46,8 @@ func (m *MetricsCollector) RecordFileIngested(status string, bytes int) {
 	}
 }
 
-func (m *MetricsCollector) SetMerkleHeight(height uint64) {
-	atomic.StoreUint64(&m.MerkleHeight, height)
+func (m *MetricsCollector) SetAuditChainHeight(height uint64) {
+	atomic.StoreUint64(&m.AuditChainHeight, height)
 }
 
 func (m *MetricsCollector) SetActiveIncidents(count uint64) {
@@ -78,9 +78,12 @@ func ServePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# TYPE sentinel_active_incidents gauge\n")
 	fmt.Fprintf(w, "sentinel_active_incidents %d\n\n", atomic.LoadUint64(&GlobalMetrics.ActiveIncidents))
 
-	fmt.Fprintf(w, "# HELP sentinel_merkle_chain_height Current block height of the append-only audit ledger\n")
-	fmt.Fprintf(w, "# TYPE sentinel_merkle_chain_height gauge\n")
-	fmt.Fprintf(w, "sentinel_merkle_chain_height %d\n\n", atomic.LoadUint64(&GlobalMetrics.MerkleHeight))
+	// Named "audit chain", not "merkle": this is a linear predecessor hash
+	// chain with no history tree, membership proof, consistency proof, or
+	// external anchor. See docs/engineering/SCOPE.md §4.
+	fmt.Fprintf(w, "# HELP sentinel_audit_chain_height Current height of the append-only application hash chain\n")
+	fmt.Fprintf(w, "# TYPE sentinel_audit_chain_height gauge\n")
+	fmt.Fprintf(w, "sentinel_audit_chain_height %d\n\n", atomic.LoadUint64(&GlobalMetrics.AuditChainHeight))
 
 	// Previously emitted a hardcoded 296000 regardless of actual throughput, which
 	// meant any Grafana panel scraping this showed a constant fabricated rate.
@@ -89,7 +92,8 @@ func ServePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# TYPE sentinel_streaming_parse_rate_records_per_sec gauge\n")
 	fmt.Fprintf(w, "sentinel_streaming_parse_rate_records_per_sec %.0f\n\n", GlobalMetrics.LastMeasuredParseRate())
 
-	fmt.Fprintf(w, "# HELP sentinel_worker_pool_active Active concurrent validation workers\n")
-	fmt.Fprintf(w, "# TYPE sentinel_worker_pool_active gauge\n")
-	fmt.Fprintf(w, "sentinel_worker_pool_active 8\n")
+	// sentinel_worker_pool_active was removed. It emitted the literal 8 while
+	// no worker pool existed, so any dashboard scraping it showed a fabricated
+	// gauge about the process reporting it. The real gauge is derived from
+	// database lease state in Prompt 08.
 }

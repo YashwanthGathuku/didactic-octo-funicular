@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,20 +19,24 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// SlaExpectationResponse carries deterministic deadline state only.
+//
+// BreachRiskPct and CountdownMinutes were removed: they were assigned by an
+// if-statement on Status (98.4/-15 when OVERDUE, 12.5/23 otherwise), which
+// presented a constant as a live predictive figure. Predictive breach risk is
+// an explicit non-goal for v1 (docs/engineering/SCOPE.md §3).
 type SlaExpectationResponse struct {
-	ID                 int64   `json:"id"`
-	ContractID         int64   `json:"contractId"`
-	PartnerName        string  `json:"partnerName"`
-	PartnerRouting     string  `json:"partnerRouting"`
-	ContractName       string  `json:"contractName"`
-	FilenamePattern    string  `json:"filenamePattern"`
-	ExpectedTime       string  `json:"expectedTime"`
-	GracePeriodMinutes int     `json:"gracePeriodMinutes"`
-	DeliveryStart      string  `json:"deliveryStart"`
-	DeliveryEnd        string  `json:"deliveryEnd"`
-	Status             string  `json:"status"` // PENDING, ARRIVED, OVERDUE
-	BreachRiskPct      float64 `json:"breachRiskPct"`
-	CountdownMinutes   int     `json:"countdownMinutes"`
+	ID                 int64  `json:"id"`
+	ContractID         int64  `json:"contractId"`
+	PartnerName        string `json:"partnerName"`
+	PartnerRouting     string `json:"partnerRouting"`
+	ContractName       string `json:"contractName"`
+	FilenamePattern    string `json:"filenamePattern"`
+	ExpectedTime       string `json:"expectedTime"`
+	GracePeriodMinutes int    `json:"gracePeriodMinutes"`
+	DeliveryStart      string `json:"deliveryStart"`
+	DeliveryEnd        string `json:"deliveryEnd"`
+	Status             string `json:"status"` // PENDING, ARRIVED, OVERDUE
 }
 
 type IncidentDetailResponse struct {
@@ -68,11 +70,11 @@ type ActionProposal struct {
 }
 
 type AnalystResponse struct {
-	Summary         string           `json:"summary"`
-	Citations       []string         `json:"citations"`
-	ProposedActions []ActionProposal `json:"proposed_actions"`
-	Confidence      float64          `json:"confidence"`
-	AgentVersion    string           `json:"agent_version"`
+	Summary         string                 `json:"summary"`
+	Citations       []string               `json:"citations"`
+	ProposedActions []ActionProposal       `json:"proposed_actions"`
+	Confidence      float64                `json:"confidence"`
+	AgentVersion    string                 `json:"agent_version"`
 	Metrics         map[string]interface{} `json:"metrics"`
 }
 
@@ -88,21 +90,6 @@ func main() {
 		log.Fatalf("Unable to open database: %v\n", err)
 	}
 	defer db.Close()
-
-	// Separate READ-ONLY handle for the audit SQL console.
-	//
-	// The console previously used the same read-write handle and relied on a
-	// keyword blocklist (DROP/DELETE/UPDATE/...). Blocklists on SQL are the
-	// wrong control: they both over-block ("SELECT * FROM t WHERE note='DROP'")
-	// and under-block (VACUUM, REINDEX, load_extension(), and the explicitly
-	// allowed PRAGMA prefix -- e.g. `PRAGMA writable_schema=1`). SQLite gives
-	// us a structural guarantee instead, so we use it and keep the blocklist
-	// only as defence in depth.
-	roDB, roErr := sql.Open("sqlite", dbPath+"?mode=ro&_pragma=query_only(1)")
-	if roErr != nil {
-		log.Fatalf("Unable to open read-only database handle: %v\n", roErr)
-	}
-	defer roDB.Close()
 
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Unable to connect to database: %v\n", err)
@@ -120,13 +107,36 @@ func main() {
 			fmt.Println("Database schema initialized.")
 		}
 	}
-	_ = InitWebhookSchema(db)
 
 	// 1.6 Start Background SFTP Inbox Watcher Daemon
 	inboxPath := "./inbox"
 	StartInboxWatcher(db, inboxPath)
 
-	// 2. Initialize Router
+	apiToken := os.Getenv("SENTINEL_API_TOKEN")
+	if apiToken == "" {
+		log.Println("WARNING: SENTINEL_API_TOKEN is unset - API authentication is DISABLED. Do not run this way outside a local demo.")
+	}
+
+	r := NewRouter(db, apiToken)
+
+	// 3. Start Server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	fmt.Printf("Sentinel Gateway starting on port %s...\n", port)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
+		log.Fatalf("Server failed to start: %v\n", err)
+	}
+}
+
+// NewRouter builds the HTTP surface.
+//
+// Extracted from main() so the route table is addressable by tests: Prompt 01
+// requires proving that deleted routes return 404 rather than merely that their
+// handlers no longer compile.
+func NewRouter(db *sql.DB, apiToken string) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -155,19 +165,17 @@ func main() {
 	// -------------------------------------------------------------------
 	// Authentication.
 	//
-	// Previously there was NONE: every endpoint, including
-	// /api/v1/vault/detokenize (returns plaintext PII) and /api/v1/sql/query
-	// (arbitrary reads of the whole database), was open to any caller. Combined
-	// with Access-Control-Allow-Origin: * this meant any web page the operator
-	// visited could read the database cross-origin.
+	// KNOWN GAP, tracked for Prompt 04: this is a shared-secret floor, not an
+	// identity system, and it does NOT fail closed -- when SENTINEL_API_TOKEN is
+	// unset every route below is public and only a log line marks it. Actor
+	// identity is still taken from request fields rather than verified claims.
 	//
-	// This is a shared-secret floor, not an identity system. Production needs
-	// mTLS client certs or OIDC with per-tenant scopes.
+	// Prompt 04 replaces this with OIDC, refuses to start unauthenticated
+	// outside a named local demo profile, and enforces tenant scope in the
+	// repository layer. Deliberately not changed here: Prompt 01 is a scope
+	// reduction, and a security-boundary rewrite does not belong in the same
+	// change as a large deletion.
 	// -------------------------------------------------------------------
-	apiToken := os.Getenv("SENTINEL_API_TOKEN")
-	if apiToken == "" {
-		log.Println("WARNING: SENTINEL_API_TOKEN is unset - API authentication is DISABLED. Do not run this way outside a local demo.")
-	}
 	requireAuth := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if apiToken == "" {
@@ -189,14 +197,7 @@ func main() {
 	// API Version 1
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(requireAuth)
-		RegisterIntegrationHubRoutes(r, db)
-		RegisterSwarmRoutes(r, db)
-		RegisterSelfHealingRoutes(r, db)
-		RegisterDriftRoutes(r, db)
 		RegisterStreamRoutes(r)
-		RegisterVaultRoutes(r, db)
-		RegisterInstantPaymentRoutes(r, db)
-		RegisterFailoverRoutes(r, db)
 
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -222,16 +223,9 @@ func main() {
 			expectations := make([]SlaExpectationResponse, 0)
 			for rows.Next() {
 				var exp SlaExpectationResponse
-				if err := rows.Scan(&exp.ID, &exp.ContractID, &exp.PartnerName, &exp.PartnerRouting, &exp.ContractName, 
+				if err := rows.Scan(&exp.ID, &exp.ContractID, &exp.PartnerName, &exp.PartnerRouting, &exp.ContractName,
 					&exp.FilenamePattern, &exp.ExpectedTime, &exp.GracePeriodMinutes, &exp.DeliveryStart, &exp.DeliveryEnd, &exp.Status); err != nil {
 					continue
-				}
-				if exp.Status == "OVERDUE" {
-					exp.BreachRiskPct = 98.4
-					exp.CountdownMinutes = -15
-				} else {
-					exp.BreachRiskPct = 12.5
-					exp.CountdownMinutes = 23
 				}
 				expectations = append(expectations, exp)
 			}
@@ -449,47 +443,53 @@ func main() {
 				}
 			}
 
-			// Call Python AI Tier
+			// Call Python AI Tier.
+			//
+			// There is no fallback. The previous offline branch invented a
+			// summary, two Nacha citations, two proposed actions, a confidence
+			// of 0.94 and a fixed token/cost block whenever this call failed.
+			// Because AI_TIER_URL is not honoured and the address below is
+			// hardcoded, that fabrication was the default behaviour in
+			// containers rather than an edge case. A missing dependency now
+			// produces UNAVAILABLE.
 			aiReq := TriageRequest{
 				FileID:   incID,
 				Findings: findingsList,
-				RawData:  "NACHA Batch Records with Hash Out of Balance",
 			}
 			aiReqBytes, _ := json.Marshal(aiReq)
 
 			pythonURL := "http://127.0.0.1:8000/analyze"
 			resp, err := http.Post(pythonURL, "application/json", bytes.NewReader(aiReqBytes))
-			var aiRes AnalystResponse
-			if err == nil && resp.StatusCode == http.StatusOK {
-				_ = json.NewDecoder(resp.Body).Decode(&aiRes)
-				resp.Body.Close()
-			} else {
-				// Fallback offline deterministic model
-				aiRes = AnalystResponse{
-					Summary: fmt.Sprintf("Automated Eliza 2.0 triage on Incident #%d identified 10-digit Entry Hash mismatch and out-of-balance control records.", incID),
-					Citations: []string{
-						"Nacha Operating Rules 2025, Article Two, Subsection 2.2.1: Entry Hash Verification",
-						"Runbook RB-ACH-01: Hash Mismatch Counterparty Escalation",
-					},
-					ProposedActions: []ActionProposal{
-						{Type: "REQUEST_PARTNER_RESEND", Description: "Draft formal notice to partner operations demanding re-transmission with corrected trailer controls."},
-						{Type: "SUPERVISOR_SIGN_OFF", Description: "Require dual-control authorization before applying any exceptional settlement waiver."},
-					},
-					Confidence:   0.94,
-					AgentVersion: "Eliza 2.0 RRR Standard",
+			if err != nil || resp.StatusCode != http.StatusOK {
+				if resp != nil {
+					resp.Body.Close()
 				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status":     "UNAVAILABLE",
+					"detail":     "AI analysis tier is not reachable. No analysis was produced.",
+					"incidentId": incID,
+				})
+				return
 			}
 
-			aiRes.AgentVersion = "Eliza 2.0 RRR Agentic AI"
-			aiRes.Metrics = map[string]interface{}{
-				"durationMs":       128,
-				"inputTokens":      420,
-				"outputTokens":     195,
-				"estimatedCostUsd": 0.00042,
+			var aiRes AnalystResponse
+			decodeErr := json.NewDecoder(resp.Body).Decode(&aiRes)
+			resp.Body.Close()
+			if decodeErr != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status":     "INVALID_RESPONSE",
+					"detail":     "AI analysis tier returned a response that could not be decoded.",
+					"incidentId": incID,
+				})
+				return
 			}
 
 			// Record AI run in audit ledger
-			_, _ = AppendAuditEvent(db, "AI_ANALYSIS_EXECUTED", "ELIZA_2_0_COPILOT", map[string]interface{}{
+			_, _ = AppendAuditEvent(db, "AI_ANALYSIS_EXECUTED", "AI_ANALYSIS_TIER", map[string]interface{}{
 				"incidentId":   incID,
 				"confidence":   aiRes.Confidence,
 				"citations":    aiRes.Citations,
@@ -536,41 +536,29 @@ func main() {
 			json.NewEncoder(w).Encode(result)
 		})
 
-		// GET Benchmark Run
-		r.Get("/benchmark/run", func(w http.ResponseWriter, r *http.Request) {
-			recStr := r.URL.Query().Get("records")
-			recCount := 25000
-			if recStr != "" {
-				if n, err := strconv.Atoi(recStr); err == nil && n > 0 {
-					recCount = n
-				}
-			}
-			metrics := RunStreamingBenchmark(recCount)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(metrics)
-		})
-
-		// GET AI Adversarial Evals
+		// GET AI Adversarial Evals.
+		//
+		// There is no fallback. The previous one returned passRatePct 100.0
+		// with 5/5 passed whenever the evaluator was unreachable, which is a
+		// fabricated assurance result. An evaluation that cannot run reports
+		// that it did not run.
 		r.Get("/evals/run", func(w http.ResponseWriter, r *http.Request) {
 			resp, err := http.Get("http://127.0.0.1:8000/evals/run")
-			if err == nil && resp.StatusCode == http.StatusOK {
+			if err != nil || resp.StatusCode != http.StatusOK {
+				if resp != nil {
+					resp.Body.Close()
+				}
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.Copy(w, resp.Body)
-				resp.Body.Close()
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "NOT_RUN",
+					"detail": "Adversarial evaluation tier is not reachable. No pass rate was produced.",
+				})
 				return
 			}
-
-			// Fallback if Python tier not reachable
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{
-				"suite": "Eliza 2.0 Adversarial Prompt Injection & Guardrail Eval",
-				"totalTests": 5,
-				"passedTests": 5,
-				"passRatePct": 100.0,
-				"unauthorizedExecutions": 0,
-				"averageLatencyMs": 14.2,
-				"evaluatedAtUtc": "` + time.Now().UTC().Format(time.RFC3339) + `"
-			}`))
+			_, _ = io.Copy(w, resp.Body)
+			resp.Body.Close()
 		})
 
 		// GET SEC 17a-4 / SOX 404 Compliance Export
@@ -621,242 +609,7 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(res)
 		})
-
-		// GET /api/v1/webhooks
-		r.Get("/webhooks", func(w http.ResponseWriter, r *http.Request) {
-			rows, err := db.Query("SELECT id, url, secret, events, status, created_at FROM webhook_subscriptions ORDER BY id DESC")
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer rows.Close()
-
-			var webhooks []WebhookSubscription
-			for rows.Next() {
-				var wh WebhookSubscription
-				var eventsJson, createdAtStr string
-				if err := rows.Scan(&wh.ID, &wh.URL, &wh.Secret, &eventsJson, &wh.Status, &createdAtStr); err == nil {
-					_ = json.Unmarshal([]byte(eventsJson), &wh.Events)
-					wh.CreatedAt, _ = time.Parse(time.RFC3339, createdAtStr)
-					webhooks = append(webhooks, wh)
-				}
-			}
-			if webhooks == nil {
-				webhooks = []WebhookSubscription{}
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(webhooks)
-		})
-
-		// POST /api/v1/webhooks
-		r.Post("/webhooks", func(w http.ResponseWriter, r *http.Request) {
-			var body struct {
-				URL    string   `json:"url"`
-				Secret string   `json:"secret"`
-				Events []string `json:"events"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
-				http.Error(w, "invalid webhook payload", http.StatusBadRequest)
-				return
-			}
-			if body.Secret == "" {
-				body.Secret = "whsec_" + fmt.Sprintf("%x", time.Now().UnixNano())
-			}
-			if len(body.Events) == 0 {
-				body.Events = []string{"ALL"}
-			}
-			eventsJson, _ := json.Marshal(body.Events)
-			res, err := db.Exec("INSERT INTO webhook_subscriptions (url, secret, events, status) VALUES (?, ?, ?, 'ACTIVE')", body.URL, body.Secret, string(eventsJson))
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			id, _ := res.LastInsertId()
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":     id,
-				"url":    body.URL,
-				"secret": body.Secret,
-				"status": "ACTIVE",
-			})
-		})
-
-		// POST /api/v1/webhooks/test
-		r.Post("/webhooks/test", func(w http.ResponseWriter, r *http.Request) {
-			var body struct {
-				URL    string `json:"url"`
-				Secret string `json:"secret"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body.URL == "" {
-				http.Error(w, "missing URL", http.StatusBadRequest)
-				return
-			}
-			if body.Secret == "" {
-				body.Secret = "whsec_test_secret"
-			}
-			event := WebhookDeliveryEvent{
-				EventID:       fmt.Sprintf("EVT-TEST-%d", time.Now().Unix()),
-				EventType:     "GATEWAY_PING_TEST",
-				TimestampUtc:  time.Now().UTC().Format(time.RFC3339),
-				TenantID:      "TENANT-DEFAULT",
-				PayloadDigest: "0000000000000000000000000000000000000000000000000000000000000000",
-				Data: map[string]interface{}{
-					"message": "Sentinel Flow Webhook Ping Confirmation",
-					"gateway": "Sentinel Flow v1.0.0",
-				},
-			}
-			logRes, err := DispatchWebhookEvent(body.URL, body.Secret, event)
-			if err != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadGateway)
-				json.NewEncoder(w).Encode(logRes)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(logRes)
-		})
-
-		// POST /api/v1/sql/query (Read-only query runner)
-		r.Post("/sql/query", func(w http.ResponseWriter, r *http.Request) {
-			var body struct {
-				Query string `json:"query"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" {
-				http.Error(w, "missing query in request body", http.StatusBadRequest)
-				return
-			}
-
-			trimmedQuery := strings.TrimSpace(strings.ToUpper(body.Query))
-			if !strings.HasPrefix(trimmedQuery, "SELECT") && !strings.HasPrefix(trimmedQuery, "EXPLAIN") && !strings.HasPrefix(trimmedQuery, "PRAGMA") {
-				http.Error(w, "permission denied: only read-only SELECT/EXPLAIN queries are permitted in audit console", http.StatusForbidden)
-				return
-			}
-
-			// Block mutation keywords
-			forbidden := []string{"DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE",
-				"REPLACE", "ATTACH", "DETACH", "VACUUM", "REINDEX", "LOAD_EXTENSION", "WRITABLE_SCHEMA"}
-			for _, word := range forbidden {
-				pattern := `\b` + word + `\b`
-				if matched, _ := regexp.MatchString(pattern, trimmedQuery); matched {
-					http.Error(w, fmt.Sprintf("permission denied: mutating keyword '%s' is prohibited", word), http.StatusForbidden)
-					return
-				}
-			}
-
-			// Hard timeout: an unbounded cross join is a trivial DoS otherwise.
-			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-			defer cancel()
-
-			startTime := time.Now()
-			rows, err := roDB.QueryContext(ctx, body.Query)
-			if err != nil {
-				http.Error(w, fmt.Sprintf("SQL error: %v", err), http.StatusBadRequest)
-				return
-			}
-			defer rows.Close()
-
-			cols, err := rows.Columns()
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			var results [][]interface{}
-			for rows.Next() {
-				colValues := make([]interface{}, len(cols))
-				colPointers := make([]interface{}, len(cols))
-				for i := range colValues {
-					colPointers[i] = &colValues[i]
-				}
-
-				if err := rows.Scan(colPointers...); err == nil {
-					for i, val := range colValues {
-						if b, ok := val.([]byte); ok {
-							colValues[i] = string(b)
-						}
-					}
-					results = append(results, colValues)
-				}
-			}
-			if results == nil {
-				results = [][]interface{}{}
-			}
-
-			durationMs := float64(time.Since(startTime).Microseconds()) / 1000.0
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"columns":    cols,
-				"rows":       results,
-				"rowCount":   len(results),
-				"durationMs": durationMs,
-			})
-		})
-
-		// GET /api/v1/analytics/anomalies
-		r.Get("/analytics/anomalies", func(w http.ResponseWriter, r *http.Request) {
-			finding := EvaluateVolumeAnomaly(15200, 1428800, DefaultBaseline)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"baseline":          DefaultBaseline,
-				"currentEvaluation": finding,
-			})
-		})
-
-		// POST Chaos Trigger
-		r.Post("/chaos/trigger", func(w http.ResponseWriter, r *http.Request) {
-			var body struct {
-				Scenario string `json:"scenario"` // MISSING_FILE, WORKER_CRASH, RESET
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-
-			switch body.Scenario {
-			case "MISSING_FILE":
-				// Mark expectation as OVERDUE and create incident
-				_, _ = db.Exec("UPDATE expectations SET status = 'OVERDUE' WHERE id = 1")
-				now := time.Now().UTC().Format(time.RFC3339)
-				res, _ := db.Exec(`
-					INSERT INTO incidents (expectation_id, type, severity, status, created_at, updated_at)
-					VALUES (1, 'MISSING_FILE_DEADLINE', 'CRITICAL', 'OPEN', ?, ?)
-				`, now, now)
-				incID, _ := res.LastInsertId()
-
-				_, _ = AppendAuditEvent(db, "SLA_BREACH_DETECTED", "DEADLINE_SCHEDULER_DAEMON", map[string]interface{}{
-					"incidentId":  incID,
-					"partner":     "Central Clearing Network",
-					"cutoffTime":  "16:45:00 UTC",
-					"explanation": "Expected delivery window expired +15m grace window without file arrival.",
-				})
-
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(fmt.Sprintf(`{"status": "TRIGGERED", "scenario": "MISSING_FILE", "incidentId": %d}`, incID)))
-				return
-
-			case "WORKER_CRASH":
-				_, _ = AppendAuditEvent(db, "WORKER_CRASH_RECOVERY", "WATCHDOG_DAEMON", map[string]interface{}{
-					"signal":          "SIGKILL",
-					"reacquiredLease": true,
-					"recoveryLatencyMs": 4.8,
-				})
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{"status": "TRIGGERED", "scenario": "WORKER_CRASH"}`))
-				return
-
-			default:
-				http.Error(w, "Unknown chaos scenario", http.StatusBadRequest)
-			}
-		})
 	})
 
-	// 3. Start Server
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	fmt.Printf("Sentinel Gateway starting on port %s...\n", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatalf("Server failed to start: %v\n", err)
-	}
+	return r
 }
