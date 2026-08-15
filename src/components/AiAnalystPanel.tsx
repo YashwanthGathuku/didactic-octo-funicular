@@ -259,7 +259,7 @@ export const AiAnalystPanel: React.FC<AiAnalystPanelProps> = ({
           <div>
             <input 
               type="text"
-              placeholder="Enter compliance justification reason (SOX 404 requirement)..."
+              placeholder="Enter a justification for this decision (required, recorded in the audit ledger)..."
               value={approvalReason}
               onChange={(e) => setApprovalReason(e.target.value)}
               style={{

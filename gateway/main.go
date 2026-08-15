@@ -561,7 +561,7 @@ func NewRouter(db *sql.DB, apiToken string) chi.Router {
 			resp.Body.Close()
 		})
 
-		// GET SEC 17a-4 / SOX 404 Compliance Export
+		// GET evidence export of the application hash chain (carries no regulatory claim)
 		r.Get("/compliance/export", func(w http.ResponseWriter, r *http.Request) {
 			pkg, err := GenerateCompliancePackage(db)
 			if err != nil {

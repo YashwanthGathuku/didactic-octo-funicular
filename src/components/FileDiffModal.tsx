@@ -199,8 +199,7 @@ export const FileDiffModal: React.FC<FileDiffModalProps> = ({
                 <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                   Visual File Redliner & Fixed-Width Matrix Inspector
                 </h3>
-                <span className="badge badge-cyan" style={{ fontSize: '0.65rem' }}>SIMD-94 Byte Alignment</span>
-              </div>
+                              </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 Inspect byte offsets, rule boundaries, and side-by-side golden baseline diffs
               </p>

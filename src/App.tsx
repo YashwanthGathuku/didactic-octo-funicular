@@ -143,11 +143,9 @@ export const App: React.FC = () => {
           ruleReference: f.ruleReference,
           rawSampleRedacted: f.rawData
         })),
-        resourceMetrics: {
-          streamDurationMs: 4.2,
-          peakMemoryMb: 1.8,
-          bytesPerSecond: 28500000
-        }
+        // resourceMetrics deliberately omitted: the gateway does not measure or
+        // report them. This previously attached a fixed 4.2ms / 1.8MB / 28.5MB/s
+        // to every ingested file regardless of the file.
       }
     };
 

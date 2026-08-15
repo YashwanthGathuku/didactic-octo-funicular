@@ -130,7 +130,10 @@ export interface ValidationResult {
   expectedEntryHash?: string;
   isBalanced: boolean;
   findings: ValidationFinding[];
-  resourceMetrics: {
+  // Optional: the gateway does not report resource metrics, and the UI must not
+  // invent them. Populated only by a measurement source that actually measured.
+  // A reproducible benchmark harness is Prompt 13.
+  resourceMetrics?: {
     streamDurationMs: number;
     peakMemoryMb: number;
     bytesPerSecond: number;

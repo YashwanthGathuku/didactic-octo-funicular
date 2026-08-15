@@ -104,10 +104,10 @@ export const AuditLedgerModal: React.FC<AuditLedgerModalProps> = ({
             </div>
             <div>
               <h2 style={{ fontSize: '1.0625rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                Cryptographic Append-Only Audit Ledger
+                Append-Only Audit Ledger
               </h2>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                SEC Rule 17a-4 / SOX 404 Tamper-Evident SHA-256 Hash Chain
+                Application hash chain — linear SHA-256 predecessor links, verified by recomputation
               </p>
             </div>
           </div>
@@ -119,7 +119,7 @@ export const AuditLedgerModal: React.FC<AuditLedgerModalProps> = ({
               style={{ fontSize: '0.8125rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--accent-emerald)', borderColor: 'var(--accent-emerald)', color: '#000', fontWeight: 700 }}
             >
               <Download size={14} />
-              <span>Download SEC 17a-4 Package</span>
+              <span>Download Evidence Export</span>
             </button>
             <button 
               className="btn btn-secondary"
@@ -169,7 +169,7 @@ export const AuditLedgerModal: React.FC<AuditLedgerModalProps> = ({
             )}
           </div>
           <span className="font-mono" style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-            Algorithm: SHA-256 / Merkle Linked
+            Algorithm: SHA-256 linear hash chain (not a Merkle tree)
           </span>
         </div>
 
