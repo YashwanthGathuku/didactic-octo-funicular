@@ -5,6 +5,7 @@ go 1.25.8
 require (
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/go-chi/chi/v5 v5.3.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/moov-io/ach v1.63.3
 	modernc.org/sqlite v1.56.0
 )
@@ -12,7 +13,6 @@ require (
 require (
 	github.com/cloudflare/circl v1.6.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/igrmk/treemap/v2 v2.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

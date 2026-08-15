@@ -20,10 +20,13 @@ func testRouter(t *testing.T) http.Handler {
 	t.Cleanup(func() { db.Close() })
 	// Empty APIToken: these tests assert routing, not authorization. The
 	// authentication gap is tracked for Prompt 04.
+	// Demo profile: a named demo principal, so these routing tests exercise the
+	// route table rather than the identity layer. Authentication itself is
+	// covered by internal/auth and by TestProductionRouterFailsClosed below.
 	return NewRouter(db, &Config{
 		Profile:       ProfileLocalDemo,
 		AllowedOrigin: "http://localhost:3000",
-	})
+	}, nil)
 }
 
 func TestRemovedRoutesReturn404(t *testing.T) {

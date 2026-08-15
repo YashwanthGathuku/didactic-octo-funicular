@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -127,7 +126,29 @@ func main() {
 	// 4. Background inbox watcher
 	StartInboxWatcher(db, cfg.InboxPath)
 
-	r := NewRouter(db, cfg)
+	// Build the token verifier. In production a failure here is fatal: a
+	// gateway that cannot verify identity must not serve traffic.
+	var verifier *auth.Verifier
+	if !cfg.IsDemo() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		keys, err := auth.FetchJWKS(ctx, cfg.OIDCJWKSURL)
+		cancel()
+		if err != nil {
+			log.Fatalf("Cannot fetch identity provider keys from %s: %v", cfg.OIDCJWKSURL, err)
+		}
+		verifier, err = auth.NewVerifier(auth.VerifierConfig{
+			Issuer:   cfg.OIDCIssuer,
+			Audience: cfg.OIDCAudience,
+			Keys:     keys,
+		})
+		if err != nil {
+			log.Fatalf("Cannot build token verifier: %v", err)
+		}
+		log.Printf("Authentication enabled: issuer=%s audience=%s keys=%d",
+			cfg.OIDCIssuer, cfg.OIDCAudience, len(keys))
+	}
+
+	r := NewRouter(db, cfg, verifier)
 
 	log.Printf("Sentinel Gateway listening on %s", cfg.Addr())
 	if err := http.ListenAndServe(cfg.Addr(), r); err != nil {
@@ -140,8 +161,7 @@ func main() {
 // Extracted from main() so the route table is addressable by tests: Prompt 01
 // requires proving that deleted routes return 404 rather than merely that their
 // handlers no longer compile.
-func NewRouter(db *sql.DB, cfg *Config) chi.Router {
-	apiToken := cfg.APIToken
+func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -167,30 +187,27 @@ func NewRouter(db *sql.DB, cfg *Config) chi.Router {
 	// -------------------------------------------------------------------
 	// Authentication.
 	//
-	// KNOWN GAP, tracked for Prompt 04: this is a shared-secret floor, not an
-	// identity system, and it does NOT fail closed -- when SENTINEL_API_TOKEN is
-	// unset every route below is public and only a log line marks it. Actor
-	// identity is still taken from request fields rather than verified claims.
+	// Fails closed in every direction. The previous middleware treated an unset
+	// SENTINEL_API_TOKEN as "authentication disabled" and served every route
+	// publicly with a log line as the only trace. That branch is gone.
 	//
-	// Prompt 04 replaces this with OIDC, refuses to start unauthenticated
-	// outside a named local demo profile, and enforces tenant scope in the
-	// repository layer. Deliberately not changed here: Prompt 01 is a scope
-	// reduction, and a security-boundary rewrite does not belong in the same
-	// change as a large deletion.
+	// The local-demo profile is the single exception, and it is explicit: a
+	// named demo principal with clearly demo roles, only reachable on loopback,
+	// announced at startup and labelled on every screen.
 	// -------------------------------------------------------------------
-	requireAuth := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if apiToken == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if subtle.ConstantTimeCompare([]byte(got), []byte(apiToken)) != 1 {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
+	authMW := &auth.Middleware{Verifier: verifier}
+	if cfg.IsDemo() {
+		authMW.DemoPrincipal = &auth.Principal{
+			Subject:  "demo-operator@local",
+			Issuer:   "local-demo-profile",
+			Audience: "local-demo",
+			Memberships: []auth.Membership{{
+				TenantID: DefaultTenantID,
+				Roles: []auth.Role{
+					auth.RoleViewer, auth.RoleOperator, auth.RoleReviewer, auth.RoleTenantAdmin,
+				},
+			}},
+		}
 	}
 
 	// Prometheus Metrics Endpoint
@@ -198,7 +215,10 @@ func NewRouter(db *sql.DB, cfg *Config) chi.Router {
 
 	// API Version 1
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(requireAuth)
+		r.Use(authMW.Authenticate)
+		// CSRF applies only to cookie-authenticated mutations; a request bearing
+		// an Authorization header is not forgeable cross-origin by a browser.
+		r.Use(auth.RequireCSRFToken("sentinel_session", "X-CSRF-Token"))
 		RegisterStreamRoutes(r)
 
 		// Liveness: is this process running? It checks nothing else, and must
