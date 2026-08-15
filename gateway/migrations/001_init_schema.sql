@@ -1,11 +1,22 @@
-CREATE TABLE partners (
+-- 001_init_schema.sql -- baseline schema.
+--
+-- DDL only. Seed data was previously appended to this file, which meant every
+-- deployment created three demo partners and two demo contracts, and re-running
+-- the file duplicated them. Demo data now lives in a separate seed that only the
+-- local-demo profile may apply (`sentinel-gateway migrate seed-demo`).
+--
+-- IF NOT EXISTS makes this safe to apply to a database created by the previous
+-- opportunistic startup migration, which produced these tables without any
+-- schema_migrations record.
+
+CREATE TABLE IF NOT EXISTS partners (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(255) NOT NULL,
     routing_number VARCHAR(9) UNIQUE NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE file_contracts (
+CREATE TABLE IF NOT EXISTS file_contracts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     partner_id INTEGER,
     name VARCHAR(255) NOT NULL,
@@ -18,7 +29,7 @@ CREATE TABLE file_contracts (
     FOREIGN KEY(partner_id) REFERENCES partners(id)
 );
 
-CREATE TABLE expectations (
+CREATE TABLE IF NOT EXISTS expectations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     contract_id INTEGER,
     expected_delivery_start DATETIME NOT NULL,
@@ -29,7 +40,7 @@ CREATE TABLE expectations (
     FOREIGN KEY(contract_id) REFERENCES file_contracts(id)
 );
 
-CREATE TABLE file_instances (
+CREATE TABLE IF NOT EXISTS file_instances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     expectation_id INTEGER,
     filename VARCHAR(255) NOT NULL,
@@ -41,7 +52,7 @@ CREATE TABLE file_instances (
     FOREIGN KEY(expectation_id) REFERENCES expectations(id)
 );
 
-CREATE TABLE incidents (
+CREATE TABLE IF NOT EXISTS incidents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     expectation_id INTEGER,
     file_instance_id INTEGER,
@@ -54,7 +65,7 @@ CREATE TABLE incidents (
     FOREIGN KEY(file_instance_id) REFERENCES file_instances(id)
 );
 
-CREATE TABLE validation_findings (
+CREATE TABLE IF NOT EXISTS validation_findings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_instance_id INTEGER,
     code VARCHAR(100) NOT NULL,
@@ -66,7 +77,7 @@ CREATE TABLE validation_findings (
     FOREIGN KEY(file_instance_id) REFERENCES file_instances(id)
 );
 
-CREATE TABLE audit_events (
+CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type VARCHAR(100) NOT NULL,
     actor VARCHAR(100) NOT NULL,
@@ -75,17 +86,3 @@ CREATE TABLE audit_events (
     current_hash VARCHAR(64) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-
--- Seed Initial Data
-INSERT INTO partners (name, routing_number) VALUES 
-('Meridian Custody Bank', '021000018'),
-('Atlantic Trust', '011000028'),
-('Central Clearing Network', '000000000');
-
-INSERT INTO file_contracts (partner_id, name, direction, filename_pattern, expected_time, grace_period_minutes, timezone) VALUES
-(1, 'Meridian End of Day NAV', 'INBOUND', '^MERIDIAN_NAV_.*\.csv$', '18:00:00', 30, 'America/New_York'),
-(3, 'Central Clearing PM Delivery', 'INBOUND', '^CLEARING_PM_.*\.ach$', '16:45:00', 15, 'America/New_York');
-
--- Seed initial expectation for clearing network
-INSERT INTO expectations (contract_id, expected_delivery_start, expected_delivery_end, status) VALUES
-(2, datetime('now', 'start of day', '+16 hours', '+30 minutes'), datetime('now', 'start of day', '+17 hours'), 'PENDING');

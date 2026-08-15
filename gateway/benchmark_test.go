@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	_ "modernc.org/sqlite"
-	"os"
 	"testing"
 )
 
@@ -45,12 +44,7 @@ func TestNachaCorruptedEntryHashDetection(t *testing.T) {
 	}
 	defer db.Close()
 
-	migrationSQL, err := os.ReadFile("./migrations/01_init.sql")
-	if err != nil {
-		t.Fatalf("Failed to read migration SQL: %v", err)
-	}
-	_, err = db.Exec(string(migrationSQL))
-	if err != nil {
+	if _, err := Migrate(db); err != nil {
 		t.Fatalf("Failed to initialize test schema: %v", err)
 	}
 
@@ -84,8 +78,9 @@ func TestHashChainTamperDetection(t *testing.T) {
 	}
 	defer db.Close()
 
-	migrationSQL, _ := os.ReadFile("./migrations/01_init.sql")
-	_, _ = db.Exec(string(migrationSQL))
+	if _, err := Migrate(db); err != nil {
+		t.Fatalf("Failed to initialize test schema: %v", err)
+	}
 
 	// Append 3 legitimate events
 	_, _ = AppendAuditEvent(db, "EVENT_1", "ACTOR_A", map[string]interface{}{"val": 1})

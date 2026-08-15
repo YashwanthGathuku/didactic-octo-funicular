@@ -18,9 +18,12 @@ func testRouter(t *testing.T) http.Handler {
 	t.Helper()
 	db := setupTestDb(t)
 	t.Cleanup(func() { db.Close() })
-	// Empty apiToken: these tests assert routing, not authorization. The
+	// Empty APIToken: these tests assert routing, not authorization. The
 	// authentication gap is tracked for Prompt 04.
-	return NewRouter(db, "")
+	return NewRouter(db, &Config{
+		Profile:       ProfileLocalDemo,
+		AllowedOrigin: "http://localhost:3000",
+	})
 }
 
 func TestRemovedRoutesReturn404(t *testing.T) {
@@ -155,13 +158,17 @@ func TestAiTierUnavailableIsNotSuccess(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
+	body := rec.Body.String()
 	if rec.Code == http.StatusOK {
-		t.Errorf("evals route returned 200 with no evaluator running; body=%s", rec.Body.String())
+		t.Errorf("evals route returned 200 with no evaluator running; body=%s", body)
 	}
-	if strings.Contains(rec.Body.String(), "passRatePct") {
-		t.Errorf("evals route emitted a pass rate with no evaluator running")
+	if strings.Contains(body, "passRatePct") || strings.Contains(body, "passedTests") {
+		t.Errorf("evals route emitted a pass rate with no evaluator running: %s", body)
 	}
-	if !strings.Contains(rec.Body.String(), "NOT_RUN") {
-		t.Errorf("expected NOT_RUN status, got %s", rec.Body.String())
+	// Either honest status is acceptable. NOT_CONFIGURED means no AI tier
+	// address was supplied; NOT_RUN means one was supplied but unreachable.
+	// What must never appear is a score.
+	if !strings.Contains(body, "NOT_RUN") && !strings.Contains(body, "NOT_CONFIGURED") {
+		t.Errorf("expected NOT_RUN or NOT_CONFIGURED, got %s", body)
 	}
 }

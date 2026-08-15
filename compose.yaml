@@ -1,0 +1,135 @@
+# The single authoritative local stack.
+#
+# There were previously two compose files and neither described a runnable
+# system: the root file started the app with no database, while
+# gateway/docker-compose.yml started PostgreSQL and MinIO that nothing connected
+# to. gateway/docker-compose.yml has been deleted.
+#
+#   docker compose up --build     # or: podman-compose up --build
+#
+# Every service is configured through environment variables that the gateway
+# actually reads (see gateway/config.go). Service names are used for addressing,
+# so containers reach each other without hardcoded localhost addresses.
+#
+# NOTE ON SCOPE: the gateway still uses SQLite on a mounted volume. PostgreSQL
+# and MinIO are declared here and wired through configuration and readiness, but
+# the repository layer is not yet ported to them -- that lands with the domain
+# model. This file does not pretend otherwise; see docs/engineering/SCOPE.md.
+
+name: sentinel-flow
+
+services:
+  gateway:
+    container_name: sentinel-gateway
+    build:
+      context: .
+      dockerfile: Containerfile.gateway
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SENTINEL_PROFILE: local-demo
+      # Bind all interfaces *inside* the container; the port publish above is
+      # what restricts exposure to loopback on the host.
+      SENTINEL_BIND_ADDRESS: 127.0.0.1
+      PORT: "8080"
+      # State lives on the mounted volume. This previously defaulted to
+      # ./sentinel.db, which resolved outside the mount, so all state was lost
+      # whenever the container was replaced.
+      DATABASE_URL: /app/data/sentinel.db
+      SENTINEL_INBOX_PATH: /app/inbox
+      # Addressed by service name, and actually read by the gateway.
+      AI_TIER_URL: http://ai-tier:8000
+      OBJECT_STORE_URL: http://minio:9000
+      SENTINEL_ALLOWED_ORIGIN: http://localhost:3000
+    volumes:
+      - ./gateway/inbox:/app/inbox:Z
+      - sentinel-data:/app/data:Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [sentinel-net]
+
+  ai-tier:
+    container_name: sentinel-ai-tier
+    build:
+      context: .
+      dockerfile: Containerfile.ai
+    # Not published to the host: the gateway reaches it over the internal
+    # network, and it has no authentication of its own.
+    expose:
+      - "8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      # OPENAI_API_KEY intentionally unset. Absent, the tier reports UNAVAILABLE
+      # rather than generating an answer.
+    restart: unless-stopped
+    networks: [sentinel-net]
+
+  ui:
+    container_name: sentinel-ui
+    build:
+      context: .
+      dockerfile: Containerfile.ui
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on: [gateway]
+    restart: unless-stopped
+    networks: [sentinel-net]
+
+  postgres:
+    container_name: sentinel-postgres
+    image: docker.io/library/postgres:16.6-alpine
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_DB: sentinel
+      # No default password. Supply POSTGRES_PASSWORD in a local .env; compose
+      # fails loudly if it is unset. The previous file shipped the literal
+      # "password".
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env - no default is provided}
+    expose:
+      - "5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel -d sentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [sentinel-net]
+
+  minio:
+    container_name: sentinel-minio
+    image: docker.io/minio/minio:RELEASE.2024-10-13T13-34-11Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env - no default is provided}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env - no default is provided}
+    expose:
+      - "9000"
+      - "9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [sentinel-net]
+
+networks:
+  sentinel-net:
+    driver: bridge
+
+volumes:
+  sentinel-data:
+  pgdata:
+  miniodata:

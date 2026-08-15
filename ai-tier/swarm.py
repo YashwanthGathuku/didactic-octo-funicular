@@ -5,7 +5,7 @@ using the ReAct (Reasoning + Action) multi-agent consensus pattern.
 """
 
 import time
-from typing import List, Dict, Any
+from typing import List
 from pydantic import BaseModel
 
 class AgentMessageModel(BaseModel):

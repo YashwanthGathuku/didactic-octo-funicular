@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 SYSTEM_PROMPT = """You are the Astra 2.0 Financial Exception Analyst for Sentinel Flow (Institutional Custody Gateway).
 Your primary role is to investigate pre-ledger file validation failures (NACHA ACH, ISO 20022 XML, BAI2).

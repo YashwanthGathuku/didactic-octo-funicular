@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"math"
-	"os"
 	"testing"
 )
 
@@ -13,8 +12,11 @@ func newLedgerDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	m, _ := os.ReadFile("./migrations/01_init.sql")
-	if _, err := db.Exec(string(m)); err != nil {
+	// Use the embedded migrator rather than reading a path. Reading
+	// ./migrations/01_init.sql discarded the read error, so a rename or a
+	// different working directory produced an empty schema and a panic several
+	// lines later instead of a migration failure here.
+	if _, err := Migrate(db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db

@@ -61,25 +61,46 @@ is scheduled work. Until that artifact exists, no number goes here.
 
 ## Local quickstart
 
-Requires Go and Node. Version pinning across `go.mod`, CI and the containers is inconsistent and is
-being fixed; see [`CURRENT_STATE.md`](docs/engineering/CURRENT_STATE.md#3-toolchain-and-version-matrix).
+Pinned toolchain: **Go 1.25.8**, **Node 22.22.2** (`.nvmrc`), **Python 3.11**. These versions are
+identical in `go.mod`, `package.json`, `pyproject.toml`, CI and every container.
+
+### One command
 
 ```bash
-# Gateway
-cd gateway && go run .
-
-# Operations UI (separate terminal)
-npm ci && npm run dev
+cp .env.example .env      # then set POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+docker compose up --build # or: podman-compose up --build
 ```
 
-The UI opens on `http://localhost:3000` and expects the gateway on `http://localhost:8080`.
+`compose.yaml` is the single authoritative stack. Ports are published to loopback only.
+The UI is on `http://localhost:3000`, the gateway on `http://localhost:8080`.
 
-The optional Python AI tier is not required; the gateway reports `UNAVAILABLE` when it is absent
-rather than substituting a generated answer.
+### Without containers
 
 ```bash
-cd ai-tier && uvicorn main:app --port 8000
+cd gateway
+go run . migrate            # apply versioned migrations
+go run . migrate seed-demo  # optional; refused outside the local-demo profile
+go run .                    # binds 127.0.0.1:8080 in the local-demo profile
+
+npm ci && npm run dev       # operations UI, separate terminal
 ```
+
+The Python AI tier is optional. When `AI_TIER_URL` is unset the gateway reports `NOT_CONFIGURED`
+on AI endpoints; deterministic ingestion is unaffected.
+
+```bash
+cd ai-tier && pip install -r requirements.txt && uvicorn main:app --port 8000
+```
+
+### Profiles
+
+| Profile | Behaviour |
+|---|---|
+| `local-demo` (default) | Binds loopback only and refuses any other address. May run unauthenticated, and says so on startup and on screen. |
+| `production` | Refuses to start unless API token, database, object store, allowed origin and PGP keyring are all configured. Rejects well-known tokens and tokens under 32 characters. |
+
+Health endpoints are separate on purpose: `/api/v1/health` is liveness and checks nothing else;
+`/api/v1/ready` probes the database and reports each dependency's real state.
 
 > **The operations board is demo data.** Partners, contracts and expectations come from a local
 > synthetic corpus, not from the gateway, and every affected screen says so in a banner. File

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
@@ -79,55 +80,56 @@ type AnalystResponse struct {
 }
 
 func main() {
-	// 1. Initialize Database Connection
-	dbPath := os.Getenv("DATABASE_URL")
-	if dbPath == "" {
-		dbPath = "./sentinel.db"
+	// Subcommands run and exit without starting the server.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		runMigrateCommand(os.Args[2:])
+		return
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// 1. Configuration. Validated before anything is opened, so a misconfigured
+	// process refuses to start instead of failing at first use.
+	cfg, err := Load()
 	if err != nil {
-		log.Fatalf("Unable to open database: %v\n", err)
+		log.Fatalf("%v", err)
+	}
+
+	if cfg.IsDemo() {
+		log.Printf("PROFILE=local-demo. Binding %s (loopback only).", cfg.Addr())
+		if cfg.APIToken == "" {
+			log.Println("PROFILE=local-demo: API authentication is DISABLED. This profile is for a developer machine only.")
+		}
+	} else {
+		log.Printf("PROFILE=%s. Binding %s.", cfg.Profile, cfg.Addr())
+	}
+
+	// 2. Database
+	db, err := sql.Open("sqlite", cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("Unable to open database %q: %v", cfg.DatabaseURL, err)
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
+		log.Fatalf("Unable to connect to database %q: %v", cfg.DatabaseURL, err)
 	}
 
-	fmt.Println("Connected to SQLite successfully.")
-
-	// 1.5 Run Migrations
-	migrationSQL, err := os.ReadFile("./migrations/01_init.sql")
-	if err == nil {
-		_, err = db.Exec(string(migrationSQL))
-		if err != nil {
-			log.Printf("Migration notice: %v\n", err)
-		} else {
-			fmt.Println("Database schema initialized.")
-		}
+	// 3. Migrations. Versioned and recorded; see migrate.go.
+	applied, err := Migrate(db)
+	if err != nil {
+		log.Fatalf("Migration failed: %v", err)
+	}
+	if len(applied) > 0 {
+		log.Printf("Applied %d migration(s): %s", len(applied), strings.Join(applied, ", "))
 	}
 
-	// 1.6 Start Background SFTP Inbox Watcher Daemon
-	inboxPath := "./inbox"
-	StartInboxWatcher(db, inboxPath)
+	// 4. Background inbox watcher
+	StartInboxWatcher(db, cfg.InboxPath)
 
-	apiToken := os.Getenv("SENTINEL_API_TOKEN")
-	if apiToken == "" {
-		log.Println("WARNING: SENTINEL_API_TOKEN is unset - API authentication is DISABLED. Do not run this way outside a local demo.")
-	}
+	r := NewRouter(db, cfg)
 
-	r := NewRouter(db, apiToken)
-
-	// 3. Start Server
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	fmt.Printf("Sentinel Gateway starting on port %s...\n", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatalf("Server failed to start: %v\n", err)
+	log.Printf("Sentinel Gateway listening on %s", cfg.Addr())
+	if err := http.ListenAndServe(cfg.Addr(), r); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
 	}
 }
 
@@ -136,7 +138,8 @@ func main() {
 // Extracted from main() so the route table is addressable by tests: Prompt 01
 // requires proving that deleted routes return 404 rather than merely that their
 // handlers no longer compile.
-func NewRouter(db *sql.DB, apiToken string) chi.Router {
+func NewRouter(db *sql.DB, cfg *Config) chi.Router {
+	apiToken := cfg.APIToken
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -145,11 +148,8 @@ func NewRouter(db *sql.DB, apiToken string) chi.Router {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Wildcard CORS on an unauthenticated API let any origin read the
-			// database. Restrict to a configured origin.
-			allowedOrigin := os.Getenv("SENTINEL_ALLOWED_ORIGIN")
-			if allowedOrigin == "" {
-				allowedOrigin = "http://localhost:3000"
-			}
+			// database. Restrict to the configured origin.
+			allowedOrigin := cfg.AllowedOrigin
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
@@ -199,9 +199,67 @@ func NewRouter(db *sql.DB, apiToken string) chi.Router {
 		r.Use(requireAuth)
 		RegisterStreamRoutes(r)
 
+		// Liveness: is this process running? It checks nothing else, and must
+		// not, or a dependency outage would cause an orchestrator to kill a
+		// healthy process instead of routing around it.
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status": "healthy", "service": "sentinel-gateway", "engine": "Go + Moov ACH"}`))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":  "alive",
+				"service": "sentinel-gateway",
+				"profile": string(cfg.Profile),
+				"demo":    cfg.IsDemo(),
+			})
+		})
+
+		// Readiness: can this process serve critical operations right now?
+		//
+		// Every field below is derived from an actual probe. The previous
+		// /health returned the literal string "healthy" and checked nothing,
+		// so it reported healthy while the database was unreachable.
+		r.Get("/ready", func(w http.ResponseWriter, r *http.Request) {
+			checks := map[string]any{}
+			ready := true
+
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+
+			if err := db.PingContext(ctx); err != nil {
+				checks["database"] = map[string]any{"status": "UNAVAILABLE", "detail": err.Error()}
+				ready = false
+			} else {
+				var n int
+				if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations").Scan(&n); err != nil {
+					checks["database"] = map[string]any{"status": "DEGRADED", "detail": "schema not migrated"}
+					ready = false
+				} else {
+					checks["database"] = map[string]any{"status": "OK", "migrationsApplied": n}
+				}
+			}
+
+			// A dependency that is not configured is reported as such. It is
+			// not counted as ready, and it is not counted as failed either.
+			if cfg.ObjectStoreURL == "" {
+				checks["objectStore"] = map[string]any{"status": "NOT_CONFIGURED"}
+			} else {
+				checks["objectStore"] = map[string]any{"status": "CONFIGURED", "url": cfg.ObjectStoreURL}
+			}
+			if cfg.AITierURL == "" {
+				// Optional by design: deterministic ingestion never depends on AI.
+				checks["aiTier"] = map[string]any{"status": "NOT_CONFIGURED", "required": false}
+			} else {
+				checks["aiTier"] = map[string]any{"status": "CONFIGURED", "required": false, "url": cfg.AITierURL}
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			if !ready {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ready":   ready,
+				"profile": string(cfg.Profile),
+				"checks":  checks,
+			})
 		})
 
 		// GET SLA Board
@@ -458,8 +516,21 @@ func NewRouter(db *sql.DB, apiToken string) chi.Router {
 			}
 			aiReqBytes, _ := json.Marshal(aiReq)
 
-			pythonURL := "http://127.0.0.1:8000/analyze"
-			resp, err := http.Post(pythonURL, "application/json", bytes.NewReader(aiReqBytes))
+			// Honour the configured address. This was hardcoded to 127.0.0.1
+			// while AI_TIER_URL was set and ignored, so in containers the call
+			// always failed and the fabricated fallback was the default path.
+			if cfg.AITierURL == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"status":     "NOT_CONFIGURED",
+					"detail":     "No AI tier is configured (AI_TIER_URL unset). Deterministic processing is unaffected.",
+					"incidentId": incID,
+				})
+				return
+			}
+
+			resp, err := http.Post(cfg.AITierURL+"/analyze", "application/json", bytes.NewReader(aiReqBytes))
 			if err != nil || resp.StatusCode != http.StatusOK {
 				if resp != nil {
 					resp.Body.Close()
@@ -543,7 +614,17 @@ func NewRouter(db *sql.DB, apiToken string) chi.Router {
 		// fabricated assurance result. An evaluation that cannot run reports
 		// that it did not run.
 		r.Get("/evals/run", func(w http.ResponseWriter, r *http.Request) {
-			resp, err := http.Get("http://127.0.0.1:8000/evals/run")
+			if cfg.AITierURL == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"status": "NOT_CONFIGURED",
+					"detail": "No AI tier is configured (AI_TIER_URL unset). No pass rate was produced.",
+				})
+				return
+			}
+
+			resp, err := http.Get(cfg.AITierURL + "/evals/run")
 			if err != nil || resp.StatusCode != http.StatusOK {
 				if resp != nil {
 					resp.Body.Close()
