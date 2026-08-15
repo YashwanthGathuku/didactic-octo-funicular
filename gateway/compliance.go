@@ -33,8 +33,8 @@ type CompliancePackage struct {
 }
 
 // GenerateCompliancePackage compiles an evidence export of the audit chain.
-func GenerateCompliancePackage(db *sql.DB) (*CompliancePackage, error) {
-	ledger, err := GetLedger(db)
+func GenerateCompliancePackage(db *sql.DB, tenantID string) (*CompliancePackage, error) {
+	ledger, err := GetLedger(db, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get ledger: %w", err)
 	}
@@ -45,9 +45,9 @@ func GenerateCompliancePackage(db *sql.DB) (*CompliancePackage, error) {
 	}
 
 	var totalFiles, totalQuarantined, totalIncidents int
-	_ = db.QueryRow("SELECT COUNT(*) FROM file_instances").Scan(&totalFiles)
-	_ = db.QueryRow("SELECT COUNT(*) FROM file_instances WHERE status = 'QUARANTINED'").Scan(&totalQuarantined)
-	_ = db.QueryRow("SELECT COUNT(*) FROM incidents").Scan(&totalIncidents)
+	_ = db.QueryRow("SELECT COUNT(*) FROM file_instances WHERE tenant_id = ?", tenantID).Scan(&totalFiles)
+	_ = db.QueryRow("SELECT COUNT(*) FROM file_instances WHERE tenant_id = ? AND status = 'QUARANTINED'", tenantID).Scan(&totalQuarantined)
+	_ = db.QueryRow("SELECT COUNT(*) FROM incidents WHERE tenant_id = ?", tenantID).Scan(&totalIncidents)
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	pkg := &CompliancePackage{

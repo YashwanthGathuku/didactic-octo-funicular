@@ -31,7 +31,7 @@ func TestE2E_ValidNachaPipeline(t *testing.T) {
 	defer db.Close()
 
 	scenario := GenerateNachaScenario(PresetBalancedPayroll)
-	res, err := ProcessFileBytes(db, scenario.Filename, []byte(scenario.Content))
+	res, err := ProcessFileBytes(db, DefaultTenantID, scenario.Filename, []byte(scenario.Content))
 	if err != nil {
 		t.Fatalf("ProcessFileBytes failed: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestE2E_CorruptedHashQuarantine(t *testing.T) {
 	defer db.Close()
 
 	scenario := GenerateNachaScenario(PresetCorruptedEntryHash)
-	res, err := ProcessFileBytes(db, scenario.Filename, []byte(scenario.Content))
+	res, err := ProcessFileBytes(db, DefaultTenantID, scenario.Filename, []byte(scenario.Content))
 	if err != nil {
 		t.Fatalf("ProcessFileBytes failed: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestE2E_InvalidAbaRoutingQuarantine(t *testing.T) {
 	defer db.Close()
 
 	scenario := GenerateNachaScenario(PresetInvalidAbaRouting)
-	res, err := ProcessFileBytes(db, scenario.Filename, []byte(scenario.Content))
+	res, err := ProcessFileBytes(db, DefaultTenantID, scenario.Filename, []byte(scenario.Content))
 	if err != nil {
 		t.Fatalf("ProcessFileBytes failed: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestE2E_AuditChainAndEvidenceExport(t *testing.T) {
 	db := setupTestDb(t)
 	defer db.Close()
 
-	_, err := AppendAuditEvent(db, "FILE_INGESTED", "SYSTEM_PROCESSOR", map[string]interface{}{
+	_, err := AppendAuditEvent(db, DefaultTenantID, "FILE_INGESTED", "SYSTEM_PROCESSOR", map[string]interface{}{
 		"filename": "test.ach",
 		"sha256":   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 	})
@@ -138,12 +138,12 @@ func TestE2E_AuditChainAndEvidenceExport(t *testing.T) {
 		t.Fatalf("Failed to append audit event: %v", err)
 	}
 
-	ledger, err := GetLedger(db)
+	ledger, err := GetLedger(db, DefaultTenantID)
 	if err != nil || !ledger.IsChainValid {
 		t.Errorf("Expected valid application hash chain, err=%v", err)
 	}
 
-	pkg, err := GenerateCompliancePackage(db)
+	pkg, err := GenerateCompliancePackage(db, DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GenerateCompliancePackage failed: %v", err)
 	}

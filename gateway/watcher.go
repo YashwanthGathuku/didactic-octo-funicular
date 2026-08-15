@@ -52,7 +52,7 @@ func StartInboxWatcher(db *sql.DB, inboxDir string) {
 
 				log.Printf("[SFTP Watcher] Detected new SFTP file drop: %s (%d bytes). Processing...\n", name, len(content))
 
-				result, err := ProcessFileBytes(db, name, content)
+				result, err := ProcessFileBytes(db, DefaultTenantID, name, content)
 				if err != nil {
 					log.Printf("[SFTP Watcher] Ingestion error for %s: %v\n", name, err)
 					continue

@@ -84,7 +84,15 @@ func hasBlockingFinding(findings []ValidationFindingRecord) bool {
 }
 
 // ProcessFileBytes processes raw file contents, calculates SHA256, validates NACHA, and persists to DB.
-func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionResult, error) {
+// ProcessFileBytes ingests content on behalf of a specific tenant.
+//
+// The tenant is a parameter rather than a package constant: every row this
+// writes is scoped to it, so a caller cannot write into a tenant it does not
+// belong to even if a handler forgets to authorize.
+func ProcessFileBytes(db *sql.DB, tenantID string, filename string, content []byte) (*IngestionResult, error) {
+	if tenantID == "" {
+		return nil, fmt.Errorf("ingestion requires a tenant scope")
+	}
 	// Every financial input begins untrusted and unreleased.
 	result := &IngestionResult{
 		Filename:   filename,
@@ -293,7 +301,7 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 	// machine does not define, which is what makes RECEIVED -> RELEASED
 	// unrepresentable rather than merely absent.
 	artifact := &domain.Artifact{
-		TenantID: domain.TenantID(DefaultTenantID),
+		TenantID: domain.TenantID(tenantID),
 		State:    domain.ArtifactReceived,
 		SHA256:   result.Hash,
 	}
@@ -321,7 +329,7 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 	res, err := db.Exec(`
 		INSERT INTO file_instances (tenant_id, expectation_id, filename, storage_path, size_bytes, sha256_hash, status, received_at, updated_at)
 		VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
-	`, DefaultTenantID, filename, "/s3/incoming/"+filename, len(content), result.Hash, result.Status, now, now)
+	`, tenantID, filename, "/s3/incoming/"+filename, len(content), result.Hash, result.Status, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save file instance: %w", err)
 	}
@@ -335,7 +343,7 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 		fRes, _ := db.Exec(`
 			INSERT INTO validation_findings (tenant_id, file_instance_id, code, description, severity, line_number, raw_data, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, DefaultTenantID, fileID, f.Code, f.Description, f.Severity, f.LineNumber, f.RawData, now)
+		`, tenantID, fileID, f.Code, f.Description, f.Severity, f.LineNumber, f.RawData, now)
 		fID, _ := fRes.LastInsertId()
 		f.ID = fID
 	}
@@ -345,7 +353,7 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 		incRes, err := db.Exec(`
 			INSERT INTO incidents (tenant_id, expectation_id, file_instance_id, type, severity, status, created_at, updated_at)
 			VALUES (?, NULL, ?, 'ARTIFACT_QUARANTINED', 'CRITICAL', 'OPEN', ?, ?)
-		`, DefaultTenantID, fileID, now, now)
+		`, tenantID, fileID, now, now)
 		if err == nil {
 			incID, _ := incRes.LastInsertId()
 			result.IncidentID = &incID
@@ -353,7 +361,7 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 	}
 
 	// 4. Append to Audit Ledger
-	_, _ = AppendAuditEvent(db, "FILE_INGESTED", "SENTINEL_GATEWAY_WORKER", map[string]interface{}{
+	_, _ = AppendAuditEvent(db, tenantID, "FILE_INGESTED", "SENTINEL_GATEWAY_WORKER", map[string]interface{}{
 		"fileId":         fileID,
 		"filename":       filename,
 		"sha256":         result.Hash,
@@ -367,10 +375,10 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 }
 
 // ProcessFile streams the uploaded file, computes its SHA-256 hash, and parses NACHA.
-func ProcessFile(db *sql.DB, file multipart.File, header *multipart.FileHeader) (*IngestionResult, error) {
+func ProcessFile(db *sql.DB, tenantID string, file multipart.File, header *multipart.FileHeader) (*IngestionResult, error) {
 	content, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read upload: %w", err)
 	}
-	return ProcessFileBytes(db, header.Filename, content)
+	return ProcessFileBytes(db, tenantID, header.Filename, content)
 }

@@ -286,14 +286,20 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// GET SLA Board
 		r.Get("/sla-board", func(w http.ResponseWriter, r *http.Request) {
+			scope, serr := resolveScope(r, auth.PermReadTenant)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
 			rows, err := db.Query(`
 				SELECT e.id, e.contract_id, p.name, p.routing_number, c.name, c.filename_pattern, 
 				       c.expected_time, c.grace_period_minutes, e.expected_delivery_start, e.expected_delivery_end, e.status
 				FROM expectations e
 				JOIN file_contracts c ON e.contract_id = c.id
 				JOIN partners p ON c.partner_id = p.id
+				WHERE e.tenant_id = ?
 				ORDER BY e.expected_delivery_end ASC
-			`)
+			`, scope.TenantID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -316,7 +322,14 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {
-			rows, err := db.Query("SELECT id, name, routing_number, created_at FROM partners ORDER BY id ASC")
+			scope, serr := resolveScope(r, auth.PermReadTenant)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
+			rows, err := db.Query(
+				"SELECT id, name, routing_number, created_at FROM partners WHERE tenant_id = ? ORDER BY id ASC",
+				scope.TenantID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -359,12 +372,18 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// GET Contracts
 		r.Get("/contracts", func(w http.ResponseWriter, r *http.Request) {
+			scope, serr := resolveScope(r, auth.PermReadTenant)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
 			rows, err := db.Query(`
 				SELECT c.id, c.partner_id, p.name, c.name, c.direction, c.filename_pattern, c.expected_time, c.grace_period_minutes, c.timezone
 				FROM file_contracts c
 				JOIN partners p ON c.partner_id = p.id
+				WHERE c.tenant_id = ?
 				ORDER BY c.id ASC
-			`)
+			`, scope.TenantID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -390,6 +409,11 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// GET Incidents
 		r.Get("/incidents", func(w http.ResponseWriter, r *http.Request) {
+			scope, serr := resolveScope(r, auth.PermReadTenant)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
 			rows, err := db.Query(`
 				SELECT i.id, i.expectation_id, i.file_instance_id, i.type, i.severity, i.status, i.created_at,
 				       COALESCE(p.name, 'Central Clearing Network') as partner_name,
@@ -400,8 +424,9 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 				LEFT JOIN file_contracts c ON e.contract_id = c.id
 				LEFT JOIN partners p ON c.partner_id = p.id
 				LEFT JOIN file_instances f ON i.file_instance_id = f.id
+				WHERE i.tenant_id = ?
 				ORDER BY i.id DESC
-			`)
+			`, scope.TenantID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -421,8 +446,8 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 					fRows, _ := db.Query(`
 						SELECT id, code, description, severity, line_number, raw_data
 						FROM validation_findings
-						WHERE file_instance_id = ?
-					`, *inc.FileInstanceID)
+						WHERE file_instance_id = ? AND tenant_id = ?
+					`, *inc.FileInstanceID, scope.TenantID())
 					inc.Findings = make([]ValidationFindingRecord, 0)
 					if fRows != nil {
 						for fRows.Next() {
@@ -445,7 +470,12 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// GET Audit Ledger
 		r.Get("/ledger", func(w http.ResponseWriter, r *http.Request) {
-			summary, err := GetLedger(db)
+			scope, serr := resolveScope(r, auth.PermReadEvidence)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
+			summary, err := GetLedger(db, scope.TenantID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -465,7 +495,13 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 				req.Filename = fmt.Sprintf("NACHA_INTAKE_%d.ach", time.Now().Unix())
 			}
 
-			result, err := ProcessFileBytes(db, req.Filename, []byte(req.Content))
+			scope, serr := resolveScope(r, auth.PermUploadArtifact)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
+
+			result, err := ProcessFileBytes(db, scope.TenantID(), req.Filename, []byte(req.Content))
 			if err != nil {
 				http.Error(w, "Processing failed: "+err.Error(), http.StatusInternalServerError)
 				return
@@ -490,7 +526,13 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 			}
 			defer file.Close()
 
-			result, err := ProcessFile(db, file, header)
+			scope, serr := resolveScope(r, auth.PermUploadArtifact)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
+
+			result, err := ProcessFile(db, scope.TenantID(), file, header)
 			if err != nil {
 				http.Error(w, "Processing failed: "+err.Error(), http.StatusInternalServerError)
 				return
@@ -502,6 +544,11 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// POST Incident AI Triage (Proxies to Python AI Tier)
 		r.Post("/incidents/{id}/triage", func(w http.ResponseWriter, r *http.Request) {
+			triageScope, serr := resolveScope(r, auth.PermReadTenant)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
 			incIDStr := chi.URLParam(r, "id")
 			incID, _ := strconv.ParseInt(incIDStr, 10, 64)
 
@@ -582,7 +629,7 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 			}
 
 			// Record AI run in audit ledger
-			_, _ = AppendAuditEvent(db, "AI_ANALYSIS_EXECUTED", "AI_ANALYSIS_TIER", map[string]interface{}{
+			_, _ = AppendAuditEvent(db, triageScope.TenantID(), "AI_ANALYSIS_EXECUTED", "AI_ANALYSIS_TIER", map[string]interface{}{
 				"incidentId":   incID,
 				"confidence":   aiRes.Confidence,
 				"citations":    aiRes.Citations,
@@ -605,6 +652,11 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 			// so any caller could record a decision under any name -- including
 			// a name that looked like a real supervisor. Any `actor` field in
 			// the body is now ignored entirely.
+			scope, serr := resolveScope(r, auth.PermApproveRelease)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
 			principal := auth.FromContext(r.Context())
 			if principal == nil || principal.ActorID() == "" {
 				w.Header().Set("Content-Type", "application/json")
@@ -631,9 +683,9 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 			_, _ = db.Exec(
 				"UPDATE incidents SET status = 'RESOLVED', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?",
-				incID, DefaultTenantID)
+				incID, scope.TenantID())
 
-			_, _ = AppendAuditEvent(db, "INCIDENT_RESOLVED_BY_REVIEWER", actor, map[string]interface{}{
+			_, _ = AppendAuditEvent(db, scope.TenantID(), "INCIDENT_RESOLVED_BY_REVIEWER", actor, map[string]interface{}{
 				"incidentId":    incID,
 				"justification": body.Justification,
 			})
@@ -694,7 +746,12 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 
 		// GET evidence export of the application hash chain (carries no regulatory claim)
 		r.Get("/compliance/export", func(w http.ResponseWriter, r *http.Request) {
-			pkg, err := GenerateCompliancePackage(db)
+			scope, serr := resolveScope(r, auth.PermReadEvidence)
+			if serr != nil {
+				serr.write(w)
+				return
+			}
+			pkg, err := GenerateCompliancePackage(db, scope.TenantID())
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

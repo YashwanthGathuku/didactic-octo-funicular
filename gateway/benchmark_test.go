@@ -49,7 +49,7 @@ func TestNachaCorruptedEntryHashDetection(t *testing.T) {
 	}
 
 	corruptedScenario := GenerateNachaScenario(PresetCorruptedEntryHash)
-	result, err := ProcessFileBytes(db, corruptedScenario.Filename, []byte(corruptedScenario.Content))
+	result, err := ProcessFileBytes(db, DefaultTenantID, corruptedScenario.Filename, []byte(corruptedScenario.Content))
 	if err != nil {
 		t.Fatalf("ProcessFileBytes failed: %v", err)
 	}
@@ -83,11 +83,11 @@ func TestHashChainTamperDetection(t *testing.T) {
 	}
 
 	// Append 3 legitimate events
-	_, _ = AppendAuditEvent(db, "EVENT_1", "ACTOR_A", map[string]interface{}{"val": 1})
-	_, _ = AppendAuditEvent(db, "EVENT_2", "ACTOR_B", map[string]interface{}{"val": 2})
-	_, _ = AppendAuditEvent(db, "EVENT_3", "ACTOR_C", map[string]interface{}{"val": 3})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "EVENT_1", "ACTOR_A", map[string]interface{}{"val": 1})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "EVENT_2", "ACTOR_B", map[string]interface{}{"val": 2})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "EVENT_3", "ACTOR_C", map[string]interface{}{"val": 3})
 
-	ledger, err := GetLedger(db)
+	ledger, err := GetLedger(db, DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GetLedger failed: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestHashChainTamperDetection(t *testing.T) {
 		t.Fatalf("Tamper SQL update failed: %v", err)
 	}
 
-	tamperedLedger, err := GetLedger(db)
+	tamperedLedger, err := GetLedger(db, DefaultTenantID)
 	if err != nil {
 		t.Fatalf("GetLedger failed after tampering: %v", err)
 	}

@@ -46,7 +46,7 @@ func TestAuditEventsAreAppendOnly(t *testing.T) {
 	db := newLedgerDB(t)
 	defer db.Close()
 
-	if _, err := AppendAuditEvent(db, "FILE_INGESTED", "operator-a", map[string]interface{}{"n": 1}); err != nil {
+	if _, err := AppendAuditEvent(db, DefaultTenantID, "FILE_INGESTED", "operator-a", map[string]interface{}{"n": 1}); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 
@@ -101,18 +101,18 @@ func TestLedgerDetectsContentTampering(t *testing.T) {
 	db := newLedgerDB(t)
 	defer db.Close()
 
-	_, _ = AppendAuditEvent(db, "FILE_RELEASED", "operator-a", map[string]interface{}{"amount": 1000})
-	_, _ = AppendAuditEvent(db, "FILE_RELEASED", "operator-b", map[string]interface{}{"amount": 2000})
-	_, _ = AppendAuditEvent(db, "FILE_RELEASED", "operator-c", map[string]interface{}{"amount": 3000})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "FILE_RELEASED", "operator-a", map[string]interface{}{"amount": 1000})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "FILE_RELEASED", "operator-b", map[string]interface{}{"amount": 2000})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "FILE_RELEASED", "operator-c", map[string]interface{}{"amount": 3000})
 
-	if l, _ := GetLedger(db); !l.IsChainValid {
+	if l, _ := GetLedger(db, DefaultTenantID); !l.IsChainValid {
 		t.Fatalf("clean ledger should verify")
 	}
 
 	// Rewrite the PAYLOAD of event 2. All previous_hash/current_hash links stay
 	// consistent, so a link-only verifier reports the chain as valid.
 	tamper(t, db, `UPDATE audit_events SET payload = '{"amount":999999}' WHERE id = 2`)
-	l, err := GetLedger(db)
+	l, err := GetLedger(db, DefaultTenantID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,9 +134,9 @@ func TestLedgerDetectsContentTampering(t *testing.T) {
 func TestLedgerDetectsActorTampering(t *testing.T) {
 	db := newLedgerDB(t)
 	defer db.Close()
-	_, _ = AppendAuditEvent(db, "VAULT_DETOKENIZE", "supervisor-real", map[string]interface{}{"token": "TOK-1"})
+	_, _ = AppendAuditEvent(db, DefaultTenantID, "VAULT_DETOKENIZE", "supervisor-real", map[string]interface{}{"token": "TOK-1"})
 	tamper(t, db, `UPDATE audit_events SET actor = 'somebody-else' WHERE id = 1`)
-	if l, _ := GetLedger(db); l.IsChainValid {
+	if l, _ := GetLedger(db, DefaultTenantID); l.IsChainValid {
 		t.Fatalf("actor substitution must invalidate the chain")
 	}
 }

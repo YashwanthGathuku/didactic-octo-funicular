@@ -104,6 +104,20 @@ Every rejection returns the same body. A caller cannot distinguish an expired
 token from a forged one, and a cross-tenant object ID returns the same error
 text as an ID that does not exist.
 
+## Tenant resolution
+
+A request's tenant comes from verified claims, never from a request field:
+
+1. an explicit `X-Sentinel-Tenant` header, **validated against memberships**
+2. the sole membership, when the principal belongs to exactly one tenant
+3. otherwise refused — guessing would silently pick a tenant for a caller who
+   meant another
+
+The header is a *selector*, not an assertion. Naming a tenant you do not belong
+to is a 403, and a tenant that does not exist returns a byte-identical response
+to one that exists but is not yours, so the header cannot be used to enumerate
+tenants.
+
 ## Known gaps
 
 These are real and tracked, not oversights:
@@ -119,11 +133,17 @@ These are real and tracked, not oversights:
    by tests; the network path is not, because no identity provider is available
    to this environment. First deployment against a real provider is where that
    is genuinely verified.
-4. **Tenant resolution is still `DefaultTenantID`.** The verifier produces real
-   memberships and the repository enforces real scoping, but the ingestion path
-   has not yet been rewritten to resolve the tenant from the principal. Until it
-   is, there is one isolation domain in practice. The mechanism is in place and
-   tested; the wiring is not complete.
+4. **Tenant resolution is complete for the HTTP path.** Every request handler
+   resolves its tenant from verified claims via `resolveScope`, and cross-tenant
+   isolation is proven end to end over HTTP in `tenant_isolation_test.go`: two
+   tenants with real signed tokens cannot read, infer, update or enumerate each
+   other's artifacts, incidents, ledger or evidence export.
+
+   **The inbox watcher remains unscoped** (`watcher.go`). It is a background
+   daemon with no request and therefore no principal, so it still writes to
+   `DefaultTenantID`. Its tenant must come from the feed contract that matches
+   the arriving file, which is Prompt 10 work. Until then, files dropped into
+   the watched directory land in one tenant regardless of origin.
 5. **PostgreSQL row-level security is not configured.** The application still
    uses SQLite, which has no equivalent. RLS becomes available with the
    PostgreSQL port.

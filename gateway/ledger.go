@@ -31,10 +31,16 @@ type LedgerSummary struct {
 }
 
 // AppendAuditEvent inserts a new event into audit_events, computing the SHA-256 hash chained from the last event.
-func AppendAuditEvent(db *sql.DB, eventType string, actor string, payload map[string]interface{}) (*AuditEvent, error) {
+// AppendAuditEvent appends to one tenant's chain. Sequence numbers and
+// predecessor links are per tenant, so tenants cannot interleave or reference
+// each other's history.
+func AppendAuditEvent(db *sql.DB, tenantID string, eventType string, actor string, payload map[string]interface{}) (*AuditEvent, error) {
+	if tenantID == "" {
+		return nil, fmt.Errorf("audit append requires a tenant scope")
+	}
 	// Find last event's hash
 	var lastHash string
-	row := db.QueryRow("SELECT current_hash FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no DESC LIMIT 1", DefaultTenantID)
+	row := db.QueryRow("SELECT current_hash FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no DESC LIMIT 1", tenantID)
 	err := row.Scan(&lastHash)
 	if err == sql.ErrNoRows {
 		// Genesis block
@@ -60,13 +66,13 @@ func AppendAuditEvent(db *sql.DB, eventType string, actor string, payload map[st
 	var nextSeq int64
 	_ = db.QueryRow(
 		"SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_events WHERE tenant_id = ?",
-		DefaultTenantID,
+		tenantID,
 	).Scan(&nextSeq)
 
 	res, err := db.Exec(`
 		INSERT INTO audit_events (tenant_id, sequence_no, event_type, actor, payload, previous_hash, current_hash, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, DefaultTenantID, nextSeq, eventType, actor, string(payloadBytes), lastHash, currentHash, now)
+	`, tenantID, nextSeq, eventType, actor, string(payloadBytes), lastHash, currentHash, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert audit event: %w", err)
 	}
@@ -95,8 +101,12 @@ func recomputeHash(prevHash, eventType, actor, rawPayload, createdAt string) str
 }
 
 // GetLedger retrieves the audit events and verifies hash chain integrity.
-func GetLedger(db *sql.DB) (*LedgerSummary, error) {
-	rows, err := db.Query("SELECT id, event_type, actor, payload, previous_hash, current_hash, created_at FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no ASC", DefaultTenantID)
+// GetLedger reads one tenant's chain. A caller cannot read another's.
+func GetLedger(db *sql.DB, tenantID string) (*LedgerSummary, error) {
+	if tenantID == "" {
+		return nil, fmt.Errorf("ledger read requires a tenant scope")
+	}
+	rows, err := db.Query("SELECT id, event_type, actor, payload, previous_hash, current_hash, created_at FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no ASC", tenantID)
 	if err != nil {
 		return nil, err
 	}

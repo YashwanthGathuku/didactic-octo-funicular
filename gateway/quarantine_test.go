@@ -22,7 +22,7 @@ func mustProcess(t *testing.T, filename, content string) *IngestionResult {
 	db := setupTestDb(t)
 	defer db.Close()
 
-	res, err := ProcessFileBytes(db, filename, []byte(content))
+	res, err := ProcessFileBytes(db, DefaultTenantID, filename, []byte(content))
 	if err != nil {
 		t.Fatalf("ProcessFileBytes(%q) returned an error: %v", filename, err)
 	}
