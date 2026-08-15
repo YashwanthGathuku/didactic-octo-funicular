@@ -46,6 +46,12 @@ type Config struct {
 	AllowedOrigin  string
 	PGPKeyringPath string
 
+	// OIDC. Required in the production profile: without an issuer and audience
+	// there is no identity to authorize, and the process refuses to start.
+	OIDCIssuer   string
+	OIDCAudience string
+	OIDCJWKSURL  string
+
 	// Storage
 	InboxPath string
 }
@@ -93,6 +99,9 @@ func Load() (*Config, error) {
 		APIToken:       env("SENTINEL_API_TOKEN", ""),
 		AllowedOrigin:  env("SENTINEL_ALLOWED_ORIGIN", ""),
 		PGPKeyringPath: env("SENTINEL_PGP_KEYRING", ""),
+		OIDCIssuer:     env("SENTINEL_OIDC_ISSUER", ""),
+		OIDCAudience:   env("SENTINEL_OIDC_AUDIENCE", ""),
+		OIDCJWKSURL:    env("SENTINEL_OIDC_JWKS_URL", ""),
 		InboxPath:      env("SENTINEL_INBOX_PATH", "./inbox"),
 	}
 
@@ -135,6 +144,17 @@ func Load() (*Config, error) {
 		}
 		if cfg.PGPKeyringPath == "" {
 			problems = append(problems, "SENTINEL_PGP_KEYRING is required in the production profile: signature verification fails closed without it")
+		}
+		// Identity is mandatory. A shared bearer token is not an identity: it
+		// cannot name an actor, so no approval recorded under it is attributable.
+		if cfg.OIDCIssuer == "" {
+			problems = append(problems, "SENTINEL_OIDC_ISSUER is required in the production profile: actor identity must come from verified claims")
+		}
+		if cfg.OIDCAudience == "" {
+			problems = append(problems, "SENTINEL_OIDC_AUDIENCE is required in the production profile: a token minted for another service must not be replayable here")
+		}
+		if cfg.OIDCJWKSURL == "" {
+			problems = append(problems, "SENTINEL_OIDC_JWKS_URL is required in the production profile: signatures cannot be verified without the provider's keys")
 		}
 
 	default:

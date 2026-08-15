@@ -18,6 +18,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	_ "modernc.org/sqlite"
+
+	"sentinel-gateway/internal/auth"
 )
 
 // SlaExpectationResponse carries deterministic deadline state only.
@@ -576,24 +578,52 @@ func NewRouter(db *sql.DB, cfg *Config) chi.Router {
 			incIDStr := chi.URLParam(r, "id")
 			incID, _ := strconv.ParseInt(incIDStr, 10, 64)
 
+			// Actor identity comes from the verified principal ONLY.
+			//
+			// This handler previously read `actor` from the request body and
+			// defaulted it to the literal "TREASURY_SUPERVISOR_01" when absent,
+			// so any caller could record a decision under any name -- including
+			// a name that looked like a real supervisor. Any `actor` field in
+			// the body is now ignored entirely.
+			principal := auth.FromContext(r.Context())
+			if principal == nil || principal.ActorID() == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+
 			var body struct {
-				Actor         string `json:"actor"`
 				Justification string `json:"justification"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body.Actor == "" {
-				body.Actor = "TREASURY_SUPERVISOR_01"
+			if strings.TrimSpace(body.Justification) == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error":  "justification_required",
+					"detail": "a decision must carry a reason; it is recorded in the audit ledger",
+				})
+				return
 			}
 
-			_, _ = db.Exec("UPDATE incidents SET status = 'RESOLVED', updated_at = datetime('now') WHERE id = ?", incID)
+			actor := principal.ActorID()
 
-			_, _ = AppendAuditEvent(db, "INCIDENT_RESOLVED_BY_SUPERVISOR", body.Actor, map[string]interface{}{
+			_, _ = db.Exec(
+				"UPDATE incidents SET status = 'RESOLVED', updated_at = datetime('now') WHERE id = ? AND tenant_id = ?",
+				incID, DefaultTenantID)
+
+			_, _ = AppendAuditEvent(db, "INCIDENT_RESOLVED_BY_REVIEWER", actor, map[string]interface{}{
 				"incidentId":    incID,
 				"justification": body.Justification,
 			})
 
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status": "APPROVED", "incidentId": ` + incIDStr + `}`))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":     "APPROVED",
+				"incidentId": incID,
+				"actor":      actor,
+			})
 		})
 
 		// GET Generator Sample

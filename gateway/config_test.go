@@ -24,6 +24,9 @@ func TestProductionProfileRefusesIncompleteConfiguration(t *testing.T) {
 		"OBJECT_STORE_URL":        "http://minio:9000",
 		"SENTINEL_ALLOWED_ORIGIN": "https://ops.example.com",
 		"SENTINEL_PGP_KEYRING":    "/etc/sentinel/keyring.asc",
+		"SENTINEL_OIDC_ISSUER":    "https://idp.example.com/",
+		"SENTINEL_OIDC_AUDIENCE":  "sentinel-flow-api",
+		"SENTINEL_OIDC_JWKS_URL":  "https://idp.example.com/.well-known/jwks.json",
 	}
 
 	// Sanity: the complete set must load.
@@ -38,6 +41,11 @@ func TestProductionProfileRefusesIncompleteConfiguration(t *testing.T) {
 		"OBJECT_STORE_URL",
 		"SENTINEL_ALLOWED_ORIGIN",
 		"SENTINEL_PGP_KEYRING",
+		// Identity is as mandatory as the database. Without a verified issuer
+		// and audience there is no actor to attribute a decision to.
+		"SENTINEL_OIDC_ISSUER",
+		"SENTINEL_OIDC_AUDIENCE",
+		"SENTINEL_OIDC_JWKS_URL",
 	} {
 		t.Run("missing_"+missing, func(t *testing.T) {
 			withEnv(t, complete)
@@ -61,6 +69,9 @@ func TestProductionRejectsWeakOrDefaultToken(t *testing.T) {
 		"OBJECT_STORE_URL":        "http://minio:9000",
 		"SENTINEL_ALLOWED_ORIGIN": "https://ops.example.com",
 		"SENTINEL_PGP_KEYRING":    "/etc/sentinel/keyring.asc",
+		"SENTINEL_OIDC_ISSUER":    "https://idp.example.com/",
+		"SENTINEL_OIDC_AUDIENCE":  "sentinel-flow-api",
+		"SENTINEL_OIDC_JWKS_URL":  "https://idp.example.com/.well-known/jwks.json",
 	}
 
 	for _, token := range []string{"password", "minioadmin", "changeme", "admin", "short"} {
