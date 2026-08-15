@@ -66,7 +66,9 @@ export interface ApiIngestionResult {
   filename: string;
   hash: string;
   sizeBytes: number;
-  status: 'QUARANTINED' | 'RELEASED';
+  // Terminus of ingestion. RELEASED is NOT produced here: release requires a
+  // policy decision and approval, which ingestion does not perform.
+  status: 'QUARANTINED' | 'VALIDATED';
   totalRecordsParsed: number;
   totalDebitsUsd: number;
   totalCreditsUsd: number;

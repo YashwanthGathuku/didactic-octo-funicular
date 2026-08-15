@@ -34,7 +34,7 @@ type LedgerSummary struct {
 func AppendAuditEvent(db *sql.DB, eventType string, actor string, payload map[string]interface{}) (*AuditEvent, error) {
 	// Find last event's hash
 	var lastHash string
-	row := db.QueryRow("SELECT current_hash FROM audit_events ORDER BY id DESC LIMIT 1")
+	row := db.QueryRow("SELECT current_hash FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no DESC LIMIT 1", DefaultTenantID)
 	err := row.Scan(&lastHash)
 	if err == sql.ErrNoRows {
 		// Genesis block
@@ -54,10 +54,19 @@ func AppendAuditEvent(db *sql.DB, eventType string, actor string, payload map[st
 	hasher.Write([]byte(hashInput))
 	currentHash := hex.EncodeToString(hasher.Sum(nil))
 
+	// sequence_no is per tenant and unique, so two concurrent appends that read
+	// the same predecessor cannot both commit -- one loses on the constraint
+	// rather than forking the chain. Full serialization is Prompt 09.
+	var nextSeq int64
+	_ = db.QueryRow(
+		"SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_events WHERE tenant_id = ?",
+		DefaultTenantID,
+	).Scan(&nextSeq)
+
 	res, err := db.Exec(`
-		INSERT INTO audit_events (event_type, actor, payload, previous_hash, current_hash, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, eventType, actor, string(payloadBytes), lastHash, currentHash, now)
+		INSERT INTO audit_events (tenant_id, sequence_no, event_type, actor, payload, previous_hash, current_hash, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, DefaultTenantID, nextSeq, eventType, actor, string(payloadBytes), lastHash, currentHash, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert audit event: %w", err)
 	}
@@ -87,7 +96,7 @@ func recomputeHash(prevHash, eventType, actor, rawPayload, createdAt string) str
 
 // GetLedger retrieves the audit events and verifies hash chain integrity.
 func GetLedger(db *sql.DB) (*LedgerSummary, error) {
-	rows, err := db.Query("SELECT id, event_type, actor, payload, previous_hash, current_hash, created_at FROM audit_events ORDER BY id ASC")
+	rows, err := db.Query("SELECT id, event_type, actor, payload, previous_hash, current_hash, created_at FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no ASC", DefaultTenantID)
 	if err != nil {
 		return nil, err
 	}

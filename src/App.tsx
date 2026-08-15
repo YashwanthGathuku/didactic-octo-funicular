@@ -119,7 +119,7 @@ export const App: React.FC = () => {
       byteSize: apiResult.sizeBytes,
       sha256Hash: apiResult.hash,
       s3Uri: `s3://sentinel-originals/${apiResult.status.toLowerCase()}/${apiResult.filename}`,
-      state: apiResult.status === 'RELEASED' ? 'VALID' : 'QUARANTINED',
+      state: apiResult.status === 'VALIDATED' ? 'VALID' : 'QUARANTINED',
       receivedAtUtc: new Date().toISOString(),
       validationResult: {
         runId: `VAL-RUN-${Date.now()}`,
@@ -127,7 +127,7 @@ export const App: React.FC = () => {
         rulePackVersion: 'Nacha2025.1',
         startedAtUtc: new Date().toISOString(),
         completedAtUtc: new Date().toISOString(),
-        outcome: apiResult.status === 'RELEASED' ? 'VALID' : 'QUARANTINED',
+        outcome: apiResult.status === 'VALIDATED' ? 'VALID' : 'QUARANTINED',
         totalRecordsParsed: apiResult.totalRecordsParsed,
         totalDebitsUsd: apiResult.totalDebitsUsd,
         totalCreditsUsd: apiResult.totalCreditsUsd,

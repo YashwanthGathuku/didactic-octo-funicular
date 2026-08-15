@@ -117,17 +117,23 @@ func TestParserExceptionIsNotAdvisory(t *testing.T) {
 	t.Errorf("expected a parser-exception finding for an empty file, got none")
 }
 
-// TestValidNachaStillReleases is the counterweight: failing closed must not
+// TestValidNachaReachesValidated is the counterweight: failing closed must not
 // mean failing always. If this breaks, the fix is too broad.
-func TestValidNachaStillReleases(t *testing.T) {
+//
+// The success terminus is VALIDATED. Ingestion does not release; release needs
+// a policy decision and approval it has no authority to make.
+func TestValidNachaReachesValidated(t *testing.T) {
 	scenario := GenerateNachaScenario(PresetBalancedPayroll)
 	res := mustProcess(t, scenario.Filename, scenario.Content)
 
-	if res.Status != "RELEASED" {
+	if res.Status != "VALIDATED" {
 		for _, f := range res.Findings {
 			t.Logf("finding: %s (severity %s, line %d) %s", f.Code, f.Severity, f.LineNumber, f.Description)
 		}
-		t.Errorf("expected RELEASED for a valid NACHA fixture, got %q", res.Status)
+		t.Errorf("expected VALIDATED for a valid NACHA fixture, got %q", res.Status)
+	}
+	if res.Status == "RELEASED" {
+		t.Errorf("ingestion released a file without a policy decision or approval")
 	}
 	if res.TotalRecordsParsed == 0 {
 		t.Errorf("expected a valid fixture to parse at least one record")

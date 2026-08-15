@@ -184,3 +184,17 @@ func Load() (*Config, error) {
 // configured. It is a normal condition, not a failure: deterministic ingestion
 // does not depend on AI.
 var ErrNoAITier = errors.New("no AI tier configured")
+
+// DefaultTenantID scopes records written by code paths that do not yet have an
+// authenticated tenant.
+//
+// This is a placeholder with a deliberate name, not a design. Every business
+// table now requires a tenant, but the request path has no identity to derive
+// one from until Prompt 04 supplies OIDC claims and tenant memberships. Until
+// then all writes land in this single tenant, which is honest about the fact
+// that there is exactly one isolation domain today rather than pretending the
+// column implies isolation.
+//
+// Prompt 04 replaces every use of this constant with the tenant resolved from
+// verified session claims.
+const DefaultTenantID = "TENANT-DEFAULT"

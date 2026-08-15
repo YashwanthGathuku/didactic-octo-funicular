@@ -15,72 +15,11 @@ func setupTestDb(t *testing.T) *sql.DB {
 		t.Fatalf("Failed to open in-memory sqlite: %v", err)
 	}
 
-	schema := `
-	CREATE TABLE partners (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		routing_number TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE file_contracts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		partner_id INTEGER NOT NULL,
-		name TEXT NOT NULL,
-		direction TEXT NOT NULL,
-		filename_pattern TEXT NOT NULL,
-		expected_time TEXT NOT NULL,
-		grace_period_minutes INTEGER NOT NULL DEFAULT 15,
-		timezone TEXT NOT NULL DEFAULT 'America/New_York'
-	);
-	CREATE TABLE expectations (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		contract_id INTEGER NOT NULL,
-		window_start TIMESTAMP NOT NULL,
-		window_end TIMESTAMP NOT NULL,
-		status TEXT NOT NULL DEFAULT 'WAITING',
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE file_instances (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		expectation_id INTEGER,
-		filename TEXT NOT NULL,
-		storage_path TEXT NOT NULL,
-		size_bytes INTEGER NOT NULL,
-		sha256_hash TEXT NOT NULL,
-		status TEXT NOT NULL,
-		received_at TIMESTAMP NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE validation_findings (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		file_instance_id INTEGER NOT NULL,
-		code TEXT NOT NULL,
-		description TEXT NOT NULL,
-		severity TEXT NOT NULL,
-		line_number INTEGER,
-		raw_data TEXT,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE incidents (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		expectation_id INTEGER,
-		file_instance_id INTEGER,
-		type TEXT NOT NULL,
-		severity TEXT NOT NULL,
-		status TEXT NOT NULL DEFAULT 'OPEN',
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE TABLE audit_events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		event_type TEXT NOT NULL,
-		actor TEXT NOT NULL,
-		payload TEXT NOT NULL,
-		previous_hash TEXT NOT NULL,
-		current_hash TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	`
-	if _, err := db.Exec(schema); err != nil {
+	// Build the schema with the real migrator rather than a copy maintained by
+	// hand. The hand-written copy drifted from the migrations the moment
+	// tenant_id was added, so tests passed against a schema production did not
+	// have.
+	if _, err := Migrate(db); err != nil {
 		t.Fatalf("Failed to initialize test schema: %v", err)
 	}
 
@@ -97,11 +36,19 @@ func TestE2E_ValidNachaPipeline(t *testing.T) {
 		t.Fatalf("ProcessFileBytes failed: %v", err)
 	}
 
-	if res.Status != "RELEASED" {
+	// Ingestion ends at VALIDATED, not RELEASED. Release requires a versioned
+	// policy decision and, where policy demands it, human approval -- none of
+	// which ingestion performs. Before the domain model existed this function
+	// returned RELEASED directly, which meant a file was marked usable
+	// downstream without anyone deciding it should be.
+	if res.Status != "VALIDATED" {
 		for _, f := range res.Findings {
 			t.Logf("Finding: %s - %s (line %d)", f.Code, f.Description, f.LineNumber)
 		}
-		t.Errorf("Expected status RELEASED for valid NACHA, got %s", res.Status)
+		t.Errorf("Expected status VALIDATED for valid NACHA, got %s", res.Status)
+	}
+	if res.Status == "RELEASED" {
+		t.Errorf("ingestion must never release on its own")
 	}
 	if len(res.Findings) != 0 {
 		for _, f := range res.Findings {

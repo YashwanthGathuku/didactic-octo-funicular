@@ -97,6 +97,9 @@ func TestHashChainTamperDetection(t *testing.T) {
 	}
 
 	// Deliberately tamper with historical event #2's current_hash
+	// Drop the append-only guard first: this test models an attacker with direct
+	// database access, which is the only actor who could mutate these rows.
+	_, _ = db.Exec(`DROP TRIGGER IF EXISTS audit_events_no_update`)
 	_, err = db.Exec("UPDATE audit_events SET current_hash = 'TAMPERED_FAKE_HASH_0000000000000000000000000000000000000000' WHERE id = 2")
 	if err != nil {
 		t.Fatalf("Tamper SQL update failed: %v", err)

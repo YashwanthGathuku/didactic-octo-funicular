@@ -22,6 +22,77 @@ func newLedgerDB(t *testing.T) *sql.DB {
 	return db
 }
 
+// tamper simulates an attacker with direct database write access. The
+// append-only triggers added in migration 002 refuse UPDATE and DELETE on
+// audit_events, so the attacker's first move is to drop them. Hash-chain
+// verification is the defence that must survive that, and this is what these
+// tests exercise.
+func tamper(t *testing.T, db *sql.DB, stmt string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(`DROP TRIGGER IF EXISTS audit_events_no_update`); err != nil {
+		t.Fatalf("drop update trigger: %v", err)
+	}
+	if _, err := db.Exec(`DROP TRIGGER IF EXISTS audit_events_no_delete`); err != nil {
+		t.Fatalf("drop delete trigger: %v", err)
+	}
+	if _, err := db.Exec(stmt, args...); err != nil {
+		t.Fatalf("tamper: %v", err)
+	}
+}
+
+// The guard itself: ordinary application code must not be able to rewrite
+// history, even before the hash chain is consulted.
+func TestAuditEventsAreAppendOnly(t *testing.T) {
+	db := newLedgerDB(t)
+	defer db.Close()
+
+	if _, err := AppendAuditEvent(db, "FILE_INGESTED", "operator-a", map[string]interface{}{"n": 1}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	if _, err := db.Exec(`UPDATE audit_events SET actor = 'someone-else' WHERE id = 1`); err == nil {
+		t.Errorf("UPDATE on audit_events must be refused by the append-only trigger")
+	}
+	if _, err := db.Exec(`DELETE FROM audit_events WHERE id = 1`); err == nil {
+		t.Errorf("DELETE on audit_events must be refused by the append-only trigger")
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_events`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("expected the row to survive both attempts, found %d rows", n)
+	}
+}
+
+// status_history carries the same guarantee.
+func TestStatusHistoryIsAppendOnly(t *testing.T) {
+	db := newLedgerDB(t)
+	defer db.Close()
+
+	if _, err := db.Exec(`INSERT INTO status_history (tenant_id, object_type, object_id, from_state, to_state, actor_id)
+		VALUES ('TENANT-DEFAULT','artifact',1,'RECEIVED','VALIDATING','system')`); err != nil {
+		t.Fatalf("insert history: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE status_history SET to_state = 'RELEASED' WHERE id = 1`); err == nil {
+		t.Errorf("UPDATE on status_history must be refused")
+	}
+	if _, err := db.Exec(`DELETE FROM status_history WHERE id = 1`); err == nil {
+		t.Errorf("DELETE on status_history must be refused")
+	}
+}
+
+// A transition to the same state is meaningless and is rejected by CHECK.
+func TestStatusHistoryRejectsNoOpTransition(t *testing.T) {
+	db := newLedgerDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO status_history (tenant_id, object_type, object_id, from_state, to_state, actor_id)
+		VALUES ('TENANT-DEFAULT','artifact',1,'RECEIVED','RECEIVED','system')`); err == nil {
+		t.Errorf("a from_state == to_state row must be rejected")
+	}
+}
+
 // The pre-existing TestHashChainTamperDetection only mutated current_hash, which
 // breaks the LINK to the next row -- the one tamper vector the old verifier
 // happened to catch. It never tested mutation of the event content itself.
@@ -40,9 +111,7 @@ func TestLedgerDetectsContentTampering(t *testing.T) {
 
 	// Rewrite the PAYLOAD of event 2. All previous_hash/current_hash links stay
 	// consistent, so a link-only verifier reports the chain as valid.
-	if _, err := db.Exec(`UPDATE audit_events SET payload = '{"amount":999999}' WHERE id = 2`); err != nil {
-		t.Fatal(err)
-	}
+	tamper(t, db, `UPDATE audit_events SET payload = '{"amount":999999}' WHERE id = 2`)
 	l, err := GetLedger(db)
 	if err != nil {
 		t.Fatal(err)
@@ -66,9 +135,7 @@ func TestLedgerDetectsActorTampering(t *testing.T) {
 	db := newLedgerDB(t)
 	defer db.Close()
 	_, _ = AppendAuditEvent(db, "VAULT_DETOKENIZE", "supervisor-real", map[string]interface{}{"token": "TOK-1"})
-	if _, err := db.Exec(`UPDATE audit_events SET actor = 'somebody-else' WHERE id = 1`); err != nil {
-		t.Fatal(err)
-	}
+	tamper(t, db, `UPDATE audit_events SET actor = 'somebody-else' WHERE id = 1`)
 	if l, _ := GetLedger(db); l.IsChainValid {
 		t.Fatalf("actor substitution must invalidate the chain")
 	}

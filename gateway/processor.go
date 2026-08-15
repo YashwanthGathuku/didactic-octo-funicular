@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/moov-io/ach"
+
+	"sentinel-gateway/internal/domain"
 )
 
 type ValidationFindingRecord struct {
@@ -25,11 +27,14 @@ type ValidationFindingRecord struct {
 }
 
 type IngestionResult struct {
-	FileID             int64                     `json:"fileId"`
-	Filename           string                    `json:"filename"`
-	Hash               string                    `json:"hash"`
-	SizeBytes          int64                     `json:"sizeBytes"`
-	Status             string                    `json:"status"` // QUARANTINED, RELEASED
+	FileID    int64  `json:"fileId"`
+	Filename  string `json:"filename"`
+	Hash      string `json:"hash"`
+	SizeBytes int64  `json:"sizeBytes"`
+	// Terminus of ingestion: VALIDATED or QUARANTINED. Never RELEASED --
+	// release requires a versioned policy decision and, where policy requires
+	// it, approval by an authenticated person.
+	Status             string                    `json:"status"`
 	TotalRecordsParsed int                       `json:"totalRecordsParsed"`
 	TotalDebitsUsd     float64                   `json:"totalDebitsUsd"`
 	TotalCreditsUsd    float64                   `json:"totalCreditsUsd"`
@@ -80,8 +85,7 @@ func hasBlockingFinding(findings []ValidationFindingRecord) bool {
 
 // ProcessFileBytes processes raw file contents, calculates SHA256, validates NACHA, and persists to DB.
 func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionResult, error) {
-	// Every financial input begins untrusted and unreleased. RELEASED is only
-	// ever reached through the explicit terminal decision below.
+	// Every financial input begins untrusted and unreleased.
 	result := &IngestionResult{
 		Filename:   filename,
 		Status:     "RECEIVED",
@@ -283,18 +287,41 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 		// not exist.
 		result.IsBalanced = false
 	}
-	if !parserSucceeded || result.TotalRecordsParsed == 0 || hasBlockingFinding(result.Findings) {
-		result.Status = "QUARANTINED"
-	} else if result.Status == "RECEIVED" {
-		result.Status = "RELEASED"
+	// The outcome is computed here and then walked through the domain state
+	// machine, so the status this function persists is reachable by a legal path
+	// rather than assigned as a string. domain.Artifact refuses any edge the
+	// machine does not define, which is what makes RECEIVED -> RELEASED
+	// unrepresentable rather than merely absent.
+	artifact := &domain.Artifact{
+		TenantID: domain.TenantID(DefaultTenantID),
+		State:    domain.ArtifactReceived,
+		SHA256:   result.Hash,
 	}
+	quarantine := !parserSucceeded ||
+		result.TotalRecordsParsed == 0 ||
+		hasBlockingFinding(result.Findings) ||
+		result.Status == "QUARANTINED"
+
+	if err := artifact.TransitionTo(domain.ArtifactValidating, time.Now().UTC()); err != nil {
+		return nil, fmt.Errorf("artifact state machine: %w", err)
+	}
+	if quarantine {
+		if err := artifact.TransitionTo(domain.ArtifactQuarantined, time.Now().UTC()); err != nil {
+			return nil, fmt.Errorf("artifact state machine: %w", err)
+		}
+	} else {
+		if err := artifact.TransitionTo(domain.ArtifactValidated, time.Now().UTC()); err != nil {
+			return nil, fmt.Errorf("artifact state machine: %w", err)
+		}
+	}
+	result.Status = string(artifact.State)
 
 	// 3. Persist to Database
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := db.Exec(`
-		INSERT INTO file_instances (expectation_id, filename, storage_path, size_bytes, sha256_hash, status, received_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?)
-	`, filename, "/s3/incoming/"+filename, len(content), result.Hash, result.Status, now)
+		INSERT INTO file_instances (tenant_id, expectation_id, filename, storage_path, size_bytes, sha256_hash, status, received_at, updated_at)
+		VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+	`, DefaultTenantID, filename, "/s3/incoming/"+filename, len(content), result.Hash, result.Status, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save file instance: %w", err)
 	}
@@ -306,9 +333,9 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 	for i := range result.Findings {
 		f := &result.Findings[i]
 		fRes, _ := db.Exec(`
-			INSERT INTO validation_findings (file_instance_id, code, description, severity, line_number, raw_data, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, fileID, f.Code, f.Description, f.Severity, f.LineNumber, f.RawData, now)
+			INSERT INTO validation_findings (tenant_id, file_instance_id, code, description, severity, line_number, raw_data, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, DefaultTenantID, fileID, f.Code, f.Description, f.Severity, f.LineNumber, f.RawData, now)
 		fID, _ := fRes.LastInsertId()
 		f.ID = fID
 	}
@@ -316,9 +343,9 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 	// If quarantined, create incident
 	if result.Status == "QUARANTINED" {
 		incRes, err := db.Exec(`
-			INSERT INTO incidents (expectation_id, file_instance_id, type, severity, status, created_at, updated_at)
-			VALUES (1, ?, 'NACHA_ENTRY_HASH_MISMATCH', 'CRITICAL', 'OPEN', ?, ?)
-		`, fileID, now, now)
+			INSERT INTO incidents (tenant_id, expectation_id, file_instance_id, type, severity, status, created_at, updated_at)
+			VALUES (?, NULL, ?, 'ARTIFACT_QUARANTINED', 'CRITICAL', 'OPEN', ?, ?)
+		`, DefaultTenantID, fileID, now, now)
 		if err == nil {
 			incID, _ := incRes.LastInsertId()
 			result.IncidentID = &incID

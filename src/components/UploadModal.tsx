@@ -359,8 +359,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
           {/* Real-time Ingestion Result Banner */}
           {ingestionResult && (
             <div style={{
-              background: ingestionResult.status === 'RELEASED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-              border: `1px solid ${ingestionResult.status === 'RELEASED' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+              background: ingestionResult.status === 'VALIDATED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+              border: `1px solid ${ingestionResult.status === 'VALIDATED' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
               borderRadius: '8px',
               padding: '14px',
               display: 'flex',
@@ -368,7 +368,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
               justifyContent: 'space-between'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {ingestionResult.status === 'RELEASED' ? (
+                {ingestionResult.status === 'VALIDATED' ? (
                   <CheckCircle2 size={20} color="var(--accent-emerald)" />
                 ) : (
                   <AlertOctagon size={20} color="var(--accent-crimson)" />
