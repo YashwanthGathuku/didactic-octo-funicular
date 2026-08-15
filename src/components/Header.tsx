@@ -1,20 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Clock, FileText, AlertTriangle, Activity, Briefcase, Building2, GitCompare, Flame, Database, Network, Bot, Wrench, Lock, Settings } from 'lucide-react';
+import { ShieldCheck, Clock, FileText, AlertTriangle, Activity, Building2, GitCompare } from 'lucide-react';
 
 interface HeaderProps {
   onOpenAudit: () => void;
   onOpenUpload: () => void;
-  onOpenBenchmark: () => void;
-  onOpenDeck: () => void;
   onOpenContracts: () => void;
   onOpenDiff?: () => void;
-  onOpenChaosDaemon?: () => void;
-  onOpenSqlConsole?: () => void;
-  onOpenIntegrationHub?: () => void;
-  onOpenAgentSwarm?: () => void;
-  onOpenSelfHealing?: () => void;
-  onOpenVault?: () => void;
-  onOpenInfraConfig?: () => void;
   openIncidentsCount: number;
   quarantinedCount: number;
 }
@@ -22,17 +13,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   onOpenAudit,
   onOpenUpload,
-  onOpenBenchmark,
-  onOpenDeck,
   onOpenContracts,
   onOpenDiff,
-  onOpenChaosDaemon,
-  onOpenSqlConsole,
-  onOpenIntegrationHub,
-  onOpenAgentSwarm,
-  onOpenSelfHealing,
-  onOpenVault,
-  onOpenInfraConfig,
   openIncidentsCount,
   quarantinedCount
 }) => {
@@ -162,61 +144,6 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {onOpenVault && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenVault}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(129, 140, 248, 0.5)' }}
-            >
-              <Lock size={14} color="#818CF8" />
-              <span>Privacy Vault & FedNow</span>
-            </button>
-          )}
-
-          {onOpenSelfHealing && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenSelfHealing}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(16, 185, 129, 0.5)' }}
-            >
-              <Wrench size={14} color="var(--accent-emerald)" />
-              <span>Self-Healing & Drift</span>
-            </button>
-          )}
-
-          {onOpenAgentSwarm && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenAgentSwarm}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(139, 92, 246, 0.5)' }}
-            >
-              <Bot size={14} color="#A78BFA" />
-              <span>Agent Swarm</span>
-            </button>
-          )}
-
-          {onOpenIntegrationHub && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenIntegrationHub}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(6, 182, 212, 0.5)' }}
-            >
-              <Network size={14} color="var(--accent-cyan)" />
-              <span>Integration Hub</span>
-            </button>
-          )}
-
-          {onOpenInfraConfig && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenInfraConfig}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(56, 189, 248, 0.5)' }}
-            >
-              <Settings size={14} color="#38BDF8" />
-              <span>Infra Setup</span>
-            </button>
-          )}
-
           <button 
             className="btn btn-secondary"
             onClick={onOpenContracts}
@@ -225,28 +152,6 @@ export const Header: React.FC<HeaderProps> = ({
             <Building2 size={14} color="var(--accent-cyan)" />
             <span>Contracts & Partners</span>
           </button>
-
-          {onOpenSqlConsole && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenSqlConsole}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(14, 165, 233, 0.4)' }}
-            >
-              <Database size={14} color="var(--accent-cyan)" />
-              <span>SQL Console</span>
-            </button>
-          )}
-
-          {onOpenChaosDaemon && (
-            <button 
-              className="btn btn-secondary"
-              onClick={onOpenChaosDaemon}
-              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(239, 68, 68, 0.4)' }}
-            >
-              <Flame size={14} color="var(--accent-crimson)" />
-              <span>Chaos Monkey</span>
-            </button>
-          )}
 
           {onOpenDiff && (
             <button 
@@ -258,24 +163,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Visual Redliner</span>
             </button>
           )}
-
-          <button 
-            className="btn btn-secondary"
-            onClick={onOpenDeck}
-            style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(2, 132, 199, 0.4)' }}
-          >
-            <Briefcase size={14} color="var(--accent-cyan)" />
-            <span>Executive Deck</span>
-          </button>
-
-          <button 
-            className="btn btn-secondary"
-            onClick={onOpenBenchmark}
-            style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Activity size={14} color="var(--accent-emerald)" />
-            <span>Benchmark & Evals</span>
-          </button>
 
           <button 
             className="btn btn-primary"

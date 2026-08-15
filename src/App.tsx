@@ -1,22 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
-import { ChaosControls } from './components/ChaosControls';
+import { DemoDataBanner } from './components/DemoDataBanner';
 import { SlaBoard } from './components/SlaBoard';
 import { FileInspectorModal } from './components/FileInspectorModal';
 import { AiAnalystPanel } from './components/AiAnalystPanel';
 import { AuditLedgerModal } from './components/AuditLedgerModal';
 import { UploadModal } from './components/UploadModal';
-import { BenchmarkModal } from './components/BenchmarkModal';
-import { ExecutiveDeckModal } from './components/ExecutiveDeckModal';
 import { ContractConfigModal } from './components/ContractConfigModal';
 import { FileDiffModal } from './components/FileDiffModal';
-import { ChaosMonkeyModal } from './components/ChaosMonkeyModal';
-import { SqlConsoleModal } from './components/SqlConsoleModal';
-import { IntegrationHubModal } from './components/IntegrationHubModal';
-import { AgentSwarmModal } from './components/AgentSwarmModal';
-import { SelfHealingModal } from './components/SelfHealingModal';
-import { VaultAndInstantPaymentsModal } from './components/VaultAndInstantPaymentsModal';
-import { InfrastructureConfigModal } from './components/InfrastructureConfigModal';
 
 import {
   Partner,
@@ -36,10 +27,17 @@ import {
   SAMPLE_CORRUPTED_NACHA
 } from './mockData/syntheticCorpus';
 
-import { parseAndValidateNacha } from './parsers/nachaParser';
-import { evaluateMissingFileIncident } from './scheduler/deadlineEngine';
+// The browser-side NACHA parser and deadline engine are no longer imported.
+// They duplicated server logic, so a verdict could be rendered that no server
+// had produced. Validation state now comes from the gateway. The files remain
+// in the tree for Prompt 12 to fold into a typed API client or delete.
+//
+// runExceptionAnalyst is retained: it is a deterministic matcher from finding
+// codes to approved runbook passages, not a model call. It is mislabelled as
+// "AI" in the panel that renders it; Prompt 15 replaces it with the real
+// read-only analyst and corrects the naming.
 import { runExceptionAnalyst } from './ai/exceptionAnalyst';
-import { TamperEvidentEventStore, calculateSha256 } from './audit/hashChain';
+import { TamperEvidentEventStore } from './audit/hashChain';
 import { SentinelApi, ApiIngestionResult } from './services/api';
 
 import {
@@ -66,18 +64,8 @@ export const App: React.FC = () => {
   const [inspectedFile, setInspectedFile] = useState<{ file: FileInstance; rawContent: string } | null>(null);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
-  const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
-  const [showDeckModal, setShowDeckModal] = useState<boolean>(false);
   const [showContractsModal, setShowContractsModal] = useState<boolean>(false);
   const [showDiffModal, setShowDiffModal] = useState<boolean>(false);
-  const [showChaosMonkeyModal, setShowChaosMonkeyModal] = useState<boolean>(false);
-  const [showSqlConsoleModal, setShowSqlConsoleModal] = useState<boolean>(false);
-  const [showIntegrationHubModal, setShowIntegrationHubModal] = useState<boolean>(false);
-  const [showSwarmModal, setShowSwarmModal] = useState<boolean>(false);
-  const [showSelfHealingModal, setShowSelfHealingModal] = useState<boolean>(false);
-  const [showVaultModal, setShowVaultModal] = useState<boolean>(false);
-  const [showInfraConfigModal, setShowInfraConfigModal] = useState<boolean>(false);
-  const [isSimulating, setIsSimulating] = useState<boolean>(false);
 
   // Initialize initial Genesis domain event
   useEffect(() => {
@@ -91,271 +79,6 @@ export const App: React.FC = () => {
       'CORR-INIT-001'
     );
   }, []);
-
-  // Handler: Simulate Missing File (FedACH 16:45 Cutoff Breach)
-  const handleSimulateMissingFile = async () => {
-    setIsSimulating(true);
-    
-    // Pick the Meridian expectation occurrence and simulate past due time
-    setOccurrences(prev => prev.map(occ => {
-      if (occ.id === 'EXP-MERIDIAN-TODAY') {
-        const pastDueTime = new Date(Date.now() - 3600000).toISOString();
-        const pastGraceTime = new Date(Date.now() - 1800000).toISOString();
-        return {
-          ...occ,
-          dueAtUtc: pastDueTime,
-          graceExpiresAtUtc: pastGraceTime,
-          status: 'OVERDUE'
-        };
-      }
-      return occ;
-    }));
-
-    const meridianOcc = occurrences.find(o => o.id === 'EXP-MERIDIAN-TODAY')!;
-    const contract = contracts.find(c => c.id === meridianOcc.contractId)!;
-    const partner = partners.find(p => p.id === meridianOcc.partnerId)!;
-
-    const incident = evaluateMissingFileIncident(
-      { ...meridianOcc, dueAtUtc: new Date(Date.now() - 3600000).toISOString(), graceExpiresAtUtc: new Date(Date.now() - 1800000).toISOString() },
-      contract,
-      partner
-    );
-
-    if (incident) {
-      setIncidents(prev => [incident, ...prev.filter(i => i.id !== incident.id)]);
-
-      await eventStore.appendEvent(
-        'TENANT-DEFAULT',
-        incident.id,
-        'INCIDENT',
-        'INCIDENT_MISSING_FILE_OPENED',
-        'SCHEDULER_DEADLINE_ENGINE',
-        { incidentType: incident.type, occurrenceId: meridianOcc.id, deadline: incident.slaDeadlineUtc },
-        `CORR-${Date.now()}`
-      );
-
-      // Trigger automatic background AI triage analysis
-      const agentRun = runExceptionAnalyst(incident, undefined, contract, partner);
-      setActiveAgentRun({ agentRun, incident });
-    }
-
-    setIsSimulating(false);
-  };
-
-  // Handler: Simulate Malformed NACHA File Drop (Out of Balance / Hash Mismatch)
-  const handleSimulateMalformedNacha = async () => {
-    setIsSimulating(true);
-
-    const rawContent = SAMPLE_CORRUPTED_NACHA;
-    const contract = contracts[0]; // Meridian Commercial ACH
-    const partner = partners[0];
-    let sha256 = await calculateSha256(rawContent);
-
-    // Run deterministic streaming NACHA validation
-    const { result } = parseAndValidateNacha(rawContent, contract);
-
-    // Ingest into live Go Gateway backend
-    try {
-      const apiRes = await SentinelApi.ingestRawNacha('MERIDIAN_ACH_COMMERCIAL_20260814_1645.txt', rawContent);
-      if (apiRes && apiRes.hash) {
-        sha256 = apiRes.hash;
-      }
-    } catch (e) {
-      console.warn('Go Gateway ingestion skipped, using client validator:', e);
-    }
-
-    const fileInstanceId = `FILE-CORRUPTED-${Date.now()}`;
-    const newFile: FileInstance = {
-      id: fileInstanceId,
-      sourceEventId: `SRC-EVT-SFTP-${Date.now()}`,
-      partnerId: partner.id,
-      contractId: contract.id,
-      occurrenceId: 'EXP-MERIDIAN-TODAY',
-      filename: 'MERIDIAN_ACH_COMMERCIAL_20260814_1645.txt',
-      byteSize: rawContent.length,
-      sha256Hash: sha256,
-      s3Uri: `s3://sentinel-originals/quarantine/${fileInstanceId}.txt`,
-      state: 'QUARANTINED',
-      receivedAtUtc: new Date().toISOString(),
-      validationResult: result,
-      quarantineReason: `${result.findings.filter(f => f.severity === 'FATAL' || f.severity === 'ERROR' || f.severity === 'CRITICAL').length} Nacha specification violation(s) detected.`
-    };
-
-    setFiles(prev => [newFile, ...prev]);
-
-    // Update occurrence state to QUARANTINED
-    setOccurrences(prev => prev.map(o => o.id === 'EXP-MERIDIAN-TODAY' ? { ...o, status: 'QUARANTINED', matchedFileInstanceId: newFile.id } : o));
-
-    // Create Incident for Quarantined Batch
-    const newIncident: Incident = {
-      id: `INC-CORRUPT-${Date.now()}`,
-      type: 'NACHA_ENTRY_HASH_MISMATCH',
-      severity: 'CRITICAL',
-      title: `Quarantined ACH Batch: ${newFile.filename} (${partner.name})`,
-      occurrenceId: 'EXP-MERIDIAN-TODAY',
-      fileInstanceId: newFile.id,
-      partnerId: partner.id,
-      status: 'OPEN',
-      openedAtUtc: new Date().toISOString(),
-      slaDeadlineUtc: '16:45:00 UTC',
-      resolutionNote: `Pre-flight validation halted release. ${result.findings[0]?.message || 'Corrupted control records.'}`
-    };
-
-    setIncidents(prev => [newIncident, ...prev]);
-
-    // Record Append-Only Domain Event
-    await eventStore.appendEvent(
-      'TENANT-DEFAULT',
-      newFile.id,
-      'FILE',
-      'FILE_QUARANTINED_PRE_FLIGHT',
-      'VALIDATOR_NACHA_ENGINE',
-      { filename: newFile.filename, sha256, findingsCount: result.findings.length, outcome: 'QUARANTINED' },
-      `CORR-${Date.now()}`
-    );
-
-    // Auto-launch AI Exception Analyst (via Python AI tier or client)
-    try {
-      const aiRes = await SentinelApi.triggerTriage(newIncident.id);
-      const agentRun: AgentRun = {
-        id: `AGENT-RUN-${Date.now()}`,
-        incidentId: newIncident.id,
-        agentVersion: aiRes.agent_version || 'Astra 2.0 RRR Standard',
-        modelIdentifier: 'astra-2.0-financial-reasoning',
-        ranAtUtc: new Date().toISOString(),
-        inputDigest: sha256.substring(0, 16),
-        citedEventIds: [`EVT-${Date.now()}`],
-        citedFindingCodes: ['ACH_ERR_0802_HASH_MISMATCH'],
-        citedRunbookSections: aiRes.citations,
-        findingsSummary: aiRes.summary,
-        hypotheses: [
-          {
-            hypothesis: 'Batch Control Entry Hash Mismatch',
-            confidence: 'HIGH',
-            supportingEvidence: ['Trailer entry hash differs from computed entry hash sum.']
-          }
-        ],
-        proposedActionPlan: aiRes.proposed_actions.map((act, i) => ({
-          step: i + 1,
-          action: act.description,
-          authorityTier: 2 as const,
-          requiresHumanApproval: true
-        })),
-        metrics: {
-          durationMs: aiRes.metrics?.durationMs || 120,
-          inputTokens: aiRes.metrics?.inputTokens || 450,
-          outputTokens: aiRes.metrics?.outputTokens || 210,
-          estimatedCostUsd: aiRes.metrics?.estimatedCostUsd || 0.00045
-        }
-      };
-      setActiveAgentRun({ agentRun, incident: newIncident });
-    } catch {
-      const agentRun = runExceptionAnalyst(newIncident, newFile, contract, partner, result);
-      setActiveAgentRun({ agentRun, incident: newIncident });
-    }
-
-    setInspectedFile({ file: newFile, rawContent });
-    setIsSimulating(false);
-  };
-
-  // Handler: Simulate Valid Balanced NACHA File Drop (Nominal STP)
-  const handleSimulateValidNacha = async () => {
-    setIsSimulating(true);
-
-    const rawContent = SAMPLE_VALID_NACHA;
-    const contract = contracts[0];
-    const partner = partners[0];
-    let sha256 = await calculateSha256(rawContent);
-
-    const { result } = parseAndValidateNacha(rawContent, contract);
-
-    // Ingest into live Go Gateway backend
-    try {
-      const apiRes = await SentinelApi.ingestRawNacha('MERIDIAN_ACH_COMMERCIAL_20260814_1645.txt', rawContent);
-      if (apiRes && apiRes.hash) {
-        sha256 = apiRes.hash;
-      }
-    } catch (e) {
-      console.warn('Go Gateway ingestion skipped, using client validator:', e);
-    }
-
-    const fileInstanceId = `FILE-VALID-${Date.now()}`;
-    const newFile: FileInstance = {
-      id: fileInstanceId,
-      sourceEventId: `SRC-EVT-SFTP-${Date.now()}`,
-      partnerId: partner.id,
-      contractId: contract.id,
-      occurrenceId: 'EXP-MERIDIAN-TODAY',
-      filename: 'MERIDIAN_ACH_COMMERCIAL_20260814_1645.txt',
-      byteSize: rawContent.length,
-      sha256Hash: sha256,
-      s3Uri: `s3://sentinel-originals/valid/${fileInstanceId}.txt`,
-      state: 'VALID',
-      receivedAtUtc: new Date().toISOString(),
-      validationResult: result
-    };
-
-    setFiles(prev => [newFile, ...prev]);
-
-    // Update occurrence state to VALID / RELEASED
-    setOccurrences(prev => prev.map(o => o.id === 'EXP-MERIDIAN-TODAY' ? { ...o, status: 'VALID', matchedFileInstanceId: newFile.id } : o));
-
-    // Resolve any open incidents for this occurrence
-    setIncidents(prev => prev.filter(i => i.occurrenceId !== 'EXP-MERIDIAN-TODAY'));
-
-    // Record in Audit Ledger
-    await eventStore.appendEvent(
-      'TENANT-DEFAULT',
-      newFile.id,
-      'FILE',
-      'FILE_VALIDATED_AND_RELEASED',
-      'VALIDATOR_NACHA_ENGINE',
-      { filename: newFile.filename, sha256, totalDebits: result.totalDebitsUsd, totalCredits: result.totalCreditsUsd },
-      `CORR-${Date.now()}`
-    );
-
-    setInspectedFile({ file: newFile, rawContent });
-    setIsSimulating(false);
-  };
-
-  // Handler: Simulate Mid-Validation Worker Crash & Recovery
-  const handleSimulateWorkerCrashRecovery = async () => {
-    setIsSimulating(true);
-
-    // Log simulated crash
-    await eventStore.appendEvent(
-      'TENANT-DEFAULT',
-      'WORKER-POD-4',
-      'FILE',
-      'WORKER_MID_STREAM_TERMINATION',
-      'CHAOS_HARNESS',
-      { signal: 'SIGKILL', fileRef: 'MERIDIAN_ACH_COMMERCIAL_20260814_1645.txt' },
-      `CORR-CHAOS-${Date.now()}`
-    );
-
-    // Simulate recovery through PostgreSQL job re-leasing
-    setTimeout(async () => {
-      await eventStore.appendEvent(
-        'TENANT-DEFAULT',
-        'WORKER-POD-5',
-        'FILE',
-        'JOB_LEASE_EXPIRED_AND_REACQUIRED',
-        'SCHEDULER_RECOVERY_WORKER',
-        { status: 'RESUMED_STREAMING', arrivalAcknowledged: true, duplicateSuppressed: true },
-        `CORR-CHAOS-${Date.now()}`
-      );
-      setIsSimulating(false);
-    }, 800);
-  };
-
-  // Reset State
-  const handleResetAll = () => {
-    setOccurrences(generateInitialOccurrences());
-    setFiles([]);
-    setIncidents([]);
-    setActiveAgentRun(null);
-    setInspectedFile(null);
-  };
 
   // Human Approval Action from Eliza AI Panel
   const handleApproveAction = async (actionType: Approval['actionType'], reason: string) => {
@@ -503,32 +226,16 @@ export const App: React.FC = () => {
       <Header 
         onOpenAudit={() => setShowAuditModal(true)}
         onOpenUpload={() => setShowUploadModal(true)}
-        onOpenBenchmark={() => setShowBenchmarkModal(true)}
-        onOpenDeck={() => setShowDeckModal(true)}
         onOpenContracts={() => setShowContractsModal(true)}
         onOpenDiff={() => setShowDiffModal(true)}
-        onOpenChaosDaemon={() => setShowChaosMonkeyModal(true)}
-        onOpenSqlConsole={() => setShowSqlConsoleModal(true)}
-        onOpenIntegrationHub={() => setShowIntegrationHubModal(true)}
-        onOpenAgentSwarm={() => setShowSwarmModal(true)}
-        onOpenSelfHealing={() => setShowSelfHealingModal(true)}
-        onOpenVault={() => setShowVaultModal(true)}
-        onOpenInfraConfig={() => setShowInfraConfigModal(true)}
         openIncidentsCount={openIncidentsCount}
         quarantinedCount={quarantinedCount}
       />
 
       {/* Main Operations Cockpit Content */}
       <main style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
-        {/* Chaos & Simulation Bar */}
-        <ChaosControls 
-          onSimulateMissingFile={handleSimulateMissingFile}
-          onSimulateMalformedNacha={handleSimulateMalformedNacha}
-          onSimulateValidNacha={handleSimulateValidNacha}
-          onSimulateWorkerCrashRecovery={handleSimulateWorkerCrashRecovery}
-          onResetAll={handleResetAll}
-          isSimulating={isSimulating}
-        />
+        <DemoDataBanner />
+
 
         {/* Top Section: Expected Delivery Windows & SLA Radar */}
         <SlaBoard 
@@ -795,20 +502,6 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Performance Benchmark & AI Adversarial Eval Modal */}
-      {showBenchmarkModal && (
-        <BenchmarkModal 
-          onClose={() => setShowBenchmarkModal(false)}
-        />
-      )}
-
-      {/* Executive Architecture & Briefing Deck Modal */}
-      {showDeckModal && (
-        <ExecutiveDeckModal 
-          onClose={() => setShowDeckModal(false)}
-        />
-      )}
-
       {/* Counterparty & Contract Configuration Manager Modal */}
       {showContractsModal && (
         <ContractConfigModal 
@@ -820,64 +513,6 @@ export const App: React.FC = () => {
       {showDiffModal && (
         <FileDiffModal 
           onClose={() => setShowDiffModal(false)}
-        />
-      )}
-
-      {/* Autonomous Chaos Monkey Daemon & Outbound Webhook Modal */}
-      {showChaosMonkeyModal && (
-        <ChaosMonkeyModal 
-          onClose={() => setShowChaosMonkeyModal(false)}
-          onTriggerScenario={(scenario) => {
-            if (scenario === 'MISSING_FILE') {
-              handleSimulateMissingFile();
-            } else if (scenario === 'WORKER_CRASH') {
-              handleSimulateWorkerCrashRecovery();
-            } else {
-              handleSimulateMalformedNacha();
-            }
-          }}
-        />
-      )}
-
-      {/* Institutional Read-Only SQL Audit Console Modal */}
-      {showSqlConsoleModal && (
-        <SqlConsoleModal 
-          onClose={() => setShowSqlConsoleModal(false)}
-        />
-      )}
-
-      {/* Secure Integration Hub & Visual Lineage DAG Modal */}
-      {showIntegrationHubModal && (
-        <IntegrationHubModal 
-          onClose={() => setShowIntegrationHubModal(false)}
-        />
-      )}
-
-      {/* Astra Multi-Agent Swarm Cockpit Modal */}
-      {showSwarmModal && (
-        <AgentSwarmModal 
-          onClose={() => setShowSwarmModal(false)}
-        />
-      )}
-
-      {/* Infrastructure Config Modal */}
-      {showInfraConfigModal && (
-        <InfrastructureConfigModal
-          onClose={() => setShowInfraConfigModal(false)}
-        />
-      )}
-
-      {/* Autonomous Self-Healing & Drift Inspector Modal */}
-      {showSelfHealingModal && (
-        <SelfHealingModal 
-          onClose={() => setShowSelfHealingModal(false)}
-        />
-      )}
-
-      {/* Zero-Knowledge Vault & FedNow Instant Gateway Modal */}
-      {showVaultModal && (
-        <VaultAndInstantPaymentsModal 
-          onClose={() => setShowVaultModal(false)}
         />
       )}
     </div>

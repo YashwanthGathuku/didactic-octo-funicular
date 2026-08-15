@@ -5,6 +5,41 @@
 
 const API_BASE_URL = 'http://localhost:8080/api/v1';
 
+/**
+ * ApiResult makes dependency failure a state the UI must handle, rather than
+ * something a catch block can quietly swallow.
+ *
+ * getSlaBoard() and getIncidents() previously caught every error, logged
+ * "using local mock state", and returned []. A backend outage was therefore
+ * indistinguishable from "no incidents" -- the screen rendered as healthy and
+ * empty. Callers must now branch on `state`.
+ *
+ * Prompt 12 replaces this with a generated, typed API client that also carries
+ * authentication; Prompt 04 supplies the credentials it will send.
+ */
+export type ApiResult<T> =
+  | { state: 'ok'; data: T }
+  | { state: 'unavailable'; error: string }
+  | { state: 'unauthorized'; error: string };
+
+async function request<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
+  try {
+    const res = await fetch(url, init);
+    if (res.status === 401 || res.status === 403) {
+      return { state: 'unauthorized', error: `Not authorized (HTTP ${res.status}).` };
+    }
+    if (!res.ok) {
+      return { state: 'unavailable', error: `Gateway returned HTTP ${res.status}.` };
+    }
+    return { state: 'ok', data: (await res.json()) as T };
+  } catch (e) {
+    return {
+      state: 'unavailable',
+      error: e instanceof Error ? e.message : 'Gateway unreachable.',
+    };
+  }
+}
+
 export interface ApiHealth {
   status: string;
   service: string;
@@ -69,36 +104,16 @@ export interface ApiAnalystResponse {
 }
 
 export const SentinelApi = {
-  async checkHealth(): Promise<ApiHealth | null> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/health`, { method: 'GET' });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
+  async checkHealth(): Promise<ApiResult<ApiHealth>> {
+    return request<ApiHealth>(`${API_BASE_URL}/health`);
   },
 
-  async getSlaBoard(): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/sla-board`);
-      if (!res.ok) throw new Error('Failed to fetch SLA board');
-      return await res.json();
-    } catch (e) {
-      console.warn('Backend SLA Board unavailable, using local mock state', e);
-      return [];
-    }
+  async getSlaBoard(): Promise<ApiResult<any[]>> {
+    return request<any[]>(`${API_BASE_URL}/sla-board`);
   },
 
-  async getIncidents(): Promise<any[]> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/incidents`);
-      if (!res.ok) throw new Error('Failed to fetch incidents');
-      return await res.json();
-    } catch (e) {
-      console.warn('Backend incidents unavailable, using local mock state', e);
-      return [];
-    }
+  async getIncidents(): Promise<ApiResult<any[]>> {
+    return request<any[]>(`${API_BASE_URL}/incidents`);
   },
 
   async getLedger(): Promise<ApiLedgerSummary | null> {
