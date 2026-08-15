@@ -118,9 +118,92 @@ to is a 403, and a tenant that does not exist returns a byte-identical response
 to one that exists but is not yours, so the header cannot be used to enumerate
 tenants.
 
-## Known gaps
+## Gap status
 
-These are real and tracked, not oversights:
+All five gaps recorded at the end of Prompt 04 have been addressed. What each
+now is, precisely:
+
+### 1. `/metrics` authentication — CLOSED
+
+Guarded by its own credential (`SENTINEL_METRICS_TOKEN`, minimum 32 characters),
+required in the production profile and compared in constant time. A scraper is a
+machine with no tenant and no roles, so it gets a scrape credential rather than
+an OIDC identity it could not meaningfully hold. In `local-demo` the process
+binds loopback only, which is the guard there. Tested anonymous, wrong
+credential and correct credential.
+
+### 2. Authorization Code + PKCE — CLOSED (flow), with the wiring noted
+
+`internal/auth/pkce.go` implements the flow: S256 challenge only, separate
+`state` and `nonce`, a 10-minute flow TTL, open-redirect sanitisation, HttpOnly
++ SameSite session cookie and a readable CSRF cookie for double-submit.
+
+Tested against a stub authorization server that **actually verifies the PKCE
+verifier**, including the case that matters: a stolen authorization code
+redeemed with a different verifier is refused, while the legitimate flow
+succeeds. Also covered: state and nonce mismatch, expired flow, provider error
+bodies not leaking into ours, and a response with no `id_token`.
+
+Still to do: mounting `/auth/login`, `/auth/callback` and `/auth/logout` as
+routes and issuing the session the CSRF middleware already protects. The flow
+logic and its failure modes are done and tested; the HTTP handlers that call
+them are not yet registered.
+
+### 3. JWKS over the network — CLOSED, with named residue
+
+`FetchJWKS` is now exercised against a real HTTP server: fetch then verify a
+token signed by the matching key, multi-key rotation, HTTP error statuses,
+malformed and empty documents, undersized (1024-bit) keys refused, keys with no
+`kid` skipped, oversized bodies bounded, context cancellation honoured, and
+unreachable hosts erroring rather than yielding an empty key set.
+
+Precisely what remains unverified: TLS to a real host (httptest serves plain
+HTTP), provider-specific document quirks such as `x5c` chains, and live rotation
+timing. These are named in a comment at the foot of `jwks_test.go`.
+
+### 4. Inbox watcher tenancy — CLOSED
+
+The watcher no longer defaults to a tenant. `SENTINEL_WATCHER_TENANT` must name
+one, the process verifies the tenant exists before starting the watcher, and
+with no tenant configured **the watcher does not run at all** and says so. A
+daemon that silently attributes every arriving file to one tenant is worse than
+a daemon that does not run.
+
+Contract-based tenant resolution — matching a filename to the feed contract that
+expects it — is Prompt 10 and remains the eventual design.
+
+### 5. PostgreSQL row-level security — CLOSED
+
+`migrations_postgres/001_schema_and_rls.sql` enables **and forces** RLS on
+`partners`, `file_instances`, `incidents` and `audit_events`, with `USING` and
+`WITH CHECK` on every policy. `WITH CHECK` is what stops a write into another
+tenant; `USING` alone would filter reads while still permitting the insert.
+
+Verified against a real PostgreSQL 16 server, as a `NOSUPERUSER` role that owns
+none of the tables:
+
+| Property | Result |
+|---|---|
+| Query with no tenant set | **0 rows** — a forgotten scope starves rather than discloses |
+| Scoped read | only the caller's own tenant |
+| Cross-tenant `INSERT` | refused: `new row violates row-level security policy` |
+| Cross-tenant `UPDATE` | affects 0 rows; the target row is unchanged |
+| Counts | scoped; the unscoped count is 0 |
+| App role | not superuser, owns no protected table |
+| Every protected table | `relrowsecurity` and `relforcerowsecurity` both true |
+
+A CI job runs these against a real PostgreSQL service container **and fails if
+the tests skip**, because a security test that quietly does nothing is worse
+than no test.
+
+**Scope boundary:** the running application still uses SQLite. The PostgreSQL
+schema and its policies are proven, and the repository layer is already written
+against a tenant-scoped interface, but the runtime port is not done. RLS is
+therefore a verified defence that is not yet in the request path.
+
+## Original gap list (superseded by the section above)
+
+Retained so the history of what was outstanding is visible:
 
 1. **`/metrics` is unauthenticated.** It is registered outside `/api/v1`. It
    emits no tenant names, filenames or business values, but it should still sit

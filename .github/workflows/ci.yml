@@ -173,6 +173,60 @@ jobs:
             echo "OK: evals refused to emit a pass rate it did not measure"
           fi
 
+  postgres-rls:
+    name: PostgreSQL row-level security
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.6-alpine
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: sentinel_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: gateway/go.sum
+
+      # The application role must own nothing and be no superuser, or it would
+      # bypass the very policies under test.
+      - name: Apply schema as owner and create a least-privilege app role
+        env:
+          PGPASSWORD: ci-postgres-password
+        run: |
+          psql -h localhost -U postgres -d sentinel_test \
+            -f gateway/migrations_postgres/001_schema_and_rls.sql
+          psql -h localhost -U postgres -d sentinel_test -c \
+            "CREATE ROLE sentinel_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE;"
+          psql -h localhost -U postgres -d sentinel_test -c \
+            "GRANT SELECT,INSERT,UPDATE ON partners,file_instances,incidents,audit_events TO sentinel_app;"
+          psql -h localhost -U postgres -d sentinel_test -c \
+            "INSERT INTO tenants (id,name) VALUES ('TENANT-ALPHA','Alpha'),('TENANT-BETA','Beta');"
+
+      - name: Row-level security tests
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: go test -run 'TestRls|TestApplicationRole' -v ./internal/repository/
+
+      # A skip here would mean the security property went unverified, so assert
+      # the tests actually ran.
+      - name: Assert the RLS tests were not skipped
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: |
+          out=$(go test -run 'TestRls|TestApplicationRole' -v ./internal/repository/ 2>&1)
+          if echo "$out" | grep -q "SKIP"; then
+            echo "FAIL: row-level security tests were skipped"; echo "$out"; exit 1
+          fi
+          echo "OK: RLS tests executed against a real PostgreSQL server"
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

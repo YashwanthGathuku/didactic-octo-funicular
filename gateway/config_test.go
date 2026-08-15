@@ -27,6 +27,7 @@ func TestProductionProfileRefusesIncompleteConfiguration(t *testing.T) {
 		"SENTINEL_OIDC_ISSUER":    "https://idp.example.com/",
 		"SENTINEL_OIDC_AUDIENCE":  "sentinel-flow-api",
 		"SENTINEL_OIDC_JWKS_URL":  "https://idp.example.com/.well-known/jwks.json",
+		"SENTINEL_METRICS_TOKEN":  strings.Repeat("m", 40),
 	}
 
 	// Sanity: the complete set must load.
@@ -46,6 +47,8 @@ func TestProductionProfileRefusesIncompleteConfiguration(t *testing.T) {
 		"SENTINEL_OIDC_ISSUER",
 		"SENTINEL_OIDC_AUDIENCE",
 		"SENTINEL_OIDC_JWKS_URL",
+		// An open /metrics is a free inventory of a system's internals.
+		"SENTINEL_METRICS_TOKEN",
 	} {
 		t.Run("missing_"+missing, func(t *testing.T) {
 			withEnv(t, complete)
@@ -72,6 +75,7 @@ func TestProductionRejectsWeakOrDefaultToken(t *testing.T) {
 		"SENTINEL_OIDC_ISSUER":    "https://idp.example.com/",
 		"SENTINEL_OIDC_AUDIENCE":  "sentinel-flow-api",
 		"SENTINEL_OIDC_JWKS_URL":  "https://idp.example.com/.well-known/jwks.json",
+		"SENTINEL_METRICS_TOKEN":  strings.Repeat("m", 40),
 	}
 
 	for _, token := range []string{"password", "minioadmin", "changeme", "admin", "short"} {
@@ -295,5 +299,66 @@ func TestDemoSeedIsRefusedOutsideDemoProfile(t *testing.T) {
 	_ = db.QueryRow("SELECT COUNT(*) FROM partners").Scan(&partners)
 	if partners == 0 {
 		t.Errorf("demo seed applied but wrote no rows")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Gap fixes: metrics credential and watcher tenant
+// ---------------------------------------------------------------------------
+
+// The watcher must not silently choose a tenant for files it ingests.
+func TestWatcherIsDisabledWithoutAnExplicitTenant(t *testing.T) {
+	withEnv(t, map[string]string{"SENTINEL_PROFILE": "local-demo"})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.WatcherEnabled() {
+		t.Errorf("the watcher is enabled with no tenant configured; it would write every arriving file into a default tenant")
+	}
+
+	t.Setenv("SENTINEL_WATCHER_TENANT", "TENANT-ALPHA")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.WatcherEnabled() || cfg.WatcherTenant != "TENANT-ALPHA" {
+		t.Errorf("an explicitly configured watcher tenant was not honoured: %+v", cfg.WatcherTenant)
+	}
+}
+
+// StartInboxWatcher must refuse an empty tenant rather than defaulting.
+func TestWatcherRefusesEmptyTenant(t *testing.T) {
+	db := setupTestDb(t)
+	defer db.Close()
+	// Returns immediately without starting a goroutine; the assertion is that
+	// it does not panic and does not ingest under a guessed tenant.
+	StartInboxWatcher(db, "", t.TempDir())
+
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM file_instances").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("a watcher with no tenant wrote %d rows", n)
+	}
+}
+
+func TestProductionRejectsWeakMetricsToken(t *testing.T) {
+	base := map[string]string{
+		"SENTINEL_PROFILE":        "production",
+		"SENTINEL_API_TOKEN":      strings.Repeat("k", 48),
+		"DATABASE_URL":            "/var/lib/sentinel/sentinel.db",
+		"OBJECT_STORE_URL":        "http://minio:9000",
+		"SENTINEL_ALLOWED_ORIGIN": "https://ops.example.com",
+		"SENTINEL_PGP_KEYRING":    "/etc/sentinel/keyring.asc",
+		"SENTINEL_OIDC_ISSUER":    "https://idp.example.com/",
+		"SENTINEL_OIDC_AUDIENCE":  "sentinel-flow-api",
+		"SENTINEL_OIDC_JWKS_URL":  "https://idp.example.com/.well-known/jwks.json",
+	}
+	withEnv(t, base)
+	t.Setenv("SENTINEL_METRICS_TOKEN", "short")
+	if _, err := Load(); err == nil {
+		t.Errorf("production accepted a 5-character metrics token")
 	}
 }

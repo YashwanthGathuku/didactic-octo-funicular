@@ -10,8 +10,18 @@ import (
 	"time"
 )
 
-// StartInboxWatcher starts a background goroutine that polls the SFTP inbox directory.
-func StartInboxWatcher(db *sql.DB, inboxDir string) {
+// StartInboxWatcher starts a background goroutine that polls the inbox directory
+// and ingests arriving files into an explicit tenant.
+//
+// The tenant is a required parameter, not a default. A background daemon has no
+// request and therefore no principal, so the choice of where watched files
+// belong is an operator decision made in configuration. Passing an empty tenant
+// is a programming error and the watcher refuses to start.
+func StartInboxWatcher(db *sql.DB, tenantID string, inboxDir string) {
+	if tenantID == "" {
+		log.Println("[SFTP Watcher] refusing to start: no tenant supplied")
+		return
+	}
 	processedDir := filepath.Join(inboxDir, "processed")
 	quarantineDir := filepath.Join(inboxDir, "quarantine")
 
@@ -52,7 +62,7 @@ func StartInboxWatcher(db *sql.DB, inboxDir string) {
 
 				log.Printf("[SFTP Watcher] Detected new SFTP file drop: %s (%d bytes). Processing...\n", name, len(content))
 
-				result, err := ProcessFileBytes(db, DefaultTenantID, name, content)
+				result, err := ProcessFileBytes(db, tenantID, name, content)
 				if err != nil {
 					log.Printf("[SFTP Watcher] Ingestion error for %s: %v\n", name, err)
 					continue

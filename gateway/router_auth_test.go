@@ -259,3 +259,57 @@ func TestRouterRejectsTokenForAnotherAudience(t *testing.T) {
 		t.Errorf("a token for another audience was accepted: %d", rec.Code)
 	}
 }
+
+// Gap 1: /metrics is registered outside /api/v1 and was reachable anonymously.
+func TestMetricsRequiresCredentialInProduction(t *testing.T) {
+	db := setupTestDb(t)
+	defer db.Close()
+
+	cfg := prodConfig()
+	cfg.MetricsToken = strings.Repeat("m", 40)
+	router := NewRouter(db, cfg, nil)
+
+	// Anonymous.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("anonymous /metrics returned %d, want 401", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "sentinel_") {
+		t.Errorf("anonymous /metrics leaked metric names: %s", rec.Body.String())
+	}
+
+	// Wrong credential.
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 40))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("wrong metrics credential returned %d, want 401", rec.Code)
+	}
+
+	// Correct credential.
+	req = httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.MetricsToken)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("correct metrics credential returned %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "sentinel_uptime_seconds") {
+		t.Errorf("authorised scrape did not receive metrics")
+	}
+}
+
+// In the demo profile the process binds loopback only, which is the guard.
+func TestMetricsIsOpenOnlyInTheDemoProfile(t *testing.T) {
+	db := setupTestDb(t)
+	defer db.Close()
+	router := NewRouter(db, &Config{Profile: ProfileLocalDemo, AllowedOrigin: "x"}, nil)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("demo profile /metrics returned %d; loopback binding is the guard there", rec.Code)
+	}
+}

@@ -52,8 +52,21 @@ type Config struct {
 	OIDCAudience string
 	OIDCJWKSURL  string
 
+	// MetricsToken guards /metrics. Prometheus scrapers send it as a bearer
+	// token. Required in production: an open metrics endpoint is a free
+	// inventory of a system's internals.
+	MetricsToken string
+
 	// Storage
 	InboxPath string
+
+	// WatcherTenant is the tenant the inbox watcher ingests into.
+	//
+	// The watcher is a background daemon with no request and therefore no
+	// principal, so its tenant cannot come from a token. It must be an explicit
+	// operator decision: when this is empty the watcher does not start at all,
+	// rather than silently writing every arriving file into one tenant.
+	WatcherTenant string
 }
 
 // ConfigError collects every configuration problem rather than reporting the
@@ -103,6 +116,8 @@ func Load() (*Config, error) {
 		OIDCAudience:   env("SENTINEL_OIDC_AUDIENCE", ""),
 		OIDCJWKSURL:    env("SENTINEL_OIDC_JWKS_URL", ""),
 		InboxPath:      env("SENTINEL_INBOX_PATH", "./inbox"),
+		MetricsToken:   env("SENTINEL_METRICS_TOKEN", ""),
+		WatcherTenant:  env("SENTINEL_WATCHER_TENANT", ""),
 	}
 
 	var problems []string
@@ -156,6 +171,11 @@ func Load() (*Config, error) {
 		if cfg.OIDCJWKSURL == "" {
 			problems = append(problems, "SENTINEL_OIDC_JWKS_URL is required in the production profile: signatures cannot be verified without the provider's keys")
 		}
+		if cfg.MetricsToken == "" {
+			problems = append(problems, "SENTINEL_METRICS_TOKEN is required in the production profile: /metrics must not be open to anonymous callers")
+		} else if len(cfg.MetricsToken) < 32 {
+			problems = append(problems, fmt.Sprintf("SENTINEL_METRICS_TOKEN is %d characters; require at least 32", len(cfg.MetricsToken)))
+		}
 
 	default:
 		problems = append(problems, fmt.Sprintf(
@@ -199,6 +219,10 @@ func Load() (*Config, error) {
 	}
 	return cfg, nil
 }
+
+// WatcherEnabled reports whether the inbox watcher may run. It requires an
+// explicit tenant, so an operator has to decide where watched files belong.
+func (c *Config) WatcherEnabled() bool { return c.WatcherTenant != "" }
 
 // ErrNoAITier is returned by AI-dependent handlers when no AI tier is
 // configured. It is a normal condition, not a failure: deterministic ingestion

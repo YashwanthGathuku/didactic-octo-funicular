@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -123,8 +124,21 @@ func main() {
 		log.Printf("Applied %d migration(s): %s", len(applied), strings.Join(applied, ", "))
 	}
 
-	// 4. Background inbox watcher
-	StartInboxWatcher(db, cfg.InboxPath)
+	// 4. Background inbox watcher.
+	//
+	// Only started when an operator has named the tenant its files belong to.
+	// It has no request and therefore no principal, so leaving it to a default
+	// meant every watched file landed in one tenant regardless of origin.
+	if cfg.WatcherEnabled() {
+		var known int
+		if err := db.QueryRow("SELECT COUNT(*) FROM tenants WHERE id = ?", cfg.WatcherTenant).Scan(&known); err != nil || known == 0 {
+			log.Fatalf("SENTINEL_WATCHER_TENANT=%q does not exist; create the tenant or unset it to disable the watcher", cfg.WatcherTenant)
+		}
+		log.Printf("Inbox watcher enabled for tenant %s at %s", cfg.WatcherTenant, cfg.InboxPath)
+		StartInboxWatcher(db, cfg.WatcherTenant, cfg.InboxPath)
+	} else {
+		log.Println("Inbox watcher disabled: SENTINEL_WATCHER_TENANT is not set. Files dropped in the inbox will not be ingested.")
+	}
 
 	// Build the token verifier. In production a failure here is fatal: a
 	// gateway that cannot verify identity must not serve traffic.
@@ -210,8 +224,25 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 		}
 	}
 
-	// Prometheus Metrics Endpoint
-	r.Get("/metrics", ServePrometheusMetrics)
+	// Prometheus metrics.
+	//
+	// Guarded by its own credential rather than the API's identity layer: a
+	// scraper is a machine with no tenant and no roles, so giving it an OIDC
+	// identity would be modelling it as something it is not. In the demo profile
+	// the process binds loopback only, which is the guard there.
+	r.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.IsDemo() {
+			want := cfg.MetricsToken
+			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+		}
+		ServePrometheusMetrics(w, r)
+	})
 
 	// API Version 1
 	r.Route("/api/v1", func(r chi.Router) {
