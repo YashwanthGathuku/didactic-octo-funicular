@@ -2,9 +2,9 @@ package main
 
 import (
 	"database/sql"
+	_ "modernc.org/sqlite"
 	"os"
 	"testing"
-	_ "modernc.org/sqlite"
 )
 
 func TestMod10RoutingValidation(t *testing.T) {

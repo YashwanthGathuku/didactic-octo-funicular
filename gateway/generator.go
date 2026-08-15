@@ -9,12 +9,12 @@ import (
 type GeneratorPreset string
 
 const (
-	PresetBalancedPayroll         GeneratorPreset = "BALANCED_PPD_PAYROLL"
-	PresetUnbalancedCCD           GeneratorPreset = "UNBALANCED_CCD"
-	PresetCorruptedEntryHash      GeneratorPreset = "CORRUPTED_ENTRY_HASH"
-	PresetInvalidAbaRouting       GeneratorPreset = "INVALID_ABA_ROUTING"
-	PresetRecordAlignmentError    GeneratorPreset = "RECORD_ALIGNMENT_ERROR"
-	PresetMissingHeaderSequence   GeneratorPreset = "MISSING_HEADER_SEQUENCE"
+	PresetBalancedPayroll       GeneratorPreset = "BALANCED_PPD_PAYROLL"
+	PresetUnbalancedCCD         GeneratorPreset = "UNBALANCED_CCD"
+	PresetCorruptedEntryHash    GeneratorPreset = "CORRUPTED_ENTRY_HASH"
+	PresetInvalidAbaRouting     GeneratorPreset = "INVALID_ABA_ROUTING"
+	PresetRecordAlignmentError  GeneratorPreset = "RECORD_ALIGNMENT_ERROR"
+	PresetMissingHeaderSequence GeneratorPreset = "MISSING_HEADER_SEQUENCE"
 )
 
 type GeneratedNachaResult struct {

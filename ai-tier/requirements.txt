@@ -1,0 +1,19 @@
+# Runtime dependencies for the Sentinel Flow AI tier.
+#
+# Containerfile.ai copies this file; it previously did not exist, so the
+# container build failed at COPY before the pip fallback on the next line could
+# help. Pinned to exact versions so a container build is reproducible.
+#
+# Regenerate with:  pip install -r requirements.in && pip freeze > requirements.txt
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4
+pydantic-core==2.27.2
+starlette==0.41.3
+anyio==4.7.0
+click==8.1.8
+h11==0.14.0
+idna==3.10
+sniffio==1.3.1
+typing-extensions==4.12.2
+annotated-types==0.7.0

@@ -10,18 +10,18 @@ import (
 )
 
 type BenchmarkMetrics struct {
-	TotalRecordsParsed   int     `json:"totalRecordsParsed"`
-	DurationMs           float64 `json:"durationMs"`
-	RecordsPerSecond     float64 `json:"recordsPerSecond"`
-	ThroughputMBPerSec   float64 `json:"throughputMBPerSec"`
-	TotalBytesStreamed   int64   `json:"totalBytesStreamed"`
-	AllocatedMemoryKB    uint64  `json:"allocatedMemoryKB"`
-	TotalAllocations     uint64  `json:"totalAllocations"`
-	Sha256ThroughputMBs  float64 `json:"sha256ThroughputMBs"`
-	ValidationPassRate   float64 `json:"validationPassRate"`
-	EngineIdentifier     string  `json:"engineIdentifier"`
-	EntryHashSum         int64   `json:"entryHashSum"`
-	ValidRoutingRecords  int     `json:"validRoutingRecords"`
+	TotalRecordsParsed  int     `json:"totalRecordsParsed"`
+	DurationMs          float64 `json:"durationMs"`
+	RecordsPerSecond    float64 `json:"recordsPerSecond"`
+	ThroughputMBPerSec  float64 `json:"throughputMBPerSec"`
+	TotalBytesStreamed  int64   `json:"totalBytesStreamed"`
+	AllocatedMemoryKB   uint64  `json:"allocatedMemoryKB"`
+	TotalAllocations    uint64  `json:"totalAllocations"`
+	Sha256ThroughputMBs float64 `json:"sha256ThroughputMBs"`
+	ValidationPassRate  float64 `json:"validationPassRate"`
+	EngineIdentifier    string  `json:"engineIdentifier"`
+	EntryHashSum        int64   `json:"entryHashSum"`
+	ValidRoutingRecords int     `json:"validRoutingRecords"`
 }
 
 // GenerateLargeNachaCorpus creates a high-volume synthetic NACHA stream in memory.
@@ -149,17 +149,17 @@ func RunStreamingBenchmark(recordCount int) BenchmarkMetrics {
 	shaMBs := (float64(totalBytes) / (1024 * 1024)) / (shaDuration.Seconds() + 0.00001)
 
 	return BenchmarkMetrics{
-		TotalRecordsParsed:   parsedRecords,
-		DurationMs:           float64(totalDuration.Milliseconds()),
-		RecordsPerSecond:     recordsPerSec,
-		ThroughputMBPerSec:   mbPerSec,
-		TotalBytesStreamed:   totalBytes,
-		AllocatedMemoryKB:    (memEnd.TotalAlloc - memStart.TotalAlloc) / 1024,
-		TotalAllocations:     memEnd.Mallocs - memStart.Mallocs,
-		Sha256ThroughputMBs:  shaMBs,
-		ValidationPassRate:   validationPassRate,
-		EngineIdentifier:     "Sentinel-Go-FixedWidth-Scan-v1.1",
-		EntryHashSum:         entryHashSum,
-		ValidRoutingRecords:  validRoutings,
+		TotalRecordsParsed:  parsedRecords,
+		DurationMs:          float64(totalDuration.Milliseconds()),
+		RecordsPerSecond:    recordsPerSec,
+		ThroughputMBPerSec:  mbPerSec,
+		TotalBytesStreamed:  totalBytes,
+		AllocatedMemoryKB:   (memEnd.TotalAlloc - memStart.TotalAlloc) / 1024,
+		TotalAllocations:    memEnd.Mallocs - memStart.Mallocs,
+		Sha256ThroughputMBs: shaMBs,
+		ValidationPassRate:  validationPassRate,
+		EngineIdentifier:    "Sentinel-Go-FixedWidth-Scan-v1.1",
+		EntryHashSum:        entryHashSum,
+		ValidRoutingRecords: validRoutings,
 	}
 }

@@ -49,19 +49,19 @@ import (
 // ---------------------------------------------------------------------------
 
 type RobustAnomalyFinding struct {
-	IsAnomaly       bool    `json:"isAnomaly"`
-	ModifiedZ       float64 `json:"modifiedZ"`
-	Median          float64 `json:"median"`
-	MAD             float64 `json:"mad"`
-	ScaledMAD       float64 `json:"scaledMad"`
-	ActualValue     float64 `json:"actualValue"`
-	DeviationPct    float64 `json:"deviationPct"`
-	Threshold       float64 `json:"threshold"`
-	SampleCount     int     `json:"sampleCount"`
-	Severity        string  `json:"severity"`
-	FallbackUsed    bool    `json:"fallbackUsed"`
-	Explanation     string  `json:"explanation"`
-	InsufficientData bool   `json:"insufficientData"`
+	IsAnomaly        bool    `json:"isAnomaly"`
+	ModifiedZ        float64 `json:"modifiedZ"`
+	Median           float64 `json:"median"`
+	MAD              float64 `json:"mad"`
+	ScaledMAD        float64 `json:"scaledMad"`
+	ActualValue      float64 `json:"actualValue"`
+	DeviationPct     float64 `json:"deviationPct"`
+	Threshold        float64 `json:"threshold"`
+	SampleCount      int     `json:"sampleCount"`
+	Severity         string  `json:"severity"`
+	FallbackUsed     bool    `json:"fallbackUsed"`
+	Explanation      string  `json:"explanation"`
+	InsufficientData bool    `json:"insufficientData"`
 }
 
 const madToSigma = 1.4826 // 1 / Phi^{-1}(0.75)

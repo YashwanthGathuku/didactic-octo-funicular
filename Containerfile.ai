@@ -1,5 +1,5 @@
 # Python FastAPI Astra 2.0 AI Tier
-FROM docker.io/library/python:3.11-slim
+FROM docker.io/library/python:3.11.15-slim
 
 WORKDIR /app
 
@@ -12,7 +12,9 @@ RUN groupadd -r sentinel && useradd -r -g sentinel sentinel && \
     chown -R sentinel:sentinel /app
 
 COPY ai-tier/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt || pip install --no-cache-dir fastapi uvicorn pydantic
+# No `|| fallback`: a dependency install that silently degrades to a different
+# set of packages is not a reproducible build. If this fails, the build fails.
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ai-tier/ ./
 

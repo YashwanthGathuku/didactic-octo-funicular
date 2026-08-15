@@ -58,7 +58,7 @@ func StartInboxWatcher(db *sql.DB, inboxDir string) {
 					continue
 				}
 
-				log.Printf("[SFTP Watcher] File %s processed -> Status: %s, SHA256: %s, Findings: %d\n", 
+				log.Printf("[SFTP Watcher] File %s processed -> Status: %s, SHA256: %s, Findings: %d\n",
 					name, result.Status, result.Hash, len(result.Findings))
 
 				// Move file based on validation outcome

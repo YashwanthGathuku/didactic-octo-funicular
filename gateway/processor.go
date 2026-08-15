@@ -143,133 +143,133 @@ func ProcessFileBytes(db *sql.DB, filename string, content []byte) (*IngestionRe
 			}
 		}
 
-	var entryHashSum int64 = 0
-	var batchDebits int64 = 0
-	var batchCredits int64 = 0
-	var expectedEntryHash string = ""
-	var declaredBatchDebits int64 = 0
-	var declaredBatchCredits int64 = 0
-	var totalRecords = len(validLines)
-	result.TotalRecordsParsed = totalRecords
+		var entryHashSum int64 = 0
+		var batchDebits int64 = 0
+		var batchCredits int64 = 0
+		var expectedEntryHash string = ""
+		var declaredBatchDebits int64 = 0
+		var declaredBatchCredits int64 = 0
+		var totalRecords = len(validLines)
+		result.TotalRecordsParsed = totalRecords
 
-	for idx, line := range validLines {
-		lineNum := idx + 1
-		if len(line) != 94 {
+		for idx, line := range validLines {
+			lineNum := idx + 1
+			if len(line) != 94 {
+				result.Findings = append(result.Findings, ValidationFindingRecord{
+					Code:          "ACH_ERR_0001_INVALID_RECORD_LENGTH",
+					Description:   fmt.Sprintf("Record at line %d has length %d, expected exactly 94 characters.", lineNum, len(line)),
+					Severity:      "FATAL",
+					LineNumber:    lineNum,
+					RawData:       line,
+					RuleReference: "Nacha Operating Rules 2025, Section 3.1: Standard File Layout",
+				})
+				result.Status = "QUARANTINED"
+			}
+
+			if len(line) > 0 {
+				recordType := string(line[0])
+				switch recordType {
+				case "6": // Entry Detail
+					if len(line) >= 12 {
+						routing := line[3:12]
+						if !ValidateRoutingMod10(routing) {
+							result.Findings = append(result.Findings, ValidationFindingRecord{
+								Code:          "ACH_ERR_0602_INVALID_ABA_CHECK_DIGIT",
+								Description:   fmt.Sprintf("Receiving DFI Identification '%s' at line %d failed Federal Reserve Modulo 10 check digit verification.", routing, lineNum),
+								Severity:      "ERROR",
+								LineNumber:    lineNum,
+								RawData:       line,
+								RuleReference: "Nacha Operating Rules 2025, Appendix 1: ABA Routing Check Digits",
+							})
+							result.Status = "QUARANTINED"
+						}
+						// Add first 8 digits to Entry Hash
+						if r8, err := strconv.ParseInt(routing[:8], 10, 64); err == nil {
+							entryHashSum += r8
+						}
+					}
+					if len(line) >= 39 {
+						txCode := line[1:3]
+						amt, _ := strconv.ParseInt(line[29:39], 10, 64)
+						if txCode == "27" || txCode == "37" || txCode == "55" {
+							batchDebits += amt
+						} else {
+							batchCredits += amt
+						}
+					}
+				case "8": // Batch Control
+					if len(line) >= 44 {
+						expectedEntryHash = strings.TrimSpace(line[10:20])
+						declaredBatchDebits, _ = strconv.ParseInt(line[20:32], 10, 64)
+						declaredBatchCredits, _ = strconv.ParseInt(line[32:44], 10, 64)
+					}
+				}
+			}
+		}
+
+		calcHashStr := fmt.Sprintf("%010d", entryHashSum%10000000000)
+		result.CalculatedHash = calcHashStr
+		result.ExpectedHash = expectedEntryHash
+		result.TotalDebitsUsd = float64(batchDebits) / 100.0
+		result.TotalCreditsUsd = float64(batchCredits) / 100.0
+		result.IsBalanced = (batchDebits == batchCredits)
+
+		if expectedEntryHash != "" && calcHashStr != expectedEntryHash {
 			result.Findings = append(result.Findings, ValidationFindingRecord{
-				Code:          "ACH_ERR_0001_INVALID_RECORD_LENGTH",
-				Description:   fmt.Sprintf("Record at line %d has length %d, expected exactly 94 characters.", lineNum, len(line)),
-				Severity:      "FATAL",
-				LineNumber:    lineNum,
-				RawData:       line,
-				RuleReference: "Nacha Operating Rules 2025, Section 3.1: Standard File Layout",
+				Code:          "ACH_ERR_0802_HASH_MISMATCH",
+				Description:   fmt.Sprintf("Batch Control Entry Hash mismatch. Declared trailer: %s, Sum of entry 8-digit routing numbers: %s.", expectedEntryHash, calcHashStr),
+				Severity:      "CRITICAL",
+				LineNumber:    len(validLines) - 1,
+				RawData:       fmt.Sprintf("EntryHash: %s vs Calc: %s", expectedEntryHash, calcHashStr),
+				RuleReference: "Nacha Operating Rules 2025, Section 3.2.1: Entry Hash Field Validation",
 			})
 			result.Status = "QUARANTINED"
 		}
 
-		if len(line) > 0 {
-			recordType := string(line[0])
-			switch recordType {
-			case "6": // Entry Detail
-				if len(line) >= 12 {
-					routing := line[3:12]
-					if !ValidateRoutingMod10(routing) {
-						result.Findings = append(result.Findings, ValidationFindingRecord{
-							Code:          "ACH_ERR_0602_INVALID_ABA_CHECK_DIGIT",
-							Description:   fmt.Sprintf("Receiving DFI Identification '%s' at line %d failed Federal Reserve Modulo 10 check digit verification.", routing, lineNum),
-							Severity:      "ERROR",
-							LineNumber:    lineNum,
-							RawData:       line,
-							RuleReference: "Nacha Operating Rules 2025, Appendix 1: ABA Routing Check Digits",
-						})
-						result.Status = "QUARANTINED"
-					}
-					// Add first 8 digits to Entry Hash
-					if r8, err := strconv.ParseInt(routing[:8], 10, 64); err == nil {
-						entryHashSum += r8
-					}
-				}
-				if len(line) >= 39 {
-					txCode := line[1:3]
-					amt, _ := strconv.ParseInt(line[29:39], 10, 64)
-					if txCode == "27" || txCode == "37" || txCode == "55" {
-						batchDebits += amt
-					} else {
-						batchCredits += amt
-					}
-				}
-			case "8": // Batch Control
-				if len(line) >= 44 {
-					expectedEntryHash = strings.TrimSpace(line[10:20])
-					declaredBatchDebits, _ = strconv.ParseInt(line[20:32], 10, 64)
-					declaredBatchCredits, _ = strconv.ParseInt(line[32:44], 10, 64)
-				}
+		if declaredBatchDebits > 0 && declaredBatchDebits != batchDebits {
+			result.Findings = append(result.Findings, ValidationFindingRecord{
+				Code:          "ACH_ERR_0803_CONTROL_OUT_OF_BALANCE",
+				Description:   fmt.Sprintf("Batch Control total debits mismatch. Declared: $%.2f, Actual sum of entries: $%.2f.", float64(declaredBatchDebits)/100.0, float64(batchDebits)/100.0),
+				Severity:      "CRITICAL",
+				LineNumber:    len(validLines) - 1,
+				RawData:       fmt.Sprintf("Debits declared %d vs sum %d", declaredBatchDebits, batchDebits),
+				RuleReference: "Nacha Operating Rules 2025, Section 3.2.2: Batch Control Arithmetic Verification",
+			})
+			result.Status = "QUARANTINED"
+		}
+
+		if declaredBatchCredits > 0 && declaredBatchCredits != batchCredits {
+			result.Findings = append(result.Findings, ValidationFindingRecord{
+				Code:          "ACH_ERR_0804_CREDIT_CONTROL_MISMATCH",
+				Description:   fmt.Sprintf("Batch Control total credits mismatch. Declared: $%.2f, Actual sum of entries: $%.2f.", float64(declaredBatchCredits)/100.0, float64(batchCredits)/100.0),
+				Severity:      "CRITICAL",
+				LineNumber:    len(validLines) - 1,
+				RawData:       fmt.Sprintf("Credits declared %d vs sum %d", declaredBatchCredits, batchCredits),
+				RuleReference: "Nacha Operating Rules 2025, Section 3.2.2: Batch Control Arithmetic Verification",
+			})
+			result.Status = "QUARANTINED"
+		}
+
+		// Also parse with Moov ACH if format allows.
+		//
+		// A parser that cannot read the file is disqualifying, not advisory. This
+		// finding was previously recorded at WARNING and was the only finding
+		// branch that did not affect the release decision, which is how a zero-byte
+		// file reached RELEASED.
+		reader := ach.NewReader(strings.NewReader(string(content)))
+		if _, err := reader.Read(); err != nil {
+			parserSucceeded = false
+			if len(result.Findings) == 0 {
+				result.Findings = append(result.Findings, ValidationFindingRecord{
+					Code:          "ACH_ERR_0099_PARSER_EXCEPTION",
+					Description:   fmt.Sprintf("Moov ACH Parser reported: %v", err),
+					Severity:      "FATAL",
+					LineNumber:    1,
+					RawData:       "",
+					RuleReference: "Nacha Standard Specification 2025",
+				})
 			}
 		}
-	}
-
-	calcHashStr := fmt.Sprintf("%010d", entryHashSum%10000000000)
-	result.CalculatedHash = calcHashStr
-	result.ExpectedHash = expectedEntryHash
-	result.TotalDebitsUsd = float64(batchDebits) / 100.0
-	result.TotalCreditsUsd = float64(batchCredits) / 100.0
-	result.IsBalanced = (batchDebits == batchCredits)
-
-	if expectedEntryHash != "" && calcHashStr != expectedEntryHash {
-		result.Findings = append(result.Findings, ValidationFindingRecord{
-			Code:          "ACH_ERR_0802_HASH_MISMATCH",
-			Description:   fmt.Sprintf("Batch Control Entry Hash mismatch. Declared trailer: %s, Sum of entry 8-digit routing numbers: %s.", expectedEntryHash, calcHashStr),
-			Severity:      "CRITICAL",
-			LineNumber:    len(validLines) - 1,
-			RawData:       fmt.Sprintf("EntryHash: %s vs Calc: %s", expectedEntryHash, calcHashStr),
-			RuleReference: "Nacha Operating Rules 2025, Section 3.2.1: Entry Hash Field Validation",
-		})
-		result.Status = "QUARANTINED"
-	}
-
-	if declaredBatchDebits > 0 && declaredBatchDebits != batchDebits {
-		result.Findings = append(result.Findings, ValidationFindingRecord{
-			Code:          "ACH_ERR_0803_CONTROL_OUT_OF_BALANCE",
-			Description:   fmt.Sprintf("Batch Control total debits mismatch. Declared: $%.2f, Actual sum of entries: $%.2f.", float64(declaredBatchDebits)/100.0, float64(batchDebits)/100.0),
-			Severity:      "CRITICAL",
-			LineNumber:    len(validLines) - 1,
-			RawData:       fmt.Sprintf("Debits declared %d vs sum %d", declaredBatchDebits, batchDebits),
-			RuleReference: "Nacha Operating Rules 2025, Section 3.2.2: Batch Control Arithmetic Verification",
-		})
-		result.Status = "QUARANTINED"
-	}
-
-	if declaredBatchCredits > 0 && declaredBatchCredits != batchCredits {
-		result.Findings = append(result.Findings, ValidationFindingRecord{
-			Code:          "ACH_ERR_0804_CREDIT_CONTROL_MISMATCH",
-			Description:   fmt.Sprintf("Batch Control total credits mismatch. Declared: $%.2f, Actual sum of entries: $%.2f.", float64(declaredBatchCredits)/100.0, float64(batchCredits)/100.0),
-			Severity:      "CRITICAL",
-			LineNumber:    len(validLines) - 1,
-			RawData:       fmt.Sprintf("Credits declared %d vs sum %d", declaredBatchCredits, batchCredits),
-			RuleReference: "Nacha Operating Rules 2025, Section 3.2.2: Batch Control Arithmetic Verification",
-		})
-		result.Status = "QUARANTINED"
-	}
-
-	// Also parse with Moov ACH if format allows.
-	//
-	// A parser that cannot read the file is disqualifying, not advisory. This
-	// finding was previously recorded at WARNING and was the only finding
-	// branch that did not affect the release decision, which is how a zero-byte
-	// file reached RELEASED.
-	reader := ach.NewReader(strings.NewReader(string(content)))
-	if _, err := reader.Read(); err != nil {
-		parserSucceeded = false
-		if len(result.Findings) == 0 {
-			result.Findings = append(result.Findings, ValidationFindingRecord{
-				Code:          "ACH_ERR_0099_PARSER_EXCEPTION",
-				Description:   fmt.Sprintf("Moov ACH Parser reported: %v", err),
-				Severity:      "FATAL",
-				LineNumber:    1,
-				RawData:       "",
-				RuleReference: "Nacha Standard Specification 2025",
-			})
-		}
-	}
 	}
 
 	// Terminal release decision.

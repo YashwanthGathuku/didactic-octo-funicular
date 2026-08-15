@@ -8,13 +8,13 @@ import (
 
 // Minimal ISO 20022 pacs.008 schema models
 type Iso20022Document struct {
-	XMLName        xml.Name       `xml:"Document"`
+	XMLName        xml.Name        `xml:"Document"`
 	FIToFICstmrCdt *FIToFICstmrCdt `xml:"FIToFICstmrCdtTrf"`
 	BkToCstmrStmt  *BkToCstmrStmt  `xml:"BkToCstmrStmt"`
 }
 
 type FIToFICstmrCdt struct {
-	GrpHdr      GrpHdr       `xml:"GrpHdr"`
+	GrpHdr      GrpHdr        `xml:"GrpHdr"`
 	CdtTrfTxInf []CdtTrfTxInf `xml:"CdtTrfTxInf"`
 }
 
@@ -32,10 +32,10 @@ type GrpHdr struct {
 }
 
 type CdtTrfTxInf struct {
-	PmtId      PmtId      `xml:"PmtId"`
+	PmtId          PmtId   `xml:"PmtId"`
 	IntrBkSttlmAmt float64 `xml:"IntrBkSttlmAmt"`
-	Dbtr       Party      `xml:"Dbtr"`
-	Cdtr       Party      `xml:"Cdtr"`
+	Dbtr           Party   `xml:"Dbtr"`
+	Cdtr           Party   `xml:"Cdtr"`
 }
 
 type Stmt struct {
@@ -64,9 +64,9 @@ type AccountId struct {
 }
 
 type Balance struct {
-	Tp  string  `xml:"Tp>CdOrPrtry>Cd"`
-	Amt float64 `xml:"Amt"`
-	CdtDbtInd string `xml:"CdtDbtInd"`
+	Tp        string  `xml:"Tp>CdOrPrtry>Cd"`
+	Amt       float64 `xml:"Amt"`
+	CdtDbtInd string  `xml:"CdtDbtInd"`
 }
 
 // ValidateIso20022Xml parses and validates an ISO 20022 XML payload.

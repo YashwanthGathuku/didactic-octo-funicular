@@ -22,9 +22,9 @@ type AuditEvent struct {
 }
 
 type LedgerSummary struct {
-	TotalEvents   int          `json:"totalEvents"`
-	IsChainValid  bool         `json:"isChainValid"`
-	LastEventHash string       `json:"lastEventHash"`
+	TotalEvents   int    `json:"totalEvents"`
+	IsChainValid  bool   `json:"isChainValid"`
+	LastEventHash string `json:"lastEventHash"`
 	// FirstBreachEvent is the id of the earliest row failing verification (0 = none)
 	FirstBreachEvent int64        `json:"firstBreachEvent"`
 	Events           []AuditEvent `json:"events"`
