@@ -3,13 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -20,6 +20,8 @@ import (
 	_ "modernc.org/sqlite"
 
 	"sentinel-gateway/internal/auth"
+	"sentinel-gateway/internal/egress"
+	"sentinel-gateway/internal/secrets"
 )
 
 // SlaExpectationResponse carries deterministic deadline state only.
@@ -95,9 +97,16 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 
+	// Every log record from this point on passes through the scrubber. It is a
+	// backstop, not the primary control -- credentials held as secrets.Value
+	// already redact themselves -- but it covers the log calls written by
+	// someone who has not read internal/secrets, which over time is most of
+	// them.
+	log.SetOutput(secrets.NewLogWriter(os.Stderr, cfg.Scrubber))
+
 	if cfg.IsDemo() {
 		log.Printf("PROFILE=local-demo. Binding %s (loopback only).", cfg.Addr())
-		if cfg.APIToken == "" {
+		if cfg.APIToken.IsZero() {
 			log.Println("PROFILE=local-demo: API authentication is DISABLED. This profile is for a developer machine only.")
 		}
 	} else {
@@ -144,8 +153,24 @@ func main() {
 	// gateway that cannot verify identity must not serve traffic.
 	var verifier *auth.Verifier
 	if !cfg.IsDemo() {
+		// The JWKS URL is operator-configured and fetched by this process, which
+		// makes it an SSRF surface: a wrong or hostile value would otherwise
+		// have this service issue a request to any address reachable from it,
+		// including the cloud metadata endpoint. The guard resolves the host,
+		// validates every address, and connects to a validated address.
+		guard := egress.New(egress.Policy{
+			AllowedHosts:     []string{jwksHost(cfg.OIDCJWKSURL)},
+			RequireHTTPS:     true,
+			Timeout:          15 * time.Second,
+			MaxResponseBytes: 1 << 20,
+			MaxRedirects:     2,
+		})
+		if _, err := guard.CheckURL(cfg.OIDCJWKSURL); err != nil {
+			log.Fatalf("SENTINEL_OIDC_JWKS_URL is refused by the egress policy: %v", err)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		keys, err := auth.FetchJWKS(ctx, cfg.OIDCJWKSURL)
+		keys, err := auth.FetchJWKSWithClient(ctx, cfg.OIDCJWKSURL, guard.Client())
 		cancel()
 		if err != nil {
 			log.Fatalf("Cannot fetch identity provider keys from %s: %v", cfg.OIDCJWKSURL, err)
@@ -232,9 +257,11 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 	// the process binds loopback only, which is the guard there.
 	r.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.IsDemo() {
-			want := cfg.MetricsToken
+			// Value.Equal compares in constant time and the zero Value never
+			// matches, so an unconfigured token cannot be satisfied by an
+			// empty Authorization header.
 			got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			if want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+			if !cfg.MetricsToken.Equal(got) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
@@ -831,4 +858,18 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 	})
 
 	return r
+}
+
+// jwksHost extracts the host the identity provider's key document is served
+// from, so the egress allowlist contains exactly that host and nothing else.
+//
+// An unparseable URL yields the empty string, which matches no host: the
+// allowlist then permits nothing and the CheckURL that follows reports the
+// refusal rather than this function failing silently.
+func jwksHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

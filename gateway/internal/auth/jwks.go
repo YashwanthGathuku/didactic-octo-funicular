@@ -12,23 +12,41 @@ import (
 	"time"
 )
 
-// FetchJWKS retrieves an identity provider's public signing keys.
+// FetchJWKS retrieves an identity provider's public signing keys using an
+// unrestricted HTTP client.
 //
 // Only RSA keys usable for signature verification are returned; anything else
 // is skipped rather than coerced, so an unexpected key type cannot end up
 // trusted.
 //
-// NOT EXERCISED AGAINST A LIVE PROVIDER in this repository's test suite: there
-// is no identity provider available to the test environment. The parsing is
-// covered by a fixture test; the network path is not. Treat first deployment
-// against a real provider as the point where this is genuinely verified.
+// Prefer FetchJWKSWithClient with an egress-guarded client. The JWKS URL is
+// operator-configured, which makes it the natural place for a
+// misconfiguration -- or an attacker who can influence configuration -- to
+// point this process at an internal address. This variant applies no such
+// restriction and remains for tests and for callers that supply their own.
+//
+// What the test suite does and does not cover is recorded at the foot of
+// jwks_test.go: the fetch is exercised against a real HTTP server, while TLS to
+// a real host, provider-specific document quirks and live rotation timing are
+// not.
 func FetchJWKS(ctx context.Context, url string) (map[string]*rsa.PublicKey, error) {
+	return FetchJWKSWithClient(ctx, url, &http.Client{Timeout: 10 * time.Second})
+}
+
+// FetchJWKSWithClient retrieves signing keys through a caller-supplied client.
+//
+// Injecting the client is what lets the egress policy apply here: the guarded
+// client refuses to connect to loopback, private, link-local and cloud metadata
+// addresses, and re-validates every redirect hop.
+func FetchJWKSWithClient(ctx context.Context, url string, client *http.Client) (map[string]*rsa.PublicKey, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch jwks: %w", err)

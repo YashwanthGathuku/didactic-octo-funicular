@@ -48,6 +48,11 @@ const (
 	PermManageContract Permission = "contract:manage"
 	PermReadEvidence   Permission = "evidence:read"
 	PermPlatformAdmin  Permission = "platform:admin"
+
+	// PermManageSecret authorizes creating, rotating and retiring a tenant's
+	// credentials. It does not authorize reading one: no role does, because the
+	// secret store has no method that returns a stored value.
+	PermManageSecret Permission = "secret:manage"
 )
 
 // rolePermissions is the authorization matrix.
@@ -60,7 +65,7 @@ var rolePermissions = map[Role][]Permission{
 	RoleOperator: {PermReadTenant, PermReadEvidence, PermUploadArtifact},
 	RoleReviewer: {PermReadTenant, PermReadEvidence, PermApproveRelease},
 	RoleTenantAdmin: {
-		PermReadTenant, PermReadEvidence, PermManageContract,
+		PermReadTenant, PermReadEvidence, PermManageContract, PermManageSecret,
 	},
 	RolePlatformAdmin: {PermPlatformAdmin},
 }

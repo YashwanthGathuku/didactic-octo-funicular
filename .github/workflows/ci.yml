@@ -180,6 +180,7 @@ jobs:
       postgres:
         image: postgres:16.6-alpine
         env:
+          # secret-scan-allow: ephemeral job-local service container; the port is not published outside the runner and the database is destroyed with the job. A services block is evaluated before any step runs, so a generated value cannot be substituted here.
           POSTGRES_PASSWORD: ci-postgres-password
           POSTGRES_DB: sentinel_test
         ports: ["5432:5432"]
@@ -197,14 +198,20 @@ jobs:
       # bypass the very policies under test.
       - name: Apply schema as owner and create a least-privilege app role
         env:
+          # secret-scan-allow: matches the ephemeral service container above; destroyed with the job and never reachable off the runner
           PGPASSWORD: ci-postgres-password
         run: |
           psql -h localhost -U postgres -d sentinel_test \
             -f gateway/migrations_postgres/001_schema_and_rls.sql
           psql -h localhost -U postgres -d sentinel_test -c \
-            "CREATE ROLE sentinel_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE;"
+            "CREATE ROLE sentinel_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE;"  # secret-scan-allow: least-privilege role in the ephemeral CI database; exists only for the duration of this job
           psql -h localhost -U postgres -d sentinel_test -c \
-            "GRANT SELECT,INSERT,UPDATE ON partners,file_instances,incidents,audit_events TO sentinel_app;"
+            "GRANT SELECT,INSERT,UPDATE ON partners,file_instances,incidents,audit_events,secret_versions,secret_events TO sentinel_app;"
+          # No DELETE is granted anywhere. The append-only trigger is the
+          # primary defence for the audit trail; withholding the grant is the
+          # second.
+          psql -h localhost -U postgres -d sentinel_test -c \
+            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sentinel_app;"
           psql -h localhost -U postgres -d sentinel_test -c \
             "INSERT INTO tenants (id,name) VALUES ('TENANT-ALPHA','Alpha'),('TENANT-BETA','Beta');"
 
@@ -212,7 +219,7 @@ jobs:
         working-directory: ./gateway
         env:
           SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: go test -run 'TestRls|TestApplicationRole' -v ./internal/repository/
+        run: go test -run 'TestRls|TestApplicationRole|TestSecretMaterial' -v ./internal/repository/
 
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.
@@ -221,7 +228,7 @@ jobs:
         env:
           SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
         run: |
-          out=$(go test -run 'TestRls|TestApplicationRole' -v ./internal/repository/ 2>&1)
+          out=$(go test -run 'TestRls|TestApplicationRole|TestSecretMaterial' -v ./internal/repository/ 2>&1)
           if echo "$out" | grep -q "SKIP"; then
             echo "FAIL: row-level security tests were skipped"; echo "$out"; exit 1
           fi

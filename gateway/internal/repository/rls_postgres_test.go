@@ -238,7 +238,7 @@ func TestApplicationRoleIsNotSuperuserOrTableOwner(t *testing.T) {
 	err := db.QueryRow(`
 		SELECT count(*) FROM pg_tables
 		WHERE schemaname = 'public'
-		  AND tablename IN ('partners','file_instances','incidents','audit_events')
+		  AND tablename IN ('partners','file_instances','incidents','audit_events','secret_versions','secret_events')
 		  AND tableowner = current_user`).Scan(&owns)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestApplicationRoleIsNotSuperuserOrTableOwner(t *testing.T) {
 func TestRlsIsEnabledAndForcedOnEveryProtectedTable(t *testing.T) {
 	db := openPG(t)
 
-	for _, table := range []string{"partners", "file_instances", "incidents", "audit_events"} {
+	for _, table := range []string{"partners", "file_instances", "incidents", "audit_events", "secret_versions", "secret_events"} {
 		var enabled, forced bool
 		err := db.QueryRow(
 			`SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1`, table,
@@ -267,4 +267,98 @@ func TestRlsIsEnabledAndForcedOnEveryProtectedTable(t *testing.T) {
 			t.Errorf("%s does not FORCE row-level security; the owner would bypass it", table)
 		}
 	}
+}
+
+// Credential metadata is tenant-scoped like every other business record.
+//
+// It matters more here than elsewhere: the metadata says which credentials a
+// tenant holds, when each was last used and when it was last rotated. That is
+// an operational map of another organisation's security posture even though it
+// contains no credential.
+func TestRlsProtectsCredentialMetadata(t *testing.T) {
+	db := openPG(t)
+	seedTwoTenants(t, db)
+
+	insert := func(tx *sql.Tx, tenant, name string) (sql.Result, error) {
+		return tx.Exec(`
+			INSERT INTO secret_versions
+				(secret_id, tenant_id, name, kind, version, fingerprint, salt, digest, created_by)
+			VALUES ($1, $2, $3, 'VERIFY', 1, 'sfp_rls', '\x00', '\x01', 'rls-test')`,
+			"sec_"+tenant+"_"+name, tenant, name)
+	}
+
+	withTenant(t, db, "TENANT-ALPHA", func(tx *sql.Tx) {
+		if _, err := insert(tx, "TENANT-ALPHA", "rls-alpha-secret"); err != nil {
+			t.Logf("seed note: %v", err)
+		}
+	})
+
+	// A query with no tenant set returns nothing.
+	var unscoped int
+	if err := db.QueryRow(`SELECT count(*) FROM secret_versions`).Scan(&unscoped); err != nil {
+		t.Fatal(err)
+	}
+	if unscoped != 0 {
+		t.Errorf("an unscoped query returned %d credential records; RLS must deny by default", unscoped)
+	}
+
+	// BETA cannot see ALPHA's credential metadata.
+	withTenant(t, db, "TENANT-BETA", func(tx *sql.Tx) {
+		var n int
+		if err := tx.QueryRow(`SELECT count(*) FROM secret_versions WHERE name = 'rls-alpha-secret'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("BETA can see %d of ALPHA's credential records", n)
+		}
+	})
+
+	// And cannot plant one in ALPHA's tenant.
+	withTenant(t, db, "TENANT-BETA", func(tx *sql.Tx) {
+		if _, err := insert(tx, "TENANT-ALPHA", "planted"); err == nil {
+			t.Error("BETA inserted a credential record into ALPHA")
+		} else if !strings.Contains(strings.ToLower(err.Error()), "row-level security") {
+			t.Errorf("the insert failed for the wrong reason: %v", err)
+		}
+	})
+}
+
+// Credential material is immutable and the rotation trail is append-only. Both
+// are enforced by triggers in the PostgreSQL schema, so a database-level actor
+// cannot rewrite the record of what a credential was or when it changed.
+func TestSecretMaterialAndAuditTrailCannotBeRewritten(t *testing.T) {
+	db := openPG(t)
+	seedTwoTenants(t, db)
+
+	withTenant(t, db, "TENANT-ALPHA", func(tx *sql.Tx) {
+		_, _ = tx.Exec(`
+			INSERT INTO secret_versions
+				(secret_id, tenant_id, name, kind, version, fingerprint, salt, digest, created_by)
+			VALUES ('sec_immutable','TENANT-ALPHA','rls-immutable','VERIFY',1,'sfp_i','\x00','\x01','rls-test')`)
+		_, _ = tx.Exec(`
+			INSERT INTO secret_events (tenant_id, secret_id, name, version, action, actor)
+			VALUES ('TENANT-ALPHA','sec_immutable','rls-immutable',1,'SECRET_CREATED','rls-test')`)
+	})
+
+	withTenant(t, db, "TENANT-ALPHA", func(tx *sql.Tx) {
+		if _, err := tx.Exec(`UPDATE secret_versions SET digest = '\x99' WHERE secret_id = 'sec_immutable'`); err == nil {
+			t.Error("credential material was rewritten in place")
+		}
+	})
+
+	// A lifecycle column may still change; that is what rotation and last-used
+	// stamping need.
+	withTenant(t, db, "TENANT-ALPHA", func(tx *sql.Tx) {
+		if _, err := tx.Exec(`UPDATE secret_versions SET last_used_at = now() WHERE secret_id = 'sec_immutable'`); err != nil {
+			t.Errorf("a lifecycle update was refused, which would break last-used tracking: %v", err)
+		}
+	})
+
+	// The audit trail refuses modification. The application role holds no
+	// DELETE grant either, so this is defended twice.
+	withTenant(t, db, "TENANT-ALPHA", func(tx *sql.Tx) {
+		if _, err := tx.Exec(`UPDATE secret_events SET actor = 'someone-else' WHERE secret_id = 'sec_immutable'`); err == nil {
+			t.Error("the rotation trail was modified; it is not append-only")
+		}
+	})
 }

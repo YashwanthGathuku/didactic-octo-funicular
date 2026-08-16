@@ -52,6 +52,7 @@ RELEASE_VERBS = re.compile(
     re.I,
 )
 AUTONOMOUS_MARKERS = re.compile(r"\b(auto[- ]?released?|without\s+approval|no\s+approval\s+needed)\b", re.I)
+# secret-scan-allow: these are the detection patterns for leaked credentials, not credentials themselves
 SECRET_MARKERS = re.compile(
     r"(SENTINEL_[A-Z_]+|BEGIN\s+(RSA|OPENSSH|PGP)\s+PRIVATE|api[_-]?key\s*[:=]|password\s*[:=])", re.I
 )

@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"sentinel-gateway/internal/secrets"
 )
 
 // Profile selects the startup contract the process must satisfy.
@@ -42,7 +44,12 @@ type Config struct {
 	AITierURL      string
 
 	// Security
-	APIToken       string
+	//
+	// The two credentials are secrets.Value rather than string so they redact
+	// themselves everywhere. A Config is exactly the sort of struct that gets
+	// dumped with %+v during an incident, which is how a credential reaches a
+	// log aggregator with a one-year retention.
+	APIToken       secrets.Value
 	AllowedOrigin  string
 	PGPKeyringPath string
 
@@ -55,7 +62,21 @@ type Config struct {
 	// MetricsToken guards /metrics. Prometheus scrapers send it as a bearer
 	// token. Required in production: an open metrics endpoint is a free
 	// inventory of a system's internals.
-	MetricsToken string
+	MetricsToken secrets.Value
+
+	// Sealer encrypts retrievable credentials before they reach storage. Its
+	// key comes from SENTINEL_SECRET_SEAL_KEY and never from the database, so a
+	// database compromise alone yields ciphertext.
+	//
+	// In the local-demo profile this is a process-scoped key, which is correct
+	// for a store whose contents also die with the process. The production
+	// profile refuses a process-scoped key, because a restart would render
+	// every stored credential permanently unreadable.
+	Sealer secrets.Sealer
+
+	// Scrubber holds this process's credentials so they can be removed from log
+	// output whatever shape they appear in.
+	Scrubber *secrets.Scrubber
 
 	// Storage
 	InboxPath string
@@ -104,23 +125,40 @@ func env(key, fallback string) string {
 func Load() (*Config, error) {
 	profile := Profile(strings.ToLower(env("SENTINEL_PROFILE", string(ProfileLocalDemo))))
 
+	// The credentials are read as strings only long enough to be validated and
+	// wrapped. Nothing downstream sees the raw form.
+	rawAPIToken := env("SENTINEL_API_TOKEN", "")
+	rawMetricsToken := env("SENTINEL_METRICS_TOKEN", "")
+	rawSealKey := env("SENTINEL_SECRET_SEAL_KEY", "")
+
 	cfg := &Config{
 		Profile:        profile,
 		DatabaseURL:    env("DATABASE_URL", ""),
 		ObjectStoreURL: env("OBJECT_STORE_URL", ""),
 		AITierURL:      env("AI_TIER_URL", ""),
-		APIToken:       env("SENTINEL_API_TOKEN", ""),
 		AllowedOrigin:  env("SENTINEL_ALLOWED_ORIGIN", ""),
 		PGPKeyringPath: env("SENTINEL_PGP_KEYRING", ""),
 		OIDCIssuer:     env("SENTINEL_OIDC_ISSUER", ""),
 		OIDCAudience:   env("SENTINEL_OIDC_AUDIENCE", ""),
 		OIDCJWKSURL:    env("SENTINEL_OIDC_JWKS_URL", ""),
 		InboxPath:      env("SENTINEL_INBOX_PATH", "./inbox"),
-		MetricsToken:   env("SENTINEL_METRICS_TOKEN", ""),
 		WatcherTenant:  env("SENTINEL_WATCHER_TENANT", ""),
+		Scrubber:       secrets.NewScrubber(),
 	}
 
 	var problems []string
+
+	// Wrapping happens after the length check below, but the wrap itself can
+	// only fail for a value shorter than the minimum, which the profile checks
+	// already report with a clearer message.
+	if v, err := secrets.New(rawAPIToken); err == nil {
+		cfg.APIToken = v
+		cfg.Scrubber.Register(v)
+	}
+	if v, err := secrets.New(rawMetricsToken); err == nil {
+		cfg.MetricsToken = v
+		cfg.Scrubber.Register(v)
+	}
 
 	switch profile {
 	case ProfileLocalDemo:
@@ -137,16 +175,31 @@ func Load() (*Config, error) {
 				"SENTINEL_BIND_ADDRESS=%q: the local-demo profile may permit an unauthenticated API and must bind loopback only. Use SENTINEL_PROFILE=production to bind elsewhere",
 				cfg.BindAddress))
 		}
+		// A configured key is honoured here too, so a developer can exercise the
+		// production storage path. Absent one, the key is process-scoped, which
+		// matches a store whose contents also die with the process.
+		if rawSealKey != "" {
+			sealer, err := secrets.SealerFromBase64(rawSealKey)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("SENTINEL_SECRET_SEAL_KEY is not usable: %v", err))
+			} else {
+				cfg.Sealer = sealer
+			}
+		} else if sealer, err := secrets.NewEphemeralSealer(); err != nil {
+			problems = append(problems, fmt.Sprintf("cannot generate a development seal key: %v", err))
+		} else {
+			cfg.Sealer = sealer
+		}
 
 	case ProfileProduction:
 		cfg.BindAddress = env("SENTINEL_BIND_ADDRESS", "0.0.0.0")
 
 		// No defaults. A production process that guesses its dependencies is a
 		// process that can silently point at the wrong one.
-		if cfg.APIToken == "" {
+		if rawAPIToken == "" {
 			problems = append(problems, "SENTINEL_API_TOKEN is required in the production profile: the API must not serve unauthenticated requests")
-		} else if len(cfg.APIToken) < 32 {
-			problems = append(problems, fmt.Sprintf("SENTINEL_API_TOKEN is %d characters; require at least 32", len(cfg.APIToken)))
+		} else if len(rawAPIToken) < secrets.MinSecretLength {
+			problems = append(problems, fmt.Sprintf("SENTINEL_API_TOKEN is %d characters; require at least %d", len(rawAPIToken), secrets.MinSecretLength))
 		}
 		if cfg.DatabaseURL == "" {
 			problems = append(problems, "DATABASE_URL is required in the production profile")
@@ -171,10 +224,24 @@ func Load() (*Config, error) {
 		if cfg.OIDCJWKSURL == "" {
 			problems = append(problems, "SENTINEL_OIDC_JWKS_URL is required in the production profile: signatures cannot be verified without the provider's keys")
 		}
-		if cfg.MetricsToken == "" {
+		if rawMetricsToken == "" {
 			problems = append(problems, "SENTINEL_METRICS_TOKEN is required in the production profile: /metrics must not be open to anonymous callers")
-		} else if len(cfg.MetricsToken) < 32 {
-			problems = append(problems, fmt.Sprintf("SENTINEL_METRICS_TOKEN is %d characters; require at least 32", len(cfg.MetricsToken)))
+		} else if len(rawMetricsToken) < secrets.MinSecretLength {
+			problems = append(problems, fmt.Sprintf("SENTINEL_METRICS_TOKEN is %d characters; require at least %d", len(rawMetricsToken), secrets.MinSecretLength))
+		}
+
+		// A durable seal key is mandatory. Without it the process would start,
+		// store retrievable credentials under a process-scoped key, and lose
+		// every one of them at the next restart -- a failure that looks like
+		// success until the worst possible moment.
+		if rawSealKey == "" {
+			problems = append(problems, "SENTINEL_SECRET_SEAL_KEY is required in the production profile: stored credentials would otherwise be sealed under a key that dies with the process")
+		} else if sealer, err := secrets.SealerFromBase64(rawSealKey); err != nil {
+			problems = append(problems, fmt.Sprintf("SENTINEL_SECRET_SEAL_KEY is not usable: %v", err))
+		} else if err := secrets.RequireDurableSealer(sealer); err != nil {
+			problems = append(problems, fmt.Sprintf("SENTINEL_SECRET_SEAL_KEY: %v", err))
+		} else {
+			cfg.Sealer = sealer
 		}
 
 	default:
@@ -193,8 +260,10 @@ func Load() (*Config, error) {
 
 	// Reject known-bad credentials outright, in any profile. These are the
 	// values shipped in the old compose files.
+	//
+	// secret-scan-allow: this is the rejection list itself, not a credential; naming the defaults is what lets the process refuse them
 	for _, bad := range []string{"password", "minioadmin", "changeme", "secret", "admin"} {
-		if strings.EqualFold(cfg.APIToken, bad) {
+		if strings.EqualFold(rawAPIToken, bad) {
 			problems = append(problems, fmt.Sprintf("SENTINEL_API_TOKEN is the well-known default %q", bad))
 		}
 	}

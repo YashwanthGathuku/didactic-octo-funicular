@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"sentinel-gateway/internal/auth"
+	"sentinel-gateway/internal/secrets"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -266,7 +267,12 @@ func TestMetricsRequiresCredentialInProduction(t *testing.T) {
 	defer db.Close()
 
 	cfg := prodConfig()
-	cfg.MetricsToken = strings.Repeat("m", 40)
+	metricsToken := strings.Repeat("m", 40)
+	token, err := secrets.New(metricsToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MetricsToken = token
 	router := NewRouter(db, cfg, nil)
 
 	// Anonymous.
@@ -290,7 +296,7 @@ func TestMetricsRequiresCredentialInProduction(t *testing.T) {
 
 	// Correct credential.
 	req = httptest.NewRequest("GET", "/metrics", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.MetricsToken)
+	req.Header.Set("Authorization", "Bearer "+metricsToken)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

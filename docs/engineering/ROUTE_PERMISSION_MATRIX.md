@@ -24,7 +24,14 @@ a defect.
 | `artifact:upload` | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `release:approve` | ❌ | ❌ | ✅ | ❌ | ❌ |
 | `contract:manage` | ❌ | ❌ | ❌ | ✅ | ❌ |
+| `secret:manage` | ❌ | ❌ | ❌ | ✅ | ❌ |
 | `platform:admin` | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+`secret:manage` (added by Prompt 05) authorizes creating, rotating and retiring
+a tenant's credentials. It does not authorize reading one, and no role does:
+the secret store has no method that returns a stored value. A reviewer can
+approve the movement of money and still cannot rotate the key that
+authenticates the system. See `SECRETS_AND_EGRESS.md`.
 
 Two deliberate gaps, both tested:
 
@@ -191,6 +198,13 @@ none of the tables:
 | Counts | scoped; the unscoped count is 0 |
 | App role | not superuser, owns no protected table |
 | Every protected table | `relrowsecurity` and `relforcerowsecurity` both true |
+
+Prompt 05 extended this to `secret_versions` and `secret_events` with the same
+properties, plus triggers making credential material immutable and the rotation
+trail append-only. One caveat worth stating precisely: `FORCE` subjects the
+table *owner* to its policies, but a **superuser still bypasses RLS entirely**,
+which is why `TestApplicationRoleIsNotSuperuserOrTableOwner` is the control that
+actually matters.
 
 A CI job runs these against a real PostgreSQL service container **and fails if
 the tests skip**, because a security test that quietly does nothing is worse
