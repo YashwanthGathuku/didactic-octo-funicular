@@ -487,6 +487,9 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		registerConnectorRoutes(r)
 		registerConnectionRoutes(r, db, cfg)
 
+		// Human review and dual-control release.
+		registerReviewRoutes(r, db)
+
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {
 			scope, serr := resolveScope(r, auth.PermReadTenant)

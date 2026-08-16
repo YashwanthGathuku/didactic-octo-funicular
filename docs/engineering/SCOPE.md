@@ -87,6 +87,21 @@ Flow's own system of record and is unaffected by anything in this section.
 | Creating a connection from the wizard | **Planned** | The wizard renders the server's fields; submitting still goes through the API rather than the screen. |
 | Arbitrary SQL from browser or AI | **Non-goal** | There is no entry point that accepts a statement. Not restricted — absent. |
 
+### Human review and release
+
+| Capability | Status | Notes |
+|---|---|---|
+| Review queue with redacted references | Implemented | Prompt 11. Tenant-scoped; identifiers and digests only, no evidence. |
+| Dual control, configurable per tenant | Implemented | Default is two distinct approvers with separation of duties; an unconfigured tenant gets the strict policy. |
+| Approval expiry on any change | Implemented | One integrity digest over artifact, findings, policy, rule pack, contract and run. The error names what changed. |
+| Separation of authorities | Implemented | reviewer approves; release_supervisor overrides; tenant_admin configures. No role holds both configure and override. |
+| Auditable release with an outbox event | Implemented | Every transition reaches the evidence chain and the outbox in the transaction that produced it. |
+| Manual override, separately reportable | Implemented | Its own table, a mandatory 20-character justification, and it never rewrites validation results. |
+| Releasing a quarantined artifact | **Non-goal** | No path exists, by approval or override. Quarantine would otherwise be advisory. |
+| Review UI | **Planned** | Every route exists; nothing in the browser calls them. Prompt 12. |
+| Notification that a decision needs review | **Planned** | The outbox event is published and nothing subscribes. |
+| Time-based approval expiry | **Planned** | An approval expires when its subject changes, not because it is old. |
+
 ### Evidence and audit
 
 | Capability | Status | Notes |

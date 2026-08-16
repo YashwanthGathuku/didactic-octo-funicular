@@ -316,6 +316,20 @@ jobs:
           path: connector-evidence.json
           if-no-files-found: error
 
+      # Dual control decides whether money moves, and the optimistic
+      # concurrency that resolves a simultaneous approve and reject is
+      # database-specific. Both halves must run.
+      - name: Dual-control release against PostgreSQL
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: |
+          go test -race ./internal/review/
+          out=$(go test -v -run TestSimultaneousApproveAndReject ./internal/review/ 2>&1)
+          echo "$out" | grep -q "PASS: TestSimultaneousApproveAndRejectProducesOneLegalOutcome/postgres" || {
+            echo "FAIL: the PostgreSQL release path did not run"; echo "$out"; exit 1; }
+          echo "OK: dual control verified against a real PostgreSQL server"
+
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.
       - name: Assert the RLS tests were not skipped

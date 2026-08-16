@@ -23,6 +23,16 @@ const (
 	RoleReviewer    Role = "reviewer"     // approve or reject releases
 	RoleTenantAdmin Role = "tenant_admin" // manage contracts, partners, members
 
+	// RoleReleaseSupervisor may approve a release and may override the
+	// controls, on the record.
+	//
+	// A distinct role rather than a permission added to an existing one. Giving
+	// override to reviewer would make it indistinguishable from approval, and
+	// giving it to tenant_admin would let one account both configure the
+	// control and step around it -- the collapse the matrix below already
+	// refuses for approval.
+	RoleReleaseSupervisor Role = "release_supervisor"
+
 	// RolePlatformAdmin is deliberately NOT a tenant role. It is held outside
 	// any tenant and grants platform operations only; it does not confer read
 	// access to tenant business records. A tenant admin cannot reach it, and
@@ -53,6 +63,22 @@ const (
 	// credentials. It does not authorize reading one: no role does, because the
 	// secret store has no method that returns a stored value.
 	PermManageSecret Permission = "secret:manage"
+
+	// PermManageReleasePolicy authorizes configuring dual control: how many
+	// approvals a release needs, whether separation of duties applies, and
+	// whether overrides are permitted at all.
+	//
+	// Held by tenant_admin, who cannot approve or override. Configuring a
+	// control and satisfying it are different authorities.
+	PermManageReleasePolicy Permission = "release_policy:manage"
+
+	// PermOverrideRelease authorizes releasing past the approval threshold or
+	// past blocking findings, with a written reason, into a separately
+	// reportable record.
+	//
+	// Deliberately not held by tenant_admin or reviewer. It is the strongest
+	// authority in the product and the one an auditor asks about first.
+	PermOverrideRelease Permission = "release:override"
 )
 
 // rolePermissions is the authorization matrix.
@@ -66,6 +92,13 @@ var rolePermissions = map[Role][]Permission{
 	RoleReviewer: {PermReadTenant, PermReadEvidence, PermApproveRelease},
 	RoleTenantAdmin: {
 		PermReadTenant, PermReadEvidence, PermManageContract, PermManageSecret,
+		PermManageReleasePolicy,
+	},
+	// A supervisor may approve and may override. They may not configure the
+	// policy they are overriding, which is what stops "lower the threshold,
+	// then meet it" being an alternative to writing a justification.
+	RoleReleaseSupervisor: {
+		PermReadTenant, PermReadEvidence, PermApproveRelease, PermOverrideRelease,
 	},
 	RolePlatformAdmin: {PermPlatformAdmin},
 }

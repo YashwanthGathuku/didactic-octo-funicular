@@ -12,6 +12,7 @@ import (
 	"sentinel-gateway/internal/ledger"
 	"sentinel-gateway/internal/nacha"
 	"sentinel-gateway/internal/objectstore"
+	"sentinel-gateway/internal/review"
 )
 
 // The validation worker.
@@ -41,6 +42,10 @@ const ledgerVerifyInterval = time.Hour
 type validateArtifactHandler struct {
 	store objectstore.ObjectStore
 	queue *jobs.Queue
+	// review proposes the release decision the validation rests on. Optional
+	// only so a test can exercise validation alone; the running gateway always
+	// wires one in.
+	review *review.Store
 }
 
 // Handle validates one artifact inside the job's transaction.
@@ -146,6 +151,28 @@ func (h *validateArtifactHandler) Handle(ctx context.Context, tx *sql.Tx, job *j
 		return err
 	}
 
+	// The release decision is proposed in this same transaction. An artifact
+	// that reached VALIDATED with no decision would be one nobody could
+	// release without a second mechanism inventing the decision after the
+	// fact -- which is how a release ends up resting on a validation run
+	// nobody can reconstruct.
+	if h.review != nil {
+		var sha string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT sha256_hash FROM file_instances WHERE tenant_id = ? AND id = ?`,
+			job.TenantID, artifactID).Scan(&sha); err != nil {
+			return err
+		}
+		policy, err := h.review.Policy(ctx, job.TenantID)
+		if err != nil {
+			return err
+		}
+		if err := proposeRelease(ctx, tx, h.review, job.TenantID, artifactID, sha,
+			result, decision, policy); err != nil {
+			return fmt.Errorf("propose a release decision for artifact %d: %w", artifactID, err)
+		}
+	}
+
 	// The event goes to the outbox in this same transaction. Publishing it
 	// after the commit would lose it on exactly the crash it needs to survive.
 	//
@@ -231,7 +258,15 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 		return cancel, nil
 	}
 
-	pool.Register(KindValidateArtifact, &validateArtifactHandler{store: cfg.ObjectStore, queue: queue})
+	reviews, err := reviewStoreFor(db)
+	if err != nil {
+		return nil, err
+	}
+	reviews.SetEventSink(&ledgerReleaseSink{db: db, queue: queue})
+
+	pool.Register(KindValidateArtifact, &validateArtifactHandler{
+		store: cfg.ObjectStore, queue: queue, review: reviews,
+	})
 
 	dispatcher := jobs.NewDispatcher(queue, &auditLogDeliverer{db: db}, time.Second, 50)
 
