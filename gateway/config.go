@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"sentinel-gateway/internal/objectstore"
 	"sentinel-gateway/internal/secrets"
 )
 
@@ -77,6 +78,18 @@ type Config struct {
 	// Scrubber holds this process's credentials so they can be removed from log
 	// output whatever shape they appear in.
 	Scrubber *secrets.Scrubber
+
+	// ObjectStore holds artifacts. It is built at startup rather than per
+	// request so a misconfigured store fails before traffic arrives.
+	//
+	// A nil store means uploads are refused with 503. There is deliberately no
+	// fallback to holding bytes in the database: accepting a financial file
+	// this system cannot durably store is worse than refusing it.
+	ObjectStore objectstore.ObjectStore
+
+	// ArtifactStoreRoot is the filesystem root when the local adapter is in
+	// use, retained for the startup log line.
+	ArtifactStoreRoot string
 
 	// Storage
 	InboxPath string

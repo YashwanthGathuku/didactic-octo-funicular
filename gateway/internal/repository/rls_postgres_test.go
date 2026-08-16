@@ -238,7 +238,8 @@ func TestApplicationRoleIsNotSuperuserOrTableOwner(t *testing.T) {
 	err := db.QueryRow(`
 		SELECT count(*) FROM pg_tables
 		WHERE schemaname = 'public'
-		  AND tablename IN ('partners','file_instances','incidents','audit_events','secret_versions','secret_events')
+		  AND tablename IN ('partners','file_instances','incidents','audit_events','secret_versions','secret_events',
+			                  'tenant_quotas','ingest_idempotency','artifact_access_log')
 		  AND tableowner = current_user`).Scan(&owns)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +253,8 @@ func TestApplicationRoleIsNotSuperuserOrTableOwner(t *testing.T) {
 func TestRlsIsEnabledAndForcedOnEveryProtectedTable(t *testing.T) {
 	db := openPG(t)
 
-	for _, table := range []string{"partners", "file_instances", "incidents", "audit_events", "secret_versions", "secret_events"} {
+	for _, table := range []string{"partners", "file_instances", "incidents", "audit_events", "secret_versions", "secret_events",
+		"tenant_quotas", "ingest_idempotency", "artifact_access_log"} {
 		var enabled, forced bool
 		err := db.QueryRow(
 			`SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1`, table,

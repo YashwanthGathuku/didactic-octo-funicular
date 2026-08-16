@@ -71,8 +71,9 @@ usable `Scope` without passing the authorization check.
 | `/api/v1/incidents` | GET | `tenant:read` | |
 | `/api/v1/ledger` | GET | `evidence:read` | |
 | `/api/v1/compliance/export` | GET | `evidence:read` | Carries no regulatory claim. |
-| `/api/v1/files/upload` | POST | `artifact:upload` | |
-| `/api/v1/files/ingest-raw` | POST | `artifact:upload` | |
+| `/api/v1/files/upload` | POST | `artifact:upload` | Streams to immutable storage; returns 202 with identifiers and no verdict. Prompt 06. |
+| `/api/v1/artifacts/{id}/content` | GET | `evidence:read` | Audited streaming proxy for raw bytes. Every read logged. Prompt 06. |
+| `/api/v1/files/ingest-raw` | POST | `artifact:upload` | **Legacy.** Reads the whole body into memory, writes no object, returns a synchronous verdict. Superseded by `/files/upload`; converges in Prompt 07. |
 | `/api/v1/incidents/{id}/triage` | POST | `tenant:read` | Read-only AI analysis; 503 when unconfigured. |
 | `/api/v1/incidents/{id}/approve` | POST | `release:approve` | Actor from token; justification required. |
 | `/api/v1/security/verify-key` | POST | authenticated | Stateless utility. |

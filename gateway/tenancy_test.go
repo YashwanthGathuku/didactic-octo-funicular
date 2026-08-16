@@ -69,12 +69,24 @@ func TestArtifactStatusIsConstrainedToModelledStates(t *testing.T) {
 	}
 
 	// Every modelled state must be accepted.
+	//
+	// Each row carries a distinct hash: migration 004 added a uniqueness
+	// constraint on (tenant_id, sha256_hash, size_bytes), because duplicate
+	// delivery of identical content must not create a second artifact. Two
+	// artifacts in genuinely different states have genuinely different content.
 	for _, good := range []string{"RECEIVED", "VALIDATING", "VALIDATED", "QUARANTINED", "APPROVED", "RELEASED", "REJECTED"} {
 		_, err := db.Exec(`INSERT INTO file_instances (tenant_id, filename, storage_path, size_bytes, sha256_hash, status, received_at)
-			VALUES ('TENANT-DEFAULT','f','/p',1,'h',?,'2026-01-01')`, good)
+			VALUES ('TENANT-DEFAULT','f','/p',1,?,?,'2026-01-01')`, "hash-"+good, good)
 		if err != nil {
 			t.Errorf("file_instances rejected the modelled status %q: %v", good, err)
 		}
+	}
+
+	// And the uniqueness constraint itself holds: the same content cannot be
+	// recorded twice for one tenant.
+	if _, err := db.Exec(`INSERT INTO file_instances (tenant_id, filename, storage_path, size_bytes, sha256_hash, status, received_at)
+		VALUES ('TENANT-DEFAULT','again','/p',1,'hash-RECEIVED','RECEIVED','2026-01-01')`); err == nil {
+		t.Error("file_instances accepted a second artifact with identical content for one tenant")
 	}
 }
 

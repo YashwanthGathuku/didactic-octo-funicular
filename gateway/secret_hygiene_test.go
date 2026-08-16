@@ -63,16 +63,33 @@ var wellKnownDefaults = []string{
 // The name is what carries the signal. A high-entropy string on its own is
 // usually a hash, a fixture or a base64 asset; the same string assigned to
 // something called `apiToken` is a credential.
+//
+// Patterns are scoped by file type. The unquoted `name: value` form is how YAML
+// and env files express an assignment, and how Go expresses a struct field
+// holding a variable -- so applying it to Go source reports `SecretKey:
+// secretKey` as a literal credential. Scoping is what keeps the scan's findings
+// worth reading.
 var assignmentPatterns = []*regexp.Regexp{
 	// Go, TypeScript, Python: token = "literal", Token: "literal"
 	regexp.MustCompile(`(?i)\b(\w*(?:password|passwd|secret|token|apikey|api_key|credential|passphrase|private_key|privatekey)\w*)\s*[:=]+\s*"([^"]{8,})"`),
 	// Shell and env files: SECRET=literal
 	regexp.MustCompile(`(?i)^\s*(?:export\s+)?(\w*(?:PASSWORD|SECRET|TOKEN|APIKEY|API_KEY|CREDENTIAL|PASSPHRASE)\w*)\s*=\s*([^\s#$'"]{8,})\s*$`),
-	// YAML: password: literal
-	regexp.MustCompile(`(?i)^\s*(\w*(?:password|secret|token|apikey|api_key|credential|passphrase)\w*)\s*:\s*([^\s#{$\[]{8,})\s*$`),
 	// SQL: CREATE ROLE ... PASSWORD 'literal'. A distinct form from the
 	// assignment patterns above, and one that lands in a migration file.
 	regexp.MustCompile(`(?i)\b(password)\s+'([^']{8,})'`),
+}
+
+// unquotedAssignmentPatterns apply only to configuration formats, where an
+// unquoted bare word after a colon really is a value rather than a variable.
+var unquotedAssignmentPatterns = []*regexp.Regexp{
+	// YAML: password: literal
+	regexp.MustCompile(`(?i)^\s*(\w*(?:password|secret|token|apikey|api_key|credential|passphrase)\w*)\s*:\s*([^\s#{$\[]{8,})\s*$`),
+}
+
+// configExtensions are the file types the unquoted patterns apply to.
+var configExtensions = map[string]bool{
+	".yml": true, ".yaml": true, ".env": true, ".ini": true,
+	".conf": true, ".toml": true, "": true,
 }
 
 // benignValues are the right-hand sides that are not credentials. Each entry is
@@ -192,7 +209,11 @@ func scanFile(rel, body string) []string {
 			}
 		}
 
-		for _, re := range assignmentPatterns {
+		patterns := assignmentPatterns
+		if configExtensions[strings.ToLower(filepath.Ext(rel))] {
+			patterns = append(append([]*regexp.Regexp{}, patterns...), unquotedAssignmentPatterns...)
+		}
+		for _, re := range patterns {
 			m := re.FindStringSubmatch(line)
 			if m == nil {
 				continue
@@ -242,19 +263,21 @@ func itoa(n int) string {
 func TestTheSecretScannerDetectsWhatItClaimsTo(t *testing.T) {
 	cases := []struct {
 		name string
+		file string
 		body string
 	}{
-		{"a Go string literal", `apiToken := "s0me-rea1-token-value-here"`},
-		{"a Go struct field", `cfg := Config{APIToken: "s0me-rea1-token-value-here"}`},
-		{"a shell export", "export SENTINEL_API_TOKEN=s0me-rea1-token-value"},
-		{"a YAML value", "  password: supersecretvalue"},
-		{"a well-known default", "  MINIO_ROOT_PASSWORD: minioadmin"},
-		{"a TypeScript constant", `const apiKey = "sk-live-9f2a7b3c8d1e4f60";`},
-		{"a Python assignment", `CLIENT_SECRET = "provider-issued-value-9f2a"`},
-		{"a PEM private key", "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----"},
+		{"a Go string literal", "fixture.go", `apiToken := "s0me-rea1-token-value-here"`},
+		{"a Go struct field", "fixture.go", `cfg := Config{APIToken: "s0me-rea1-token-value-here"}`},
+		{"a shell export", "fixture.sh", "export SENTINEL_API_TOKEN=s0me-rea1-token-value"},
+		{"a YAML value", "compose.yml", "  password: supersecretvalue"},
+		{"a well-known default", "compose.yml", "  MINIO_ROOT_PASSWORD: minioadmin"},
+		{"a TypeScript constant", "fixture.ts", `const apiKey = "sk-live-9f2a7b3c8d1e4f60";`},
+		{"a Python assignment", "fixture.py", `CLIENT_SECRET = "provider-issued-value-9f2a"`},
+		{"a SQL role", "migration.sql", `CREATE ROLE app LOGIN PASSWORD 'a-real-password-here';`},
+		{"a PEM private key", "fixture.go", "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----"},
 	}
 	for _, tc := range cases {
-		if got := scanFile("fixture.go", tc.body); len(got) == 0 {
+		if got := scanFile(tc.file, tc.body); len(got) == 0 {
 			t.Errorf("the scanner missed %s: %q", tc.name, tc.body)
 		}
 	}
@@ -265,21 +288,24 @@ func TestTheSecretScannerDetectsWhatItClaimsTo(t *testing.T) {
 func TestTheSecretScannerDoesNotFireOnSafePatterns(t *testing.T) {
 	cases := []struct {
 		name string
+		file string
 		body string
 	}{
-		{"reading from the environment", `APIToken: env("SENTINEL_API_TOKEN", "")`},
-		{"an empty default", `token := ""`},
-		{"a shell interpolation", "SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN}"},
-		{"a compose interpolation", "  SENTINEL_METRICS_TOKEN: ${SENTINEL_METRICS_TOKEN:?required}"},
-		{"a header name", `w.Header().Set("Access-Control-Allow-Headers", "Authorization, X-CSRF-Token")`},
-		{"the CSRF cookie name", `auth.RequireCSRFToken("sentinel_session", "X-CSRF-Token")`},
-		{"a placeholder", `apiToken: "<your-token-here>"`},
-		{"a redaction constant", `Placeholder = "[REDACTED]"`},
-		{"a comment", `// token = "this-is-explaining-a-defect"`},
-		{"a TypeScript env read", `const apiKey = process.env.SENTINEL_API_TOKEN;`},
+		{"reading from the environment", "fixture.go", `APIToken: env("SENTINEL_API_TOKEN", "")`},
+		{"an empty default", "fixture.go", `token := ""`},
+		{"a Go struct field holding a variable", "fixture.go", `SecretKey: secretKey,`},
+		{"a Go field holding a function call", "fixture.go", `MetricsToken: mustLoadToken(),`},
+		{"a shell interpolation", "fixture.sh", "SENTINEL_API_TOKEN=${SENTINEL_API_TOKEN}"},
+		{"a compose interpolation", "compose.yml", "  SENTINEL_METRICS_TOKEN: ${SENTINEL_METRICS_TOKEN:?required}"},
+		{"a header name", "fixture.go", `w.Header().Set("Access-Control-Allow-Headers", "Authorization, X-CSRF-Token")`},
+		{"the CSRF cookie name", "fixture.go", `auth.RequireCSRFToken("sentinel_session", "X-CSRF-Token")`},
+		{"a placeholder", "fixture.go", `apiToken: "<your-token-here>"`},
+		{"a redaction constant", "fixture.go", `Placeholder = "[REDACTED]"`},
+		{"a comment", "fixture.go", `// token = "this-is-explaining-a-defect"`},
+		{"a TypeScript env read", "fixture.ts", `const apiKey = process.env.SENTINEL_API_TOKEN;`},
 	}
 	for _, tc := range cases {
-		if got := scanFile("fixture.go", tc.body); len(got) > 0 {
+		if got := scanFile(tc.file, tc.body); len(got) > 0 {
 			t.Errorf("the scanner fired on %s (%q): %v", tc.name, tc.body, got)
 		}
 	}

@@ -229,3 +229,85 @@ DROP TRIGGER IF EXISTS secret_versions_material_immutable ON secret_versions;
 CREATE TRIGGER secret_versions_material_immutable
     BEFORE UPDATE ON secret_versions
     FOR EACH ROW EXECUTE FUNCTION secret_material_is_immutable();
+
+-- ---------------------------------------------------------------------------
+-- Artifact storage and ingress
+-- ---------------------------------------------------------------------------
+--
+-- The PostgreSQL counterpart of migrations/004_artifact_storage.sql. The
+-- artifact columns live on file_instances above; these are the tables the
+-- ingress adds, each under row-level security for the same reason as the rest:
+-- a query that forgets its tenant must starve rather than disclose.
+
+ALTER TABLE file_instances ADD COLUMN IF NOT EXISTS object_key TEXT;
+ALTER TABLE file_instances ADD COLUMN IF NOT EXISTS original_filename TEXT;
+ALTER TABLE file_instances ADD COLUMN IF NOT EXISTS filename_was_normalized BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE file_instances ADD COLUMN IF NOT EXISTS media_type TEXT;
+
+-- Duplicate delivery of identical content must not create a second artifact.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_file_instances_content
+    ON file_instances(tenant_id, sha256_hash, size_bytes);
+
+CREATE TABLE IF NOT EXISTS tenant_quotas (
+    tenant_id       TEXT PRIMARY KEY REFERENCES tenants(id),
+    max_total_bytes BIGINT NOT NULL CHECK (max_total_bytes > 0),
+    max_artifacts   BIGINT NOT NULL CHECK (max_artifacts > 0),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS ingest_idempotency (
+    tenant_id        TEXT NOT NULL REFERENCES tenants(id),
+    idempotency_key  TEXT NOT NULL,
+    fingerprint      TEXT NOT NULL,
+    file_instance_id BIGINT NOT NULL REFERENCES file_instances(id),
+    job_id           BIGINT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, idempotency_key)
+);
+
+-- Every read of raw artifact bytes is recorded. Raw financial file content is
+-- the most sensitive data this system holds, and an access log that lives only
+-- in an HTTP server's file is not evidence.
+CREATE TABLE IF NOT EXISTS artifact_access_log (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id        TEXT NOT NULL REFERENCES tenants(id),
+    file_instance_id BIGINT NOT NULL REFERENCES file_instances(id),
+    actor_id         TEXT NOT NULL,
+    action           TEXT NOT NULL CHECK (action IN ('DOWNLOAD','DOWNLOAD_DENIED')),
+    bytes_served     BIGINT NOT NULL DEFAULT 0 CHECK (bytes_served >= 0),
+    occurred_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_access_subject
+    ON artifact_access_log(tenant_id, file_instance_id, id);
+
+ALTER TABLE tenant_quotas       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ingest_idempotency  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE artifact_access_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_quotas       FORCE ROW LEVEL SECURITY;
+ALTER TABLE ingest_idempotency  FORCE ROW LEVEL SECURITY;
+ALTER TABLE artifact_access_log FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation_tenant_quotas ON tenant_quotas
+    USING (tenant_id = current_setting('sentinel.tenant_id', true))
+    WITH CHECK (tenant_id = current_setting('sentinel.tenant_id', true));
+
+CREATE POLICY tenant_isolation_ingest_idempotency ON ingest_idempotency
+    USING (tenant_id = current_setting('sentinel.tenant_id', true))
+    WITH CHECK (tenant_id = current_setting('sentinel.tenant_id', true));
+
+CREATE POLICY tenant_isolation_artifact_access_log ON artifact_access_log
+    USING (tenant_id = current_setting('sentinel.tenant_id', true))
+    WITH CHECK (tenant_id = current_setting('sentinel.tenant_id', true));
+
+-- The access log is evidence of who read what. Rewriting it defeats the point.
+CREATE OR REPLACE FUNCTION artifact_access_log_append_only() RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'artifact_access_log is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS artifact_access_log_no_change ON artifact_access_log;
+CREATE TRIGGER artifact_access_log_no_change
+    BEFORE UPDATE OR DELETE ON artifact_access_log
+    FOR EACH ROW EXECUTE FUNCTION artifact_access_log_append_only();

@@ -21,6 +21,7 @@ import (
 
 	"sentinel-gateway/internal/auth"
 	"sentinel-gateway/internal/egress"
+	"sentinel-gateway/internal/objectstore"
 	"sentinel-gateway/internal/secrets"
 )
 
@@ -133,6 +134,15 @@ func main() {
 		log.Printf("Applied %d migration(s): %s", len(applied), strings.Join(applied, ", "))
 	}
 
+	// 3b. Artifact storage.
+	//
+	// Built before the router so a misconfigured store fails at startup rather
+	// than on the first upload, which would turn an operator's error into a
+	// rejected financial file.
+	if err := buildObjectStore(cfg); err != nil {
+		log.Fatalf("Artifact storage: %v", err)
+	}
+
 	// 4. Background inbox watcher.
 	//
 	// Only started when an operator has named the tenant its files belong to.
@@ -201,6 +211,13 @@ func main() {
 // requires proving that deleted routes return 404 rather than merely that their
 // handlers no longer compile.
 func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
+	return NewRouterWithStore(db, cfg, verifier, cfg.ObjectStore)
+}
+
+// NewRouterWithStore is the constructor the tests use to supply a store
+// directly. Production goes through NewRouter, which takes the one built at
+// startup.
+func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store objectstore.ObjectStore) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -569,35 +586,32 @@ func NewRouter(db *sql.DB, cfg *Config, verifier *auth.Verifier) chi.Router {
 			json.NewEncoder(w).Encode(result)
 		})
 
-		// POST Multipart File Upload
+		// POST Multipart File Upload.
+		//
+		// Streams to immutable storage and returns 202 with identifiers. The
+		// handler this replaces called ParseMultipartForm, read the whole body
+		// with io.ReadAll, and returned a synchronous validation verdict.
+		//
+		// A nil store means artifact storage is not configured. That is a 503,
+		// not a fall back to the old in-memory path: accepting a financial file
+		// this system cannot durably store is worse than refusing it.
 		r.Post("/files/upload", func(w http.ResponseWriter, r *http.Request) {
-			err := r.ParseMultipartForm(20 << 20) // 20 MB
-			if err != nil {
-				http.Error(w, "Unable to parse form", http.StatusBadRequest)
+			if store == nil {
+				writeIngestError(w, http.StatusServiceUnavailable, "storage_unavailable",
+					"artifact storage is not configured; uploads are refused rather than held in memory")
 				return
 			}
+			ingestUpload(db, store)(w, r)
+		})
 
-			file, header, err := r.FormFile("file")
-			if err != nil {
-				http.Error(w, "Missing 'file' field", http.StatusBadRequest)
+		// GET raw artifact bytes through an audited streaming proxy.
+		r.Get("/artifacts/{id}/content", func(w http.ResponseWriter, r *http.Request) {
+			if store == nil {
+				writeIngestError(w, http.StatusServiceUnavailable, "storage_unavailable",
+					"artifact storage is not configured")
 				return
 			}
-			defer file.Close()
-
-			scope, serr := resolveScope(r, auth.PermUploadArtifact)
-			if serr != nil {
-				serr.write(w)
-				return
-			}
-
-			result, err := ProcessFile(db, scope.TenantID(), file, header)
-			if err != nil {
-				http.Error(w, "Processing failed: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(result)
+			serveArtifactContent(db, store)(w, r)
 		})
 
 		// POST Incident AI Triage (Proxies to Python AI Tier)
@@ -872,4 +886,76 @@ func jwksHost(raw string) string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+// buildObjectStore selects and constructs the artifact store.
+//
+// The selection is explicit and fails closed. A production profile with no
+// OBJECT_STORE_URL already refuses to start in Load; here, a URL that names an
+// S3 endpoint requires credentials, and a local-demo profile with no URL gets a
+// filesystem store under a named directory. There is no path that leaves the
+// process running with artifact storage silently absent.
+func buildObjectStore(cfg *Config) error {
+	if cfg.ObjectStoreURL == "" {
+		if !cfg.IsDemo() {
+			// Load already reports this; the guard is here so a future change to
+			// Load cannot silently produce a production process with no store.
+			return fmt.Errorf("OBJECT_STORE_URL is required outside the local-demo profile")
+		}
+		root := env("SENTINEL_ARTIFACT_ROOT", "./data/artifacts")
+		store, err := objectstore.NewFilesystemStore(root)
+		if err != nil {
+			return err
+		}
+		cfg.ObjectStore = store
+		cfg.ArtifactStoreRoot = store.Root()
+		log.Printf("Artifact storage: filesystem at %s (local-demo)", store.Root())
+		return nil
+	}
+
+	// A file:// URL selects the local adapter explicitly, which is what a
+	// developer wants when exercising the production configuration path.
+	if strings.HasPrefix(cfg.ObjectStoreURL, "file://") {
+		root := strings.TrimPrefix(cfg.ObjectStoreURL, "file://")
+		store, err := objectstore.NewFilesystemStore(root)
+		if err != nil {
+			return err
+		}
+		cfg.ObjectStore = store
+		cfg.ArtifactStoreRoot = store.Root()
+		log.Printf("Artifact storage: filesystem at %s", store.Root())
+		return nil
+	}
+
+	endpoint, bucket, useSSL, err := objectstore.ParseS3URL(cfg.ObjectStoreURL)
+	if err != nil {
+		return err
+	}
+	accessKey := env("OBJECT_STORE_ACCESS_KEY", "")
+	rawSecret := env("OBJECT_STORE_SECRET_KEY", "")
+	if accessKey == "" || rawSecret == "" {
+		return fmt.Errorf("OBJECT_STORE_ACCESS_KEY and OBJECT_STORE_SECRET_KEY are required for an S3 artifact store")
+	}
+	secretKey, err := secrets.New(rawSecret)
+	if err != nil {
+		return fmt.Errorf("OBJECT_STORE_SECRET_KEY: %w", err)
+	}
+	cfg.Scrubber.Register(secretKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	store, err := objectstore.NewS3Store(ctx, objectstore.S3Config{
+		Endpoint:  endpoint,
+		Bucket:    bucket,
+		Region:    env("OBJECT_STORE_REGION", "us-east-1"),
+		UseSSL:    useSSL,
+		AccessKey: accessKey,
+		SecretKey: secretKey,
+	})
+	if err != nil {
+		return err
+	}
+	cfg.ObjectStore = store
+	log.Printf("Artifact storage: s3 bucket %q at %s (tls=%v)", bucket, endpoint, useSSL)
+	return nil
 }

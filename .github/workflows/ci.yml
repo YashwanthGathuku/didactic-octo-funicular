@@ -206,7 +206,7 @@ jobs:
           psql -h localhost -U postgres -d sentinel_test -c \
             "CREATE ROLE sentinel_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE;"  # secret-scan-allow: least-privilege role in the ephemeral CI database; exists only for the duration of this job
           psql -h localhost -U postgres -d sentinel_test -c \
-            "GRANT SELECT,INSERT,UPDATE ON partners,file_instances,incidents,audit_events,secret_versions,secret_events TO sentinel_app;"
+            "GRANT SELECT,INSERT,UPDATE ON partners,file_instances,incidents,audit_events,secret_versions,secret_events,tenant_quotas,ingest_idempotency,artifact_access_log TO sentinel_app;"
           # No DELETE is granted anywhere. The append-only trigger is the
           # primary defence for the audit trail; withholding the grant is the
           # second.
