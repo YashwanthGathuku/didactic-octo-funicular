@@ -107,6 +107,34 @@ func New(raw string) (Value, error) {
 	if len(raw) < MinSecretLength {
 		return Value{}, fmt.Errorf("%w: got %d characters, require at least %d", ErrTooShort, len(raw), MinSecretLength)
 	}
+	return seal(raw)
+}
+
+// NewExternal wraps a credential whose strength this system does not control.
+//
+// The MinSecretLength floor that New enforces exists to stop *this* application
+// choosing a weak secret. It cannot govern a credential that already exists
+// somewhere else: a customer's database password, an Oracle wallet passphrase,
+// a personal access token issued by another vendor. Refusing those would not
+// make them stronger; it would make the connector unusable against real
+// systems, and the workaround an operator reaches for -- storing the password
+// somewhere this application does not protect -- is strictly worse.
+//
+// The value gets exactly the same protection as any other: sealed under the
+// process key, non-printable, non-marshalable. What differs is only that the
+// caller is asserting the credential is externally determined.
+//
+// Weak reports whether the value is under the floor, so a caller can surface
+// that to an operator rather than silently accepting it.
+func NewExternal(raw string) (value Value, weak bool, err error) {
+	if raw == "" {
+		return Value{}, false, fmt.Errorf("%w: the credential is empty", ErrTooShort)
+	}
+	v, err := seal(raw)
+	return v, len(raw) < MinSecretLength, err
+}
+
+func seal(raw string) (Value, error) {
 	nonce := make([]byte, procAEAD.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return Value{}, fmt.Errorf("seal secret: %w", err)

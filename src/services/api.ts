@@ -217,3 +217,150 @@ export const SentinelApi = {
     return await res.json();
   }
 };
+
+// ---------------------------------------------------------------------------
+// Connector platform
+// ---------------------------------------------------------------------------
+
+/**
+ * The connector catalog and its descriptors are server-owned.
+ *
+ * Nothing here knows what a PostgreSQL connection needs, or an Oracle one. The
+ * wizard renders whatever fields the descriptor lists, so adding a connector is
+ * a server change and there is no second place where "Oracle needs a service
+ * name" has to be remembered -- and no client-side field list that can drift out
+ * of step with what the server will accept.
+ */
+
+export type ConnectorStatus =
+  | 'PLANNED'
+  | 'IMPLEMENTING'
+  | 'AVAILABLE'
+  | 'DEGRADED'
+  | 'DISABLED';
+
+export interface ConnectorCatalogEntry {
+  type: string;
+  displayName: string;
+  status: ConnectorStatus;
+  statusReason: string;
+  /**
+   * Decided by the server, not re-derived here. A client that reimplemented the
+   * rule and got it wrong would offer a connector the server then refuses,
+   * which reads to an operator as a broken product rather than a deliberate
+   * gate.
+   */
+  selectable: boolean;
+  conformance: ConnectorConformance | null;
+}
+
+export interface ConnectorConformance {
+  connectorType: string;
+  serverVersion: string;
+  driverVersion: string;
+  testCommit: string;
+  runAt: string;
+  passed: number;
+  failed: number;
+  skipped?: string[];
+}
+
+export type ConnectorFieldKind =
+  | 'TEXT'
+  | 'NUMBER'
+  | 'ENUM'
+  | 'BOOL'
+  | 'SECRET'
+  | 'SECRET_REF'
+  | 'LIST';
+
+export interface ConnectorFieldOption {
+  value: string;
+  label: string;
+  help?: string;
+  /** Weakens a control. The wizard warns rather than hiding it. */
+  insecure?: boolean;
+}
+
+export interface ConnectorField {
+  id: string;
+  label: string;
+  kind: ConnectorFieldKind;
+  required: boolean;
+  help?: string;
+  placeholder?: string;
+  default?: string;
+  options?: ConnectorFieldOption[];
+  rule?: string;
+  /** Restricts the field to particular authentication modes. */
+  appliesToAuth?: string[];
+  sensitive?: boolean;
+}
+
+export interface ConnectorAuthMode {
+  id: string;
+  label: string;
+  help?: string;
+  preferred?: boolean;
+  localTestingOnly?: boolean;
+}
+
+export interface ConnectorDescriptor {
+  type: string;
+  displayName: string;
+  status: ConnectorStatus;
+  statusReason?: string;
+  fields: ConnectorField[];
+  authModes: ConnectorAuthMode[];
+  /** A placeholder template shown as documentation. Never a saved value. */
+  template?: string;
+  supportsUriPaste: boolean;
+  capabilities: Record<string, unknown>;
+  conformance?: ConnectorConformance | null;
+}
+
+export interface ConnectorCatalog {
+  connectors: ConnectorCatalogEntry[];
+  available: string[];
+  note: string;
+}
+
+export async function getConnectorCatalog(): Promise<ApiResult<ConnectorCatalog>> {
+  return request<ConnectorCatalog>(`${API_BASE_URL}/connectors`);
+}
+
+export async function getConnectorDescriptor(
+  type: string,
+): Promise<ApiResult<ConnectorDescriptor>> {
+  return request<ConnectorDescriptor>(`${API_BASE_URL}/connectors/${encodeURIComponent(type)}`);
+}
+
+export interface ParsedConnectionUri {
+  fields: Record<string, string>;
+  secretExtracted: boolean;
+  warnings: string[] | null;
+  note: string;
+}
+
+/**
+ * Sends a pasted connection string to the server, which splits it and discards
+ * the raw value.
+ *
+ * Parsing happens on the server rather than in the browser so the credential is
+ * separated by the component that owns the secret store. A browser-side parse
+ * would leave the whole string in a React state variable, in the form's DOM, and
+ * in whatever the next error boundary decides to log.
+ */
+export async function parseConnectionUri(
+  type: string,
+  uri: string,
+): Promise<ApiResult<ParsedConnectionUri>> {
+  return request<ParsedConnectionUri>(
+    `${API_BASE_URL}/connectors/${encodeURIComponent(type)}/parse-uri`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uri }),
+    },
+  );
+}

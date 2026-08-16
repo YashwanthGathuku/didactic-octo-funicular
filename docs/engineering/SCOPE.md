@@ -64,6 +64,27 @@ Status meanings are strict:
 | Outbound feed delivery | **Planned** | `direction` is stored and validated; nothing sends a file. An OUTBOUND contract materializes occurrences that only an arrival could satisfy. |
 | Predictive breach risk | **Non-goal** | Removed in Prompt 01 and not reintroduced. |
 
+### Customer source connectors
+
+Sentinel Flow reading a *customer's* database. PostgreSQL remains Sentinel
+Flow's own system of record and is unaffected by anything in this section.
+
+| Capability | Status | Notes |
+|---|---|---|
+| Connector contracts and capability model | Implemented | Prompt 16.1. `internal/connectors`. |
+| Metadata-driven catalog of nine connectors | Implemented | All nine carry a reviewed field model. Eight are PLANNED with the reason stated. |
+| Server-owned descriptors driving one generic wizard | Implemented | Prompt 16.2. The browser knows nothing about any specific database. |
+| Write-only credential handling | Implemented | Secrets are a separate type holding sealed values; no read path returns one, and marshalling refuses. |
+| Connection-string paste, split and discard | Implemented | Offered only where the provider defines a URI. Never stored, echoed or logged. |
+| Shared conformance suite | Implemented | Prompt 16.3. 21 black-box checks against a real disposable fixture; a skip counts as a failure. |
+| PostgreSQL driver | Implemented | Prompt 16.4. Passes all 21 checks against real PostgreSQL 16 in CI. |
+| MySQL, MariaDB, SQL Server, Oracle, Snowflake, Redshift, BigQuery, Databricks | **Planned** | No driver. Visible in the catalog, not selectable, and no connection can be attempted. |
+| Storing a connection | **Planned** | No table, no migration, no create route. Nothing is persistable yet, so the platform is not reachable in production use. |
+| Runtime conformance evidence | **Planned** | A running process reports every connector as IMPLEMENTING: the suite runs in CI, and the binary carries no record. Deliberate — a constant asserting verification is the defect this platform exists to prevent. |
+| Approved query templates | **Planned** | The approval model exists; no templates ship and no route defines one. |
+| Per-connector rate and concurrency limits | **Planned** | Per-execution row, byte, time and cursor bounds exist; nothing bounds executions per minute. |
+| Arbitrary SQL from browser or AI | **Non-goal** | There is no entry point that accepts a statement. Not restricted — absent. |
+
 ### Evidence and audit
 
 | Capability | Status | Notes |

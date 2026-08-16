@@ -274,6 +274,26 @@ jobs:
             echo "FAIL: the PostgreSQL materialization path did not run"; echo "$out"; exit 1; }
           echo "OK: idempotent materialization verified against a real PostgreSQL server"
 
+      # The connector conformance suite is the gate that makes a connector
+      # selectable, so this job is where a driver earns AVAILABLE. It runs
+      # against the real server, creates a disposable schema, and exercises the
+      # refusals -- untrusted certificate, wrong password, unapproved schema,
+      # cancelled query -- that cannot be demonstrated any other way.
+      - name: Connector conformance against PostgreSQL
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: |
+          go test -race -v -run TestPostgresConnector ./internal/connectors/ 2>&1 | tee /tmp/conformance.log
+          grep -q "PASS: TestPostgresConnectorPassesTheSharedConformanceSuite" /tmp/conformance.log || {
+            echo "FAIL: the PostgreSQL connector did not pass conformance"; exit 1; }
+          if grep -q "  SKIP " /tmp/conformance.log; then
+            echo "FAIL: a conformance check was skipped; a skipped check is not a passed one"
+            grep "  SKIP " /tmp/conformance.log
+            exit 1
+          fi
+          echo "OK: the PostgreSQL connector passed every conformance check against a real server"
+
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.
       - name: Assert the RLS tests were not skipped

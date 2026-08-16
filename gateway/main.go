@@ -482,6 +482,9 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			json.NewEncoder(w).Encode(expectations)
 		})
 
+		// The connector platform: catalog, descriptors, and URI parsing.
+		registerConnectorRoutes(r)
+
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {
 			scope, serr := resolveScope(r, auth.PermReadTenant)
