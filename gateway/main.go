@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -201,10 +203,40 @@ func main() {
 			cfg.OIDCIssuer, cfg.OIDCAudience, len(keys))
 	}
 
+	// Background job workers. Until Prompt 08 nothing leased the jobs ingest
+	// enqueued, so every uploaded artifact stayed RECEIVED forever.
+	workerCtx, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
+	stopWorkers, err := startWorkers(workerCtx, db, cfg)
+	if err != nil {
+		log.Fatalf("Cannot start job workers: %v", err)
+	}
+
 	r := NewRouter(db, cfg, verifier)
+	server := &http.Server{Addr: cfg.Addr(), Handler: r}
+
+	// Shutdown order matters. The server stops accepting first, so no request
+	// is answered by a process that can no longer do the work it promises; then
+	// the pool drains, so held jobs complete and release their leases rather
+	// than waiting out a lease expiry on the next process.
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-shutdown
+		log.Println("Shutting down: refusing new requests, then draining workers.")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("HTTP shutdown: %v", err)
+		}
+		stopWorkers()
+		log.Println("Shutdown complete.")
+		os.Exit(0)
+	}()
 
 	log.Printf("Sentinel Gateway listening on %s", cfg.Addr())
-	if err := http.ListenAndServe(cfg.Addr(), r); err != nil {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

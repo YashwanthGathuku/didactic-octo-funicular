@@ -212,6 +212,12 @@ jobs:
           # second.
           psql -h localhost -U postgres -d sentinel_test -c \
             "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sentinel_app;"
+          # The job queue tests create a throwaway schema per test so repeated
+          # runs do not see each other's jobs. This grant is scoped to the
+          # ephemeral CI database and is deliberately not held by the role the
+          # RLS tests use, which must own nothing.
+          psql -h localhost -U postgres -d sentinel_test -c \
+            "GRANT CREATE ON DATABASE sentinel_test TO sentinel_app;"
           psql -h localhost -U postgres -d sentinel_test -c \
             "INSERT INTO tenants (id,name) VALUES ('TENANT-ALPHA','Alpha'),('TENANT-BETA','Beta');"
 
@@ -220,6 +226,25 @@ jobs:
         env:
           SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
         run: go test -run 'TestRls|TestApplicationRole|TestSecretMaterial' -v ./internal/repository/
+
+      # The job queue's claim strategy is PostgreSQL-specific: SKIP LOCKED does
+      # not exist in SQLite, so the SQLite half of that suite verifies different
+      # code. Both must run.
+      - name: Durable job queue against PostgreSQL
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: go test -race ./internal/jobs/
+
+      - name: Assert the PostgreSQL job tests were not skipped
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: |
+          out=$(go test -v -run TestFiftyWorkersRace ./internal/jobs/ 2>&1)
+          echo "$out" | grep -q "PASS: TestFiftyWorkersRaceForOneJobAndExactlyOneWins/postgres" || {
+            echo "FAIL: the PostgreSQL claim path did not run"; echo "$out"; exit 1; }
+          echo "OK: SKIP LOCKED claiming verified against a real PostgreSQL server"
 
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.

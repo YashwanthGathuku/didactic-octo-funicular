@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,9 +11,21 @@ import (
 )
 
 func setupTestDb(t *testing.T) *sql.DB {
-	db, err := sql.Open("sqlite", ":memory:")
+	// File-backed, not ":memory:".
+	//
+	// An in-memory SQLite database belongs to a single connection: open a
+	// second and it gets its own empty database. With database/sql pooling
+	// that is invisible until a test raises MaxOpenConns, at which point a
+	// concurrency test sees "no such table" -- or worse, passes because each
+	// goroutine is looking at a different, empty queue.
+	//
+	// A file in the test's temporary directory costs nothing and removes the
+	// trap. busy_timeout lets writers wait for the single write lock instead of
+	// failing immediately under concurrency.
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
-		t.Fatalf("Failed to open in-memory sqlite: %v", err)
+		t.Fatalf("Failed to open sqlite: %v", err)
 	}
 
 	// Build the schema with the real migrator rather than a copy maintained by

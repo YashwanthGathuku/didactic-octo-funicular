@@ -73,6 +73,10 @@ usable `Scope` without passing the authorization check.
 | `/api/v1/compliance/export` | GET | `evidence:read` | Carries no regulatory claim. |
 | `/api/v1/files/upload` | POST | `artifact:upload` | Streams to immutable storage; returns 202 with identifiers and no verdict. Prompt 06. |
 | `/api/v1/artifacts/{id}/content` | GET | `evidence:read` | Audited streaming proxy for raw bytes. Every read logged. Prompt 06. |
+
+Since Prompt 08, `/files/upload` returns 202 and a background worker performs
+validation; the artifact is `RECEIVED` when the response is written. See
+`JOBS_AND_OUTBOX.md`.
 | `/api/v1/files/ingest-raw` | POST | `artifact:upload` | **Legacy.** Reads the whole body into memory, writes no object, returns a synchronous verdict. Superseded by `/files/upload`; converges in Prompt 07. |
 | `/api/v1/incidents/{id}/triage` | POST | `tenant:read` | Read-only AI analysis; 503 when unconfigured. |
 | `/api/v1/incidents/{id}/approve` | POST | `release:approve` | Actor from token; justification required. |
