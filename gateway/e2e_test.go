@@ -56,8 +56,12 @@ func TestE2E_ValidNachaPipeline(t *testing.T) {
 		}
 		t.Errorf("Expected 0 findings for valid NACHA, got %d", len(res.Findings))
 	}
-	if !res.IsBalanced {
-		t.Errorf("Expected valid NACHA to be balanced")
+	// Balance is asserted as an arithmetic fact about this fixture, not as a
+	// correctness verdict: whether a file must balance comes from the feed
+	// contract. See internal/nacha.Decide.
+	if res.TotalDebitsMinor != res.TotalCreditsMinor {
+		t.Errorf("this offsetting fixture should balance: debits %d, credits %d",
+			res.TotalDebitsMinor, res.TotalCreditsMinor)
 	}
 }
 

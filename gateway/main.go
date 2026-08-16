@@ -64,10 +64,14 @@ type RawIngestRequest struct {
 	Content  string `json:"content"`
 }
 
+// TriageRequest is what the AI tier receives.
+//
+// It carries no raw content. AI is read-only and evidence-grounded, and the
+// evidence it is grounded in must already be redacted -- a model provider is an
+// external party, and a raw record sent to one has left this system.
 type TriageRequest struct {
 	FileID   int64    `json:"file_id"`
 	Findings []string `json:"findings"`
-	RawData  string   `json:"raw_data"`
 }
 
 type ActionProposal struct {
@@ -519,7 +523,9 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				// Fetch findings if file instance exists
 				if inc.FileInstanceID != nil {
 					fRows, _ := db.Query(`
-						SELECT id, code, description, severity, line_number, raw_data
+						SELECT id, code, rule_version, provenance, description, severity,
+						       line_number, byte_offset, field_start, field_end,
+						       evidence_redacted, expected_value, actual_value
 						FROM validation_findings
 						WHERE file_instance_id = ? AND tenant_id = ?
 					`, *inc.FileInstanceID, scope.TenantID())
@@ -527,8 +533,20 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 					if fRows != nil {
 						for fRows.Next() {
 							var f ValidationFindingRecord
-							if err := fRows.Scan(&f.ID, &f.Code, &f.Description, &f.Severity, &f.LineNumber, &f.RawData); err == nil {
-								f.RuleReference = "Nacha Operating Rules 2025"
+							// raw_data is gone. The evidence column is redacted at
+							// the point it is written, so this query cannot
+							// return a payment instruction however it is used.
+							//
+							// The rule reference is no longer asserted here
+							// either: it used to be set to the literal string
+							// "Nacha Operating Rules 2025" for every finding
+							// regardless of what produced it, which cited a
+							// source the repository does not have. The version
+							// now comes from the rule that raised the finding.
+							if err := fRows.Scan(&f.ID, &f.Code, &f.RuleVersion, &f.Provenance,
+								&f.Description, &f.Severity, &f.LineNumber, &f.ByteOffset,
+								&f.FieldStart, &f.FieldEnd, &f.Evidence,
+								&f.Expected, &f.Actual); err == nil {
 								inc.Findings = append(inc.Findings, f)
 							}
 						}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -8,22 +9,32 @@ import (
 	"io"
 	"mime/multipart"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/moov-io/ach"
-
 	"sentinel-gateway/internal/domain"
+	"sentinel-gateway/internal/nacha"
 )
 
+// ValidationFindingRecord is the persisted form of a nacha.Finding.
+//
+// RawData is gone. It held the complete 94-character record and was returned by
+// GET /api/v1/incidents, which put account numbers, routing numbers and amounts
+// into every response and log line that touched an incident. Evidence replaces
+// it and is redacted at the point it is produced.
 type ValidationFindingRecord struct {
-	ID            int64  `json:"id"`
-	Code          string `json:"code"`
-	Description   string `json:"description"`
-	Severity      string `json:"severity"`
-	LineNumber    int    `json:"lineNumber"`
-	RawData       string `json:"rawData"`
-	RuleReference string `json:"ruleReference"`
+	ID          int64  `json:"id"`
+	Code        string `json:"code"`
+	RuleVersion string `json:"ruleVersion"`
+	Provenance  string `json:"provenance"`
+	Description string `json:"description"`
+	Severity    string `json:"severity"`
+	LineNumber  int    `json:"lineNumber"`
+	ByteOffset  int64  `json:"byteOffset"`
+	FieldStart  int    `json:"fieldStart,omitempty"`
+	FieldEnd    int    `json:"fieldEnd,omitempty"`
+	Evidence    string `json:"evidence,omitempty"`
+	Expected    string `json:"expected,omitempty"`
+	Actual      string `json:"actual,omitempty"`
 }
 
 type IngestionResult struct {
@@ -34,16 +45,37 @@ type IngestionResult struct {
 	// Terminus of ingestion: VALIDATED or QUARANTINED. Never RELEASED --
 	// release requires a versioned policy decision and, where policy requires
 	// it, approval by an authenticated person.
-	Status             string                    `json:"status"`
-	TotalRecordsParsed int                       `json:"totalRecordsParsed"`
-	TotalDebitsUsd     float64                   `json:"totalDebitsUsd"`
-	TotalCreditsUsd    float64                   `json:"totalCreditsUsd"`
-	CalculatedHash     string                    `json:"calculatedHash"`
-	ExpectedHash       string                    `json:"expectedHash"`
-	IsBalanced         bool                      `json:"isBalanced"`
-	Findings           []ValidationFindingRecord `json:"findings"`
-	RawContent         string                    `json:"rawContent,omitempty"`
-	IncidentID         *int64                    `json:"incidentId,omitempty"`
+	Status             string `json:"status"`
+	TotalRecordsParsed int    `json:"totalRecordsParsed"`
+	TotalEntriesParsed int    `json:"totalEntriesParsed"`
+
+	// Money is in integer minor units. The float64 fields these replace
+	// computed totals as cents/100.0 and compared debits to credits for
+	// equality, which is a correctness defect: a file with enough entries can
+	// report itself unbalanced when it balances.
+	TotalDebitsMinor  int64 `json:"totalDebitsMinor"`
+	TotalCreditsMinor int64 `json:"totalCreditsMinor"`
+
+	// IsBalanced is deliberately absent. Whether a file must balance is a term
+	// of the feed contract, not a property of the file: a credit-only payroll
+	// file never balances and is entirely correct. The old field reported
+	// debits == credits from every validation and treated it as a correctness
+	// signal, which was wrong in both directions.
+
+	// PolicyVersion and ContractID identify what produced the status. A
+	// decision without them is an opinion.
+	PolicyVersion string `json:"policyVersion"`
+	ContractID    string `json:"contractId,omitempty"`
+
+	// NotCheckedRuleIDs lists rules the validator could not evaluate for lack
+	// of an authoritative source, so silence does not imply coverage.
+	NotCheckedRuleIDs []string `json:"notCheckedRuleIds,omitempty"`
+
+	// QuarantineReasons states why, in the operator's terms.
+	QuarantineReasons []string `json:"quarantineReasons,omitempty"`
+
+	Findings   []ValidationFindingRecord `json:"findings"`
+	IncidentID *int64                    `json:"incidentId,omitempty"`
 }
 
 // ValidateRoutingMod10 verifies Federal Reserve Modulo 10 check digit on ABA routing numbers.
@@ -93,227 +125,82 @@ func ProcessFileBytes(db *sql.DB, tenantID string, filename string, content []by
 	if tenantID == "" {
 		return nil, fmt.Errorf("ingestion requires a tenant scope")
 	}
+
 	// Every financial input begins untrusted and unreleased.
 	result := &IngestionResult{
-		Filename:   filename,
-		Status:     "RECEIVED",
-		Findings:   make([]ValidationFindingRecord, 0),
-		RawContent: string(content),
-		SizeBytes:  int64(len(content)),
+		Filename:  filename,
+		Status:    "RECEIVED",
+		Findings:  make([]ValidationFindingRecord, 0),
+		SizeBytes: int64(len(content)),
 	}
 
-	// 1. Calculate SHA-256
+	// 1. Content hash, computed over exactly the bytes received.
 	hasher := sha256.New()
 	hasher.Write(content)
 	result.Hash = hex.EncodeToString(hasher.Sum(nil))
 
-	trimmed := strings.TrimSpace(string(content))
-
-	// parserSucceeded records whether the format parser could read the file at
-	// all. Only the NACHA branch sets it false today; the experimental parsers
-	// report through findings instead.
-	parserSucceeded := true
-
-	// 2. Multi-Format Detection: ISO 20022 XML vs BAI2 vs SWIFT MT vs NACHA ACH
-	if strings.HasPrefix(trimmed, "<?xml") || strings.HasPrefix(trimmed, "<Document") || strings.HasSuffix(strings.ToLower(filename), ".xml") {
-		isoFindings, debits, credits, count, balanced := ValidateIso20022Xml(content)
-		result.Findings = append(result.Findings, isoFindings...)
-		result.TotalDebitsUsd = debits
-		result.TotalCreditsUsd = credits
-		result.TotalRecordsParsed = count
-		result.IsBalanced = balanced
-		if len(isoFindings) > 0 {
-			result.Status = "QUARANTINED"
-		}
-	} else if strings.HasPrefix(trimmed, "01,") || strings.HasSuffix(strings.ToLower(filename), ".bai") || strings.HasSuffix(strings.ToLower(filename), ".bai2") {
-		baiFindings, debits, credits, count, balanced := ValidateBai2File(content)
-		result.Findings = append(result.Findings, baiFindings...)
-		result.TotalDebitsUsd = debits
-		result.TotalCreditsUsd = credits
-		result.TotalRecordsParsed = count
-		result.IsBalanced = balanced
-		if len(baiFindings) > 0 {
-			result.Status = "QUARANTINED"
-		}
-	} else if IsSwiftMessage(string(content)) || strings.HasSuffix(strings.ToLower(filename), ".swift") || strings.HasSuffix(strings.ToLower(filename), ".mt103") || strings.HasSuffix(strings.ToLower(filename), ".mt940") {
-		swiftFindings, debits, credits, balanced := ParseAndValidateSwift(string(content))
-		result.Findings = append(result.Findings, swiftFindings...)
-		result.TotalDebitsUsd = debits
-		result.TotalCreditsUsd = credits
-		result.TotalRecordsParsed = len(strings.Split(string(content), "\n"))
-		result.IsBalanced = balanced
-		if len(swiftFindings) > 0 {
-			result.Status = "QUARANTINED"
-		}
-	} else {
-		// 3. Custom Line-by-Line NACHA verification
-		lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
-		var validLines []string
-		for _, l := range lines {
-			if strings.TrimSpace(l) != "" {
-				validLines = append(validLines, l)
-			}
-		}
-
-		var entryHashSum int64 = 0
-		var batchDebits int64 = 0
-		var batchCredits int64 = 0
-		var expectedEntryHash string = ""
-		var declaredBatchDebits int64 = 0
-		var declaredBatchCredits int64 = 0
-		var totalRecords = len(validLines)
-		result.TotalRecordsParsed = totalRecords
-
-		for idx, line := range validLines {
-			lineNum := idx + 1
-			if len(line) != 94 {
-				result.Findings = append(result.Findings, ValidationFindingRecord{
-					Code:          "ACH_ERR_0001_INVALID_RECORD_LENGTH",
-					Description:   fmt.Sprintf("Record at line %d has length %d, expected exactly 94 characters.", lineNum, len(line)),
-					Severity:      "FATAL",
-					LineNumber:    lineNum,
-					RawData:       line,
-					RuleReference: "Nacha Operating Rules 2025, Section 3.1: Standard File Layout",
-				})
-				result.Status = "QUARANTINED"
-			}
-
-			if len(line) > 0 {
-				recordType := string(line[0])
-				switch recordType {
-				case "6": // Entry Detail
-					if len(line) >= 12 {
-						routing := line[3:12]
-						if !ValidateRoutingMod10(routing) {
-							result.Findings = append(result.Findings, ValidationFindingRecord{
-								Code:          "ACH_ERR_0602_INVALID_ABA_CHECK_DIGIT",
-								Description:   fmt.Sprintf("Receiving DFI Identification '%s' at line %d failed Federal Reserve Modulo 10 check digit verification.", routing, lineNum),
-								Severity:      "ERROR",
-								LineNumber:    lineNum,
-								RawData:       line,
-								RuleReference: "Nacha Operating Rules 2025, Appendix 1: ABA Routing Check Digits",
-							})
-							result.Status = "QUARANTINED"
-						}
-						// Add first 8 digits to Entry Hash
-						if r8, err := strconv.ParseInt(routing[:8], 10, 64); err == nil {
-							entryHashSum += r8
-						}
-					}
-					if len(line) >= 39 {
-						txCode := line[1:3]
-						amt, _ := strconv.ParseInt(line[29:39], 10, 64)
-						if txCode == "27" || txCode == "37" || txCode == "55" {
-							batchDebits += amt
-						} else {
-							batchCredits += amt
-						}
-					}
-				case "8": // Batch Control
-					if len(line) >= 44 {
-						expectedEntryHash = strings.TrimSpace(line[10:20])
-						declaredBatchDebits, _ = strconv.ParseInt(line[20:32], 10, 64)
-						declaredBatchCredits, _ = strconv.ParseInt(line[32:44], 10, 64)
-					}
-				}
-			}
-		}
-
-		calcHashStr := fmt.Sprintf("%010d", entryHashSum%10000000000)
-		result.CalculatedHash = calcHashStr
-		result.ExpectedHash = expectedEntryHash
-		result.TotalDebitsUsd = float64(batchDebits) / 100.0
-		result.TotalCreditsUsd = float64(batchCredits) / 100.0
-		result.IsBalanced = (batchDebits == batchCredits)
-
-		if expectedEntryHash != "" && calcHashStr != expectedEntryHash {
-			result.Findings = append(result.Findings, ValidationFindingRecord{
-				Code:          "ACH_ERR_0802_HASH_MISMATCH",
-				Description:   fmt.Sprintf("Batch Control Entry Hash mismatch. Declared trailer: %s, Sum of entry 8-digit routing numbers: %s.", expectedEntryHash, calcHashStr),
-				Severity:      "CRITICAL",
-				LineNumber:    len(validLines) - 1,
-				RawData:       fmt.Sprintf("EntryHash: %s vs Calc: %s", expectedEntryHash, calcHashStr),
-				RuleReference: "Nacha Operating Rules 2025, Section 3.2.1: Entry Hash Field Validation",
-			})
-			result.Status = "QUARANTINED"
-		}
-
-		if declaredBatchDebits > 0 && declaredBatchDebits != batchDebits {
-			result.Findings = append(result.Findings, ValidationFindingRecord{
-				Code:          "ACH_ERR_0803_CONTROL_OUT_OF_BALANCE",
-				Description:   fmt.Sprintf("Batch Control total debits mismatch. Declared: $%.2f, Actual sum of entries: $%.2f.", float64(declaredBatchDebits)/100.0, float64(batchDebits)/100.0),
-				Severity:      "CRITICAL",
-				LineNumber:    len(validLines) - 1,
-				RawData:       fmt.Sprintf("Debits declared %d vs sum %d", declaredBatchDebits, batchDebits),
-				RuleReference: "Nacha Operating Rules 2025, Section 3.2.2: Batch Control Arithmetic Verification",
-			})
-			result.Status = "QUARANTINED"
-		}
-
-		if declaredBatchCredits > 0 && declaredBatchCredits != batchCredits {
-			result.Findings = append(result.Findings, ValidationFindingRecord{
-				Code:          "ACH_ERR_0804_CREDIT_CONTROL_MISMATCH",
-				Description:   fmt.Sprintf("Batch Control total credits mismatch. Declared: $%.2f, Actual sum of entries: $%.2f.", float64(declaredBatchCredits)/100.0, float64(batchCredits)/100.0),
-				Severity:      "CRITICAL",
-				LineNumber:    len(validLines) - 1,
-				RawData:       fmt.Sprintf("Credits declared %d vs sum %d", declaredBatchCredits, batchCredits),
-				RuleReference: "Nacha Operating Rules 2025, Section 3.2.2: Batch Control Arithmetic Verification",
-			})
-			result.Status = "QUARANTINED"
-		}
-
-		// Also parse with Moov ACH if format allows.
-		//
-		// A parser that cannot read the file is disqualifying, not advisory. This
-		// finding was previously recorded at WARNING and was the only finding
-		// branch that did not affect the release decision, which is how a zero-byte
-		// file reached RELEASED.
-		reader := ach.NewReader(strings.NewReader(string(content)))
-		if _, err := reader.Read(); err != nil {
-			parserSucceeded = false
-			if len(result.Findings) == 0 {
-				result.Findings = append(result.Findings, ValidationFindingRecord{
-					Code:          "ACH_ERR_0099_PARSER_EXCEPTION",
-					Description:   fmt.Sprintf("Moov ACH Parser reported: %v", err),
-					Severity:      "FATAL",
-					LineNumber:    1,
-					RawData:       "",
-					RuleReference: "Nacha Standard Specification 2025",
-				})
-			}
-		}
-	}
-
-	// Terminal release decision.
+	// 2. Validation.
 	//
-	// Deliberately minimal fail-closed behaviour, not the versioned policy
-	// engine (Prompt 07). It can only make the outcome stricter: a status
-	// already set to QUARANTINED above is never promoted back to RELEASED.
-	if result.TotalRecordsParsed == 0 {
-		// debits == credits over zero records is arithmetically true and
-		// operationally meaningless: it asserts a property of records that do
-		// not exist.
-		result.IsBalanced = false
+	// The whole determination now lives in internal/nacha: a streaming parse, a
+	// versioned rule set that declares what it cannot check, and a versioned
+	// policy that maps findings to an outcome. This function no longer decides
+	// anything about the file; it records what the validator and the policy
+	// decided.
+	//
+	// The moov-io/ach round trip this replaces produced a single WARNING for a
+	// parse failure and left the status untouched, which is how an empty file
+	// reached RELEASED.
+	validation, err := nacha.Validate(bytes.NewReader(content))
+	if err != nil {
+		// A read failure is not a verdict about the file. It fails closed, and
+		// it is reported as what it is.
+		return nil, fmt.Errorf("validation could not read the artifact: %w", err)
 	}
-	// The outcome is computed here and then walked through the domain state
-	// machine, so the status this function persists is reachable by a legal path
-	// rather than assigned as a string. domain.Artifact refuses any edge the
-	// machine does not define, which is what makes RECEIVED -> RELEASED
-	// unrepresentable rather than merely absent.
+
+	// The feed contract is not yet resolved per counterparty -- that is Prompt
+	// 10 -- so the default applies and the decision records that no contract
+	// was applied by leaving ContractID empty.
+	decision := nacha.Decide(validation, nacha.DefaultContract)
+
+	result.TotalRecordsParsed = validation.RecordsParsed
+	result.TotalEntriesParsed = validation.EntriesParsed
+	result.TotalDebitsMinor = validation.TotalDebitsMinor
+	result.TotalCreditsMinor = validation.TotalCreditsMinor
+	result.PolicyVersion = decision.PolicyVersion
+	result.ContractID = decision.ContractID
+	result.NotCheckedRuleIDs = decision.NotCheckedRuleIDs
+	result.QuarantineReasons = decision.Reasons
+
+	for _, f := range validation.Findings {
+		result.Findings = append(result.Findings, ValidationFindingRecord{
+			Code:        f.RuleID,
+			RuleVersion: f.RuleVersion,
+			Provenance:  string(f.Provenance),
+			Description: f.Description,
+			Severity:    string(f.Severity),
+			LineNumber:  f.RecordNumber,
+			ByteOffset:  f.ByteOffset,
+			FieldStart:  f.FieldStart,
+			FieldEnd:    f.FieldEnd,
+			// Redacted at the point it is produced, not at the point it is
+			// displayed. A redaction applied on the way out is one someone can
+			// forget to apply.
+			Evidence: f.Evidence,
+			Expected: f.Expected,
+			Actual:   f.Actual,
+		})
+	}
+
+	// 3. State transition, driven by the policy decision.
 	artifact := &domain.Artifact{
 		TenantID: domain.TenantID(tenantID),
 		State:    domain.ArtifactReceived,
 		SHA256:   result.Hash,
 	}
-	quarantine := !parserSucceeded ||
-		result.TotalRecordsParsed == 0 ||
-		hasBlockingFinding(result.Findings) ||
-		result.Status == "QUARANTINED"
-
 	if err := artifact.TransitionTo(domain.ArtifactValidating, time.Now().UTC()); err != nil {
 		return nil, fmt.Errorf("artifact state machine: %w", err)
 	}
-	if quarantine {
+	if decision.Quarantined() {
 		if err := artifact.TransitionTo(domain.ArtifactQuarantined, time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("artifact state machine: %w", err)
 		}
@@ -341,9 +228,14 @@ func ProcessFileBytes(db *sql.DB, tenantID string, filename string, content []by
 	for i := range result.Findings {
 		f := &result.Findings[i]
 		fRes, _ := db.Exec(`
-			INSERT INTO validation_findings (tenant_id, file_instance_id, code, description, severity, line_number, raw_data, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, tenantID, fileID, f.Code, f.Description, f.Severity, f.LineNumber, f.RawData, now)
+			INSERT INTO validation_findings
+				(tenant_id, file_instance_id, code, rule_version, provenance, description,
+				 severity, line_number, byte_offset, field_start, field_end,
+				 evidence_redacted, expected_value, actual_value, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, tenantID, fileID, f.Code, f.RuleVersion, f.Provenance, f.Description,
+			f.Severity, f.LineNumber, f.ByteOffset, f.FieldStart, f.FieldEnd,
+			f.Evidence, f.Expected, f.Actual, now)
 		fID, _ := fRes.LastInsertId()
 		f.ID = fID
 	}
@@ -362,13 +254,15 @@ func ProcessFileBytes(db *sql.DB, tenantID string, filename string, content []by
 
 	// 4. Append to Audit Ledger
 	_, _ = AppendAuditEvent(db, tenantID, "FILE_INGESTED", "SENTINEL_GATEWAY_WORKER", map[string]interface{}{
-		"fileId":         fileID,
-		"filename":       filename,
-		"sha256":         result.Hash,
-		"sizeBytes":      len(content),
-		"status":         result.Status,
-		"findingsCount":  len(result.Findings),
-		"totalDebitsUsd": result.TotalDebitsUsd,
+		"fileId":            fileID,
+		"filename":          filename,
+		"sha256":            result.Hash,
+		"sizeBytes":         len(content),
+		"status":            result.Status,
+		"findingsCount":     len(result.Findings),
+		"totalDebitsMinor":  result.TotalDebitsMinor,
+		"totalCreditsMinor": result.TotalCreditsMinor,
+		"policyVersion":     result.PolicyVersion,
 	})
 
 	return result, nil

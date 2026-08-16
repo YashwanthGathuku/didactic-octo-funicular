@@ -32,7 +32,10 @@ export type IncidentType =
   | 'PAYLOAD_ZERO_BYTE_DROP'
   | 'ISO20022_MANDATORY_TAG_MISSING';
 
-export type Severity = 'FATAL' | 'ERROR' | 'WARNING' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+// BLOCKING is the validator's severity for a finding that prevents release.
+// The FATAL/ERROR/CRITICAL levels remain for incident records, which use a
+// different scale; the validator emits only INFO, WARNING and BLOCKING.
+export type Severity = 'BLOCKING' | 'FATAL' | 'ERROR' | 'WARNING' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
 export interface Partner {
   id: string;
@@ -105,15 +108,31 @@ export interface SourceEvent {
 
 export interface ValidationFinding {
   id: string;
-  code: string; // e.g. "ACH_ERR_0802_HASH_MISMATCH"
+  code: string; // e.g. "NACHA.MATH.BATCH_ENTRY_HASH"
+  ruleVersion: string;
+
+  // Where the rule's authority comes from. FILE_FORMAT means the rule is
+  // checkable from the file itself; UNVERIFIED_REQUIRES_LICENSED_RULES means it
+  // needs the licensed Nacha Operating Rules, which this system does not have,
+  // and such a rule never blocks a release.
+  provenance: string;
+
   severity: Severity;
   lineNumber?: number;
-  recordType?: string; // "1", "5", "6", "8", "9"
-  fieldName?: string;
-  characterOffset?: number;
+  byteOffset?: number;
+  fieldStart?: number;
+  fieldEnd?: number;
   message: string;
-  rawSampleRedacted?: string;
-  ruleReference: string; // "Nacha Operating Rules 2025, Section 3.2.1"
+
+  // A redacted excerpt, produced at the server. It never contains a complete
+  // record. The field this replaces was named rawSampleRedacted and held the
+  // full 94-character line, redacted by nothing.
+  evidence?: string;
+
+  // The two sides of an arithmetic disagreement. A total is not a payment
+  // instruction, so these are shown in full.
+  expected?: string;
+  actual?: string;
 }
 
 export interface ValidationResult {
@@ -124,11 +143,18 @@ export interface ValidationResult {
   completedAtUtc: string;
   outcome: 'VALID' | 'QUARANTINED';
   totalRecordsParsed: number;
-  totalDebitsUsd: number;
-  totalCreditsUsd: number;
-  calculatedEntryHash: string;
-  expectedEntryHash?: string;
-  isBalanced: boolean;
+
+  // Integer minor units, formatted for display at the point of render.
+  totalDebitsMinor: number;
+  totalCreditsMinor: number;
+
+  // isBalanced is gone; balance is a feed-contract term, not a file property.
+  // The UI may state that debits and credits are equal as an arithmetic fact,
+  // and must not present that as a correctness verdict.
+
+  policyVersion: string;
+  contractId?: string;
+  notCheckedRuleIds?: string[];
   findings: ValidationFinding[];
   // Optional: the gateway does not report resource metrics, and the UI must not
   // invent them. Populated only by a measurement source that actually measured.

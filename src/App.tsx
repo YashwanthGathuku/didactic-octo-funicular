@@ -123,25 +123,34 @@ export const App: React.FC = () => {
       receivedAtUtc: new Date().toISOString(),
       validationResult: {
         runId: `VAL-RUN-${Date.now()}`,
-        parserVersion: 'Moov-ACH-v1.63',
-        rulePackVersion: 'Nacha2025.1',
+        // The parser and rule-pack versions were fixed strings asserting a
+        // Moov version and a Nacha rule pack edition regardless of what ran.
+        // The policy version below is the one the server actually applied.
+        parserVersion: '',
+        rulePackVersion: apiResult.policyVersion,
         startedAtUtc: new Date().toISOString(),
         completedAtUtc: new Date().toISOString(),
         outcome: apiResult.status === 'VALIDATED' ? 'VALID' : 'QUARANTINED',
         totalRecordsParsed: apiResult.totalRecordsParsed,
-        totalDebitsUsd: apiResult.totalDebitsUsd,
-        totalCreditsUsd: apiResult.totalCreditsUsd,
-        calculatedEntryHash: apiResult.calculatedHash,
-        expectedEntryHash: apiResult.expectedHash,
-        isBalanced: apiResult.isBalanced,
+        totalDebitsMinor: apiResult.totalDebitsMinor,
+        totalCreditsMinor: apiResult.totalCreditsMinor,
+        policyVersion: apiResult.policyVersion,
+        contractId: apiResult.contractId,
+        notCheckedRuleIds: apiResult.notCheckedRuleIds,
         findings: apiResult.findings.map(f => ({
           id: `FND-${f.id}`,
           code: f.code,
+          ruleVersion: f.ruleVersion,
+          provenance: f.provenance,
           severity: f.severity as any,
           lineNumber: f.lineNumber,
+          byteOffset: f.byteOffset,
+          fieldStart: f.fieldStart,
+          fieldEnd: f.fieldEnd,
           message: f.description,
-          ruleReference: f.ruleReference,
-          rawSampleRedacted: f.rawData
+          evidence: f.evidence,
+          expected: f.expected,
+          actual: f.actual
         })),
         // resourceMetrics deliberately omitted: the gateway does not measure or
         // report them. This previously attached a fixed 4.2ms / 1.8MB / 28.5MB/s

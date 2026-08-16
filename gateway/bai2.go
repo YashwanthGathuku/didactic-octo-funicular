@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sentinel-gateway/internal/nacha"
+
 	"strconv"
 	"strings"
 )
@@ -23,11 +25,10 @@ func ValidateBai2File(content []byte) ([]ValidationFindingRecord, float64, float
 
 	if len(validLines) == 0 {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "BAI_ERR_0001_EMPTY_FILE",
-			Description:   "BAI2 file is empty (0 records found).",
-			Severity:      "FATAL",
-			LineNumber:    1,
-			RuleReference: "Bank Administration Institute BAI2 Specification Section 1",
+			Code:        "BAI_ERR_0001_EMPTY_FILE",
+			Description: "BAI2 file is empty (0 records found).",
+			Severity:    "FATAL",
+			LineNumber:  1,
 		})
 		return findings, 0, 0, 0, false
 	}
@@ -35,12 +36,11 @@ func ValidateBai2File(content []byte) ([]ValidationFindingRecord, float64, float
 	// Line 1 must start with 01 (File Header)
 	if !strings.HasPrefix(validLines[0], "01,") {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "BAI_ERR_0002_MISSING_FILE_HEADER",
-			Description:   "First record must be Record 01 (File Header).",
-			Severity:      "FATAL",
-			LineNumber:    1,
-			RawData:       validLines[0],
-			RuleReference: "BAI2 Standard Record Layout Section 2.1",
+			Code:        "BAI_ERR_0002_MISSING_FILE_HEADER",
+			Description: "First record must be Record 01 (File Header).",
+			Severity:    "FATAL",
+			LineNumber:  1,
+			Evidence:    nacha.RedactEvidence(validLines[0]),
 		})
 	}
 
@@ -48,12 +48,11 @@ func ValidateBai2File(content []byte) ([]ValidationFindingRecord, float64, float
 	lastLine := validLines[len(validLines)-1]
 	if !strings.HasPrefix(lastLine, "99,") {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "BAI_ERR_0003_MISSING_FILE_TRAILER",
-			Description:   "Last record must be Record 99 (File Trailer).",
-			Severity:      "CRITICAL",
-			LineNumber:    len(validLines),
-			RawData:       lastLine,
-			RuleReference: "BAI2 Standard Record Layout Section 2.7",
+			Code:        "BAI_ERR_0003_MISSING_FILE_TRAILER",
+			Description: "Last record must be Record 99 (File Trailer).",
+			Severity:    "CRITICAL",
+			LineNumber:  len(validLines),
+			Evidence:    nacha.RedactEvidence(lastLine),
 		})
 	}
 

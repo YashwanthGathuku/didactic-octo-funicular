@@ -58,16 +58,28 @@ func TestNachaCorruptedEntryHashDetection(t *testing.T) {
 		t.Errorf("Expected status QUARANTINED for corrupted entry hash, got %s", result.Status)
 	}
 
+	// The rule id changed with the rule registry introduced in Prompt 07. The
+	// old ACH_ERR_0802_HASH_MISMATCH carried no version and no provenance, so a
+	// finding recorded under it could not say which formulation produced it.
 	foundHashMismatch := false
 	for _, f := range result.Findings {
-		if f.Code == "ACH_ERR_0802_HASH_MISMATCH" {
+		if f.Code == "NACHA.MATH.BATCH_ENTRY_HASH" {
 			foundHashMismatch = true
+			if f.Severity != "BLOCKING" {
+				t.Errorf("an entry hash mismatch was recorded at severity %q", f.Severity)
+			}
+			if f.RuleVersion == "" {
+				t.Error("the finding carries no rule version")
+			}
+			if f.Expected == "" || f.Actual == "" {
+				t.Error("the finding does not report both sides of the disagreement")
+			}
 			break
 		}
 	}
 
 	if !foundHashMismatch {
-		t.Errorf("Expected ACH_ERR_0802_HASH_MISMATCH in findings, but got: %+v", result.Findings)
+		t.Errorf("Expected NACHA.MATH.BATCH_ENTRY_HASH in findings, but got: %+v", result.Findings)
 	}
 }
 

@@ -79,11 +79,10 @@ func ValidateIso20022Xml(content []byte) ([]ValidationFindingRecord, float64, fl
 	var doc Iso20022Document
 	if err := xml.Unmarshal(content, &doc); err != nil {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "ISO_ERR_0001_MALFORMED_XML_SCHEMA",
-			Description:   fmt.Sprintf("Failed to parse ISO 20022 XML document: %v", err),
-			Severity:      "FATAL",
-			LineNumber:    1,
-			RuleReference: "ISO 20022 Financial Services Schema Standard",
+			Code:        "ISO_ERR_0001_MALFORMED_XML_SCHEMA",
+			Description: fmt.Sprintf("Failed to parse ISO 20022 XML document: %v", err),
+			Severity:    "FATAL",
+			LineNumber:  1,
 		})
 		return findings, 0, 0, 0, false
 	}
@@ -93,21 +92,19 @@ func ValidateIso20022Xml(content []byte) ([]ValidationFindingRecord, float64, fl
 		hdr := doc.FIToFICstmrCdt.GrpHdr
 		if strings.TrimSpace(hdr.MsgId) == "" {
 			findings = append(findings, ValidationFindingRecord{
-				Code:          "ISO_ERR_0002_MANDATORY_TAG_MISSING",
-				Description:   "Mandatory Group Header Message Identification (<MsgId>) is missing or empty.",
-				Severity:      "CRITICAL",
-				LineNumber:    3,
-				RuleReference: "ISO 20022 pacs.008.001.08 Section 1.1: Group Header Specifications",
+				Code:        "ISO_ERR_0002_MANDATORY_TAG_MISSING",
+				Description: "Mandatory Group Header Message Identification (<MsgId>) is missing or empty.",
+				Severity:    "CRITICAL",
+				LineNumber:  3,
 			})
 		}
 
 		if strings.TrimSpace(hdr.IntrBkSttlmDt) == "" {
 			findings = append(findings, ValidationFindingRecord{
-				Code:          "ISO_ERR_0003_SETTLEMENT_DATE_MISSING",
-				Description:   "Mandatory Interbank Settlement Date (<IntrBkSttlmDt>) is missing.",
-				Severity:      "ERROR",
-				LineNumber:    6,
-				RuleReference: "ISO 20022 pacs.008.001.08 Section 1.2",
+				Code:        "ISO_ERR_0003_SETTLEMENT_DATE_MISSING",
+				Description: "Mandatory Interbank Settlement Date (<IntrBkSttlmDt>) is missing.",
+				Severity:    "ERROR",
+				LineNumber:  6,
 			})
 		}
 
@@ -117,11 +114,10 @@ func ValidateIso20022Xml(content []byte) ([]ValidationFindingRecord, float64, fl
 		for idx, tx := range doc.FIToFICstmrCdt.CdtTrfTxInf {
 			if strings.TrimSpace(tx.PmtId.EndToEndId) == "" {
 				findings = append(findings, ValidationFindingRecord{
-					Code:          "ISO_ERR_0004_END_TO_END_ID_MISSING",
-					Description:   fmt.Sprintf("Transaction at index %d is missing mandatory <EndToEndId> tag.", idx+1),
-					Severity:      "CRITICAL",
-					LineNumber:    12 + (idx * 8),
-					RuleReference: "ISO 20022 FedNow / CHIPS Operating Rules 2025",
+					Code:        "ISO_ERR_0004_END_TO_END_ID_MISSING",
+					Description: fmt.Sprintf("Transaction at index %d is missing mandatory <EndToEndId> tag.", idx+1),
+					Severity:    "CRITICAL",
+					LineNumber:  12 + (idx * 8),
 				})
 			}
 			sumTxAmt += tx.IntrBkSttlmAmt
@@ -131,11 +127,10 @@ func ValidateIso20022Xml(content []byte) ([]ValidationFindingRecord, float64, fl
 		// Arithmetic reconciliation
 		if hdr.TtlIntrBkSttlmAmt > 0 && hdr.TtlIntrBkSttlmAmt != sumTxAmt {
 			findings = append(findings, ValidationFindingRecord{
-				Code:          "ISO_ERR_0005_CONTROL_TOTAL_MISMATCH",
-				Description:   fmt.Sprintf("Declared <TtlIntrBkSttlmAmt> (%.2f) does not match sum of individual transactions (%.2f).", hdr.TtlIntrBkSttlmAmt, sumTxAmt),
-				Severity:      "CRITICAL",
-				LineNumber:    5,
-				RuleReference: "ISO 20022 Validation Rule VR-088",
+				Code:        "ISO_ERR_0005_CONTROL_TOTAL_MISMATCH",
+				Description: fmt.Sprintf("Declared <TtlIntrBkSttlmAmt> (%.2f) does not match sum of individual transactions (%.2f).", hdr.TtlIntrBkSttlmAmt, sumTxAmt),
+				Severity:    "CRITICAL",
+				LineNumber:  5,
 			})
 		}
 	} else if doc.BkToCstmrStmt != nil {
@@ -152,11 +147,10 @@ func ValidateIso20022Xml(content []byte) ([]ValidationFindingRecord, float64, fl
 		}
 	} else {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "ISO_ERR_0099_UNKNOWN_MESSAGE_ROOT",
-			Description:   "XML document is missing valid ISO 20022 root elements (<FIToFICstmrCdtTrf> or <BkToCstmrStmt>).",
-			Severity:      "FATAL",
-			LineNumber:    1,
-			RuleReference: "ISO 20022 Message Definitions 2025",
+			Code:        "ISO_ERR_0099_UNKNOWN_MESSAGE_ROOT",
+			Description: "XML document is missing valid ISO 20022 root elements (<FIToFICstmrCdtTrf> or <BkToCstmrStmt>).",
+			Severity:    "FATAL",
+			LineNumber:  1,
 		})
 	}
 

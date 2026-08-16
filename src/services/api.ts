@@ -70,21 +70,44 @@ export interface ApiIngestionResult {
   // policy decision and approval, which ingestion does not perform.
   status: 'QUARANTINED' | 'VALIDATED';
   totalRecordsParsed: number;
-  totalDebitsUsd: number;
-  totalCreditsUsd: number;
-  calculatedHash: string;
-  expectedHash: string;
-  isBalanced: boolean;
+  totalEntriesParsed: number;
+
+  // Integer minor units. The totalDebitsUsd/totalCreditsUsd fields these
+  // replace were floats computed as cents/100, and the UI compared them for
+  // equality to render a balance badge.
+  totalDebitsMinor: number;
+  totalCreditsMinor: number;
+
+  // isBalanced is deliberately gone. Whether a file must balance is a term of
+  // the feed contract, not a property of the file: a credit-only payroll file
+  // never balances and is entirely correct.
+
+  // What produced the status. A verdict without these is an opinion.
+  policyVersion: string;
+  contractId?: string;
+
+  // Rules the validator could not evaluate for lack of an authoritative
+  // source. The UI shows this so silence does not imply coverage.
+  notCheckedRuleIds?: string[];
+  quarantineReasons?: string[];
+
   findings: {
     id: number;
     code: string;
+    ruleVersion: string;
+    provenance: string;
     description: string;
-    severity: string;
+    severity: 'INFO' | 'WARNING' | 'BLOCKING';
     lineNumber: number;
-    rawData: string;
-    ruleReference: string;
+    byteOffset: number;
+    fieldStart?: number;
+    fieldEnd?: number;
+    // Redacted at the server, at the point it is produced. There is no raw
+    // record content in this response.
+    evidence?: string;
+    expected?: string;
+    actual?: string;
   }[];
-  rawContent?: string;
   incidentId?: number;
 }
 

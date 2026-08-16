@@ -26,11 +26,10 @@ func ParseAndValidateSwift(content string) (findings []ValidationFindingRecord, 
 
 	if !isMT103 && !isMT940 {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "SWIFT_ERR_0001_UNKNOWN_MESSAGE_TYPE",
-			Severity:      "ERROR",
-			LineNumber:    1,
-			Description:   "Unable to identify standard SWIFT MT message category (expected MT103 or MT940 tags).",
-			RuleReference: "SWIFT Standards Release 2025/2026, Category 1 & 9 Messages",
+			Code:        "SWIFT_ERR_0001_UNKNOWN_MESSAGE_TYPE",
+			Severity:    "ERROR",
+			LineNumber:  1,
+			Description: "Unable to identify standard SWIFT MT message category (expected MT103 or MT940 tags).",
 		})
 		return findings, 0, 0, false
 	}
@@ -41,11 +40,10 @@ func ParseAndValidateSwift(content string) (findings []ValidationFindingRecord, 
 		for _, tag := range mandatoryTags {
 			if !strings.Contains(content, tag) {
 				findings = append(findings, ValidationFindingRecord{
-					Code:          fmt.Sprintf("SWIFT_ERR_0103_MISSING_TAG_%s", strings.Trim(tag, ":")),
-					Severity:      "FATAL",
-					LineNumber:    1,
-					Description:   fmt.Sprintf("Mandatory SWIFT MT103 tag %s is missing from message body.", tag),
-					RuleReference: "SWIFT MT103 Message Reference Guide, Section 3.1: Mandatory Sequence A",
+					Code:        fmt.Sprintf("SWIFT_ERR_0103_MISSING_TAG_%s", strings.Trim(tag, ":")),
+					Severity:    "FATAL",
+					LineNumber:  1,
+					Description: fmt.Sprintf("Mandatory SWIFT MT103 tag %s is missing from message body.", tag),
 				})
 				isBalanced = false
 			}
@@ -63,11 +61,10 @@ func ParseAndValidateSwift(content string) (findings []ValidationFindingRecord, 
 			}
 			if currency != "USD" && currency != "EUR" && currency != "GBP" && currency != "JPY" {
 				findings = append(findings, ValidationFindingRecord{
-					Code:          "SWIFT_ERR_0103_INVALID_CURRENCY",
-					Severity:      "ERROR",
-					LineNumber:    1,
-					Description:   fmt.Sprintf("Invalid or unsupported ISO 4217 settlement currency: %s", currency),
-					RuleReference: "ISO 4217 Currency Codes Standards",
+					Code:        "SWIFT_ERR_0103_INVALID_CURRENCY",
+					Severity:    "ERROR",
+					LineNumber:  1,
+					Description: fmt.Sprintf("Invalid or unsupported ISO 4217 settlement currency: %s", currency),
 				})
 			}
 		}
@@ -79,11 +76,10 @@ func ParseAndValidateSwift(content string) (findings []ValidationFindingRecord, 
 		for _, tag := range mandatoryTags {
 			if !strings.Contains(content, tag) {
 				findings = append(findings, ValidationFindingRecord{
-					Code:          fmt.Sprintf("SWIFT_ERR_0940_MISSING_TAG_%s", strings.Trim(tag, ":")),
-					Severity:      "FATAL",
-					LineNumber:    1,
-					Description:   fmt.Sprintf("Mandatory SWIFT MT940 tag %s is missing from statement.", tag),
-					RuleReference: "SWIFT MT940 Statement Message Reference Guide",
+					Code:        fmt.Sprintf("SWIFT_ERR_0940_MISSING_TAG_%s", strings.Trim(tag, ":")),
+					Severity:    "FATAL",
+					LineNumber:  1,
+					Description: fmt.Sprintf("Mandatory SWIFT MT940 tag %s is missing from statement.", tag),
 				})
 				isBalanced = false
 			}
@@ -104,11 +100,10 @@ func ParseAndValidateSwift(content string) (findings []ValidationFindingRecord, 
 
 	if len(lines) < 4 {
 		findings = append(findings, ValidationFindingRecord{
-			Code:          "SWIFT_ERR_0002_INCOMPLETE_BLOCK",
-			Severity:      "ERROR",
-			LineNumber:    len(lines),
-			Description:   "SWIFT message payload appears truncated (less than 4 lines).",
-			RuleReference: "SWIFT Network Interface Guide, Block 4 Structure",
+			Code:        "SWIFT_ERR_0002_INCOMPLETE_BLOCK",
+			Severity:    "ERROR",
+			LineNumber:  len(lines),
+			Description: "SWIFT message payload appears truncated (less than 4 lines).",
 		})
 		isBalanced = false
 	}

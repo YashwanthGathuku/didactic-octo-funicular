@@ -15,7 +15,7 @@ export const APPROVED_RUNBOOKS: ApprovedRunbook[] = [
     id: 'RB-ACH-01',
     title: 'NACHA Entry Hash Mismatch Triage & Remediation',
     category: 'ACH_VALIDATION',
-    applicableFindingCodes: ['ACH_ERR_0803_BATCH_ENTRY_HASH_MISMATCH', 'ACH_ERR_0903_FILE_ENTRY_HASH_MISMATCH'],
+    applicableFindingCodes: ['NACHA.MATH.BATCH_ENTRY_HASH', 'NACHA.MATH.FILE_ENTRY_HASH'],
     summary: 'Occurs when the sum of routing numbers in Entry Detail records does not match the 10-digit hash declared in Batch/File Control records.',
     recommendedSteps: [
       '1. Verify if any Entry Detail (Type 6) records were dropped or truncated during SFTP transmission.',
@@ -29,7 +29,7 @@ export const APPROVED_RUNBOOKS: ApprovedRunbook[] = [
     id: 'RB-ACH-02',
     title: 'NACHA Debit/Credit Control Imbalance Triage',
     category: 'ACH_VALIDATION',
-    applicableFindingCodes: ['ACH_ERR_0804_BATCH_DEBIT_TOTAL_MISMATCH', 'ACH_ERR_0805_BATCH_CREDIT_TOTAL_MISMATCH', 'ACH_ERR_0904_FILE_DEBIT_MISMATCH', 'ACH_ERR_0905_FILE_CREDIT_MISMATCH'],
+    applicableFindingCodes: ['NACHA.MATH.BATCH_DEBIT_TOTAL', 'NACHA.MATH.BATCH_CREDIT_TOTAL', 'NACHA.MATH.FILE_DEBIT_TOTAL', 'NACHA.MATH.FILE_CREDIT_TOTAL'],
     summary: 'Occurs when the calculated dollar sum of individual payment records does not match the batch or file trailer totals.',
     recommendedSteps: [
       '1. Isolate the specific batch number with the arithmetic discrepancy.',
@@ -57,7 +57,7 @@ export const APPROVED_RUNBOOKS: ApprovedRunbook[] = [
     id: 'RB-SEC-01',
     title: '0-Byte or Truncated File Ingestion Guard',
     category: 'SECURITY',
-    applicableFindingCodes: ['ACH_ERR_0100_EMPTY_PAYLOAD', 'ACH_ERR_0900_MISSING_FILE_CONTROL'],
+    applicableFindingCodes: ['NACHA.STRUCT.EMPTY', 'NACHA.STRUCT.NO_FILE_CONTROL', 'NACHA.STRUCT.TRUNCATED'],
     summary: 'Prevents downstream core database ingestion of incomplete or empty transmissions.',
     recommendedSteps: [
       '1. Confirm file was fully closed by SFTP client (check transport completion event).',
@@ -121,21 +121,28 @@ export function runExceptionAnalyst(
       { step: 3, action: 'If partner confirms delayed run, request temporary 45-minute SLA waiver.', authorityTier: 3, requiresHumanApproval: true }
     );
   } else {
-    const errorCount = validationResult?.findings.filter(f => f.severity === 'FATAL' || f.severity === 'ERROR' || f.severity === 'CRITICAL').length || 0;
+    const blockingFindings = validationResult?.findings.filter(f => f.severity === 'BLOCKING') || [];
+    const errorCount = blockingFindings.length;
     findingsSummary = `File '${fileInstance?.filename}' was quarantined at the transfer boundary. Pre-flight inspection identified ${errorCount} deterministic violation(s) preventing safe downstream release.`;
 
-    if (findingCodes.includes('ACH_ERR_0803_BATCH_ENTRY_HASH_MISMATCH')) {
+    const hashFindings = blockingFindings.filter(f =>
+      f.code === 'NACHA.MATH.BATCH_ENTRY_HASH' || f.code === 'NACHA.MATH.FILE_ENTRY_HASH');
+    if (hashFindings.length > 0) {
       hypotheses.push({
         hypothesis: 'Originating core system calculated Entry Hash using a non-standard 10-digit truncation or omitted an entry record from the trailer accumulator.',
         confidence: 'HIGH',
-        supportingEvidence: [
-          `Calculated entry hash sum is '${validationResult?.calculatedEntryHash}', declared in File Control as '${validationResult?.expectedEntryHash || 'N/A'}'.`,
-          `Nacha 2025 Chapter 3 mandates sum of 8-digit routing numbers modulo 10^10.`
-        ]
+        // The evidence comes from the finding the server raised, which carries
+        // both sides of the disagreement. The previous version read two
+        // top-level fields the response no longer has, and cited "Nacha 2025
+        // Chapter 3" -- a licensed source this system does not have and
+        // therefore cannot cite.
+        supportingEvidence: hashFindings.map(f =>
+          `${f.code} v${f.ruleVersion} at record ${f.lineNumber ?? '?'}: declared '${f.expected ?? 'n/a'}', computed '${f.actual ?? 'n/a'}'.`
+        )
       });
     }
 
-    if (findingCodes.includes('ACH_ERR_0602_INVALID_ABA_CHECK_DIGIT')) {
+    if (findingCodes.includes('NACHA.ROUTING.CHECK_DIGIT')) {
       hypotheses.push({
         hypothesis: 'Individual payment record contains an invalid ABA routing number failing Federal Reserve Modulo 10 verification.',
         confidence: 'HIGH',

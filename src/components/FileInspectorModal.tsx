@@ -227,18 +227,24 @@ export const FileInspectorModal: React.FC<FileInspectorModalProps> = ({
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className={`badge ${finding.severity === 'FATAL' || finding.severity === 'ERROR' || finding.severity === 'CRITICAL' ? 'badge-danger' : 'badge-warning'}`}>
+                        <span className={`badge ${finding.severity === 'BLOCKING' ? 'badge-danger' : finding.severity === 'WARNING' ? 'badge-warning' : 'badge-neutral'}`}>
                           {finding.code}
                         </span>
                         {finding.lineNumber && (
                           <span className="badge badge-neutral">Line {finding.lineNumber}</span>
                         )}
-                        {finding.recordType && (
-                          <span className="badge badge-neutral">Record Type {finding.recordType}</span>
+                        {finding.byteOffset !== undefined && (
+                          <span className="badge badge-neutral">Byte {finding.byteOffset}</span>
                         )}
+                        {finding.fieldStart ? (
+                          <span className="badge badge-neutral">
+                            Chars {finding.fieldStart}-{finding.fieldEnd}
+                          </span>
+                        ) : null}
                       </div>
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                        {finding.ruleReference}
+                        {finding.code} v{finding.ruleVersion}
+                        {finding.provenance === 'UNVERIFIED_REQUIRES_LICENSED_RULES' && ' · unverified'}
                       </span>
                     </div>
 
@@ -246,11 +252,23 @@ export const FileInspectorModal: React.FC<FileInspectorModalProps> = ({
                       {finding.message}
                     </p>
 
-                    {finding.rawSampleRedacted && (
+                    {(finding.expected || finding.actual) && (
+                      <div style={{ marginTop: '8px', display: 'flex', gap: '16px', fontSize: '0.75rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          Declared: <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{finding.expected}</span>
+                        </span>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          Computed: <span className="font-mono" style={{ color: 'var(--accent-cyan)' }}>{finding.actual}</span>
+                        </span>
+                      </div>
+                    )}
+                    {finding.evidence && (
                       <div style={{ marginTop: '8px' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>REDACTED EXCERPT:</span>
-                        <div className="log-viewer log-line-error" style={{ marginTop: '2px' }}>
-                          {finding.rawSampleRedacted}
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          REDACTED FIELD EXCERPT (digits masked at the server):
+                        </span>
+                        <div className="log-viewer" style={{ marginTop: '2px' }}>
+                          {finding.evidence}
                         </div>
                       </div>
                     )}
@@ -271,48 +289,71 @@ export const FileInspectorModal: React.FC<FileInspectorModalProps> = ({
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Total Debits:</span>
                     <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-crimson)' }}>
-                      ${(res?.totalDebitsUsd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ${((res?.totalDebitsMinor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Total Credits:</span>
                     <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-emerald)' }}>
-                      ${(res?.totalCreditsUsd || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ${((res?.totalCreditsMinor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
+                  {/*
+                    Stated as arithmetic, not as a verdict. Whether a file must
+                    balance is a term of the feed contract: a credit-only
+                    payroll file never balances and is entirely correct. The
+                    badge this replaces said "Settlement State" and rendered
+                    "Balanced (Zero-Net)" as a success, which asserted both a
+                    settlement concept this product does not have and a
+                    correctness claim the file cannot support on its own.
+                  */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Settlement State:</span>
-                    <span className={`badge ${res?.isBalanced ? 'badge-success' : 'badge-warning'}`}>
-                      {res?.isBalanced ? 'Balanced (Zero-Net)' : 'Unbalanced Batch'}
+                    <span style={{ color: 'var(--text-muted)' }}>Debits vs credits:</span>
+                    <span className="badge badge-neutral">
+                      {res && res.totalDebitsMinor === res.totalCreditsMinor ? 'Equal' : 'Not equal'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Hash Verification Card */}
+              {/* Decision provenance */}
               <div className="glass-panel" style={{ padding: '16px' }}>
                 <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '12px' }}>
-                  10-Digit Entry Hash Audit
+                  Decision provenance
                 </h3>
+                {/*
+                  The card this replaces showed a calculated and a declared
+                  entry hash and then a badge reading "Verified Modulo 10^10"
+                  that was a constant: it rendered as verified whether the two
+                  values matched or not. Hash disagreements are now reported as
+                  findings, with both sides shown, by the rule that detected
+                  them.
+                */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8125rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Calculated Entry Hash:</span>
+                    <span style={{ color: 'var(--text-muted)' }}>Release policy:</span>
                     <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>
-                      {res?.calculatedEntryHash || '0'}
+                      {res?.policyVersion || 'not recorded'}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Declared Trailer Hash:</span>
+                    <span style={{ color: 'var(--text-muted)' }}>Feed contract:</span>
                     <span className="font-mono" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      {res?.expectedEntryHash || res?.calculatedEntryHash || '0'}
+                      {res?.contractId || 'none applied'}
                     </span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Hash Parity:</span>
-                    <span className="badge badge-success">
-                      Verified Modulo 10^10
-                    </span>
-                  </div>
+                  {res?.notCheckedRuleIds && res.notCheckedRuleIds.length > 0 && (
+                    <div style={{ padding: '6px 0' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {res.notCheckedRuleIds.length} rule(s) not checked — no licensed rule source:
+                      </span>
+                      <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {res.notCheckedRuleIds.map(id => (
+                          <span key={id} className="badge badge-warning" style={{ fontSize: '0.65rem' }}>{id}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
