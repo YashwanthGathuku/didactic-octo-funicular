@@ -121,7 +121,7 @@ func main() {
 	}
 
 	// 2. Database
-	db, err := sql.Open("sqlite", cfg.DatabaseURL)
+	db, err := sql.Open("sqlite", sqliteDSN(cfg.DatabaseURL))
 	if err != nil {
 		log.Fatalf("Unable to open database %q: %v", cfg.DatabaseURL, err)
 	}

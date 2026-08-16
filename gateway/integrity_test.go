@@ -119,11 +119,11 @@ func TestLedgerDetectsContentTampering(t *testing.T) {
 	if l.IsChainValid {
 		t.Fatalf("payload tampering must invalidate the chain")
 	}
-	if l.FirstBreachEvent != 2 {
-		t.Errorf("expected first breach at event 2, got %d", l.FirstBreachEvent)
+	if l.FirstBreachSequence != 2 {
+		t.Errorf("expected first breach at sequence 2, got %d", l.FirstBreachSequence)
 	}
-	if l.Events[1].IntegrityStatus != "CONTENT_TAMPERED" {
-		t.Errorf("expected CONTENT_TAMPERED, got %q", l.Events[1].IntegrityStatus)
+	if l.Events[1].IntegrityStatus != "BROKEN" {
+		t.Errorf("expected BROKEN, got %q", l.Events[1].IntegrityStatus)
 	}
 	// Untouched rows must still be individually attested.
 	if l.Events[0].IntegrityStatus != "VERIFIED" {
@@ -134,7 +134,15 @@ func TestLedgerDetectsContentTampering(t *testing.T) {
 func TestLedgerDetectsActorTampering(t *testing.T) {
 	db := newLedgerDB(t)
 	defer db.Close()
-	_, _ = AppendAuditEvent(db, DefaultTenantID, "VAULT_DETOKENIZE", "supervisor-real", map[string]interface{}{"token": "TOK-1"})
+	// The payload key was "token", which the ledger now refuses outright --
+	// the append failed silently, no record was written, and an empty chain
+	// verified as intact, so this test passed for the wrong reason. The error
+	// is checked now, and the payload carries an identifier rather than
+	// something named like a credential.
+	if _, err := AppendAuditEvent(db, DefaultTenantID, "SECRET_ROTATED", "supervisor-real",
+		map[string]interface{}{"secretReference": "sec_abc123", "artifactId": 1}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
 	tamper(t, db, `UPDATE audit_events SET actor = 'somebody-else' WHERE id = 1`)
 	if l, _ := GetLedger(db, DefaultTenantID); l.IsChainValid {
 		t.Fatalf("actor substitution must invalidate the chain")

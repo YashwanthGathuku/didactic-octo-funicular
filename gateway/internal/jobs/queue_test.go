@@ -52,7 +52,7 @@ func openSQLite(t *testing.T) *sql.DB {
 	// separate connections would each see an empty queue -- which would make
 	// every concurrency test pass for the wrong reason.
 	path := filepath.Join(t.TempDir(), "jobs.db")
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}

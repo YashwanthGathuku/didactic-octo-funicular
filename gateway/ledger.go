@@ -1,161 +1,231 @@
 package main
 
 import (
-	"crypto/sha256"
+	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"time"
+
+	"sentinel-gateway/internal/ledger"
 )
 
+// The evidence ledger, as the API surface sees it.
+//
+// The implementation moved to internal/ledger in Prompt 09. What was here read
+// the chain head on one connection, computed a hash outside any transaction,
+// and inserted on another -- so two concurrent appends could read the same
+// predecessor. The per-tenant unique constraints stopped that forking the
+// chain, but the loser received a constraint error and its audit record was
+// simply dropped. Under the worker pool added in Prompt 08, that is not a
+// theoretical race.
+//
+// This file is now an adapter: it keeps the shapes the HTTP handlers already
+// return and delegates every append and every verification to the package that
+// serialises them.
+
+// AuditEvent is one record, as returned by the API.
 type AuditEvent struct {
 	ID           int64                  `json:"id"`
+	SequenceNo   int64                  `json:"sequenceNo"`
 	EventType    string                 `json:"eventType"`
 	Actor        string                 `json:"actor"`
+	ObjectType   string                 `json:"objectType,omitempty"`
+	ObjectID     int64                  `json:"objectId,omitempty"`
+	Correlation  string                 `json:"correlationId,omitempty"`
 	Payload      map[string]interface{} `json:"payload"`
 	PreviousHash string                 `json:"previousHash"`
 	CurrentHash  string                 `json:"currentHash"`
 	CreatedAt    string                 `json:"createdAt"`
-	// IntegrityStatus is computed at read time: VERIFIED | BROKEN_LINK | CONTENT_TAMPERED
+
+	// IntegrityStatus is computed at read time.
 	IntegrityStatus string `json:"integrityStatus,omitempty"`
 }
 
+// LedgerSummary is one tenant's chain plus the result of verifying it.
 type LedgerSummary struct {
 	TotalEvents   int    `json:"totalEvents"`
 	IsChainValid  bool   `json:"isChainValid"`
 	LastEventHash string `json:"lastEventHash"`
-	// FirstBreachEvent is the id of the earliest row failing verification (0 = none)
-	FirstBreachEvent int64        `json:"firstBreachEvent"`
-	Events           []AuditEvent `json:"events"`
+
+	// FirstBreachSequence is the earliest sequence number failing verification
+	// (0 = none).
+	FirstBreachSequence int64  `json:"firstBreachSequence"`
+	BreachReason        string `json:"breachReason,omitempty"`
+
+	// AnchorGap states what a passing verification does and does not prove.
+	// It is carried on every summary so a report cannot render "valid" without
+	// the qualification that makes it honest.
+	AnchorGap string `json:"anchorGap"`
+
+	Events []AuditEvent `json:"events"`
 }
 
-// AppendAuditEvent inserts a new event into audit_events, computing the SHA-256 hash chained from the last event.
-// AppendAuditEvent appends to one tenant's chain. Sequence numbers and
-// predecessor links are per tenant, so tenants cannot interleave or reference
-// each other's history.
+// ledgerFor builds a ledger bound to the handle it is given.
+//
+// It is constructed per call rather than cached in a package variable. A cached
+// one holds whichever *sql.DB it saw first, which in a test binary is a
+// database that has since been closed -- every ledger test after the first
+// failed with "sql: database is closed" until this was per-call. The
+// construction is a struct literal and a driver check, so there is nothing to
+// amortise.
+func ledgerFor(db *sql.DB) (*ledger.Ledger, error) {
+	return ledger.New(db, "sqlite")
+}
+
+// AppendAuditEvent appends one record to a tenant's chain.
+//
+// The signature is unchanged from what it replaces so call sites did not need
+// rewriting, but the behaviour differs in two ways that matter: the whole
+// read-compute-write is one serialised transaction, and a payload carrying
+// credential material or a financial record is refused rather than recorded.
 func AppendAuditEvent(db *sql.DB, tenantID string, eventType string, actor string, payload map[string]interface{}) (*AuditEvent, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("audit append requires a tenant scope")
-	}
-	// Find last event's hash
-	var lastHash string
-	row := db.QueryRow("SELECT current_hash FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no DESC LIMIT 1", tenantID)
-	err := row.Scan(&lastHash)
-	if err == sql.ErrNoRows {
-		// Genesis block
-		lastHash = "0000000000000000000000000000000000000000000000000000000000000000"
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to query last audit hash: %w", err)
-	}
-
-	payloadBytes, err := json.Marshal(payload)
+	l, err := ledgerFor(db)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+		return nil, err
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
-	hashInput := fmt.Sprintf("%s|%s|%s|%s|%s", lastHash, eventType, actor, string(payloadBytes), now)
-	hasher := sha256.New()
-	hasher.Write([]byte(hashInput))
-	currentHash := hex.EncodeToString(hasher.Sum(nil))
+	objectType, objectID, correlation := auditSubject(eventType, payload)
 
-	// sequence_no is per tenant and unique, so two concurrent appends that read
-	// the same predecessor cannot both commit -- one loses on the constraint
-	// rather than forking the chain. Full serialization is Prompt 09.
-	var nextSeq int64
-	_ = db.QueryRow(
-		"SELECT COALESCE(MAX(sequence_no), 0) + 1 FROM audit_events WHERE tenant_id = ?",
-		tenantID,
-	).Scan(&nextSeq)
-
-	res, err := db.Exec(`
-		INSERT INTO audit_events (tenant_id, sequence_no, event_type, actor, payload, previous_hash, current_hash, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, tenantID, nextSeq, eventType, actor, string(payloadBytes), lastHash, currentHash, now)
+	rec, err := l.Append(context.Background(), ledger.AppendRequest{
+		TenantID:      tenantID,
+		Action:        eventType,
+		Actor:         actor,
+		ObjectType:    objectType,
+		ObjectID:      objectID,
+		CorrelationID: correlation,
+		Payload:       payload,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert audit event: %w", err)
+		return nil, err
 	}
 
-	id, _ := res.LastInsertId()
 	return &AuditEvent{
-		ID:           id,
-		EventType:    eventType,
-		Actor:        actor,
+		ID:           rec.ID,
+		SequenceNo:   rec.SequenceNo,
+		EventType:    rec.Action,
+		Actor:        rec.Actor,
+		ObjectType:   rec.ObjectType,
+		ObjectID:     rec.ObjectID,
+		Correlation:  rec.CorrelationID,
 		Payload:      payload,
-		PreviousHash: lastHash,
-		CurrentHash:  currentHash,
-		CreatedAt:    now,
+		PreviousHash: rec.PreviousHash,
+		CurrentHash:  rec.CurrentHash,
+		CreatedAt:    rec.OccurredAt.Format("2006-01-02T15:04:05.000000Z07:00"),
 	}, nil
 }
 
-// recomputeHash reproduces the hash for a stored row exactly as AppendAuditEvent
-// computed it. Verification MUST recompute -- checking only that
-// row[n].previous_hash == row[n-1].current_hash detects deletion and hash edits
-// but is blind to edits of payload/actor/event_type/created_at, which is the
-// tamper vector that actually matters for SEC 17a-4 evidentiary value.
-func recomputeHash(prevHash, eventType, actor, rawPayload, createdAt string) string {
-	h := sha256.New()
-	h.Write([]byte(fmt.Sprintf("%s|%s|%s|%s|%s", prevHash, eventType, actor, rawPayload, createdAt)))
-	return hex.EncodeToString(h.Sum(nil))
+// auditSubject extracts the object a record concerns from its payload.
+//
+// Callers pass a loose map, and the ledger requires an object type. Rather than
+// making every call site change at once, the common identifiers are recognised
+// here and anything unrecognised is recorded as a system event -- which is
+// accurate rather than a guess.
+func auditSubject(eventType string, payload map[string]interface{}) (objectType string, objectID int64, correlation string) {
+	objectType = "system"
+
+	if v, ok := payload["correlationId"].(string); ok {
+		correlation = v
+	} else if v, ok := payload["dedupeKey"].(string); ok {
+		correlation = v
+	}
+
+	for _, key := range []string{"artifactId", "fileId", "file_instance_id"} {
+		if id, ok := numericField(payload[key]); ok {
+			return "artifact", id, correlation
+		}
+	}
+	for _, key := range []string{"incidentId", "incident_id"} {
+		if id, ok := numericField(payload[key]); ok {
+			return "incident", id, correlation
+		}
+	}
+	return objectType, 0, correlation
 }
 
-// GetLedger retrieves the audit events and verifies hash chain integrity.
-// GetLedger reads one tenant's chain. A caller cannot read another's.
+func numericField(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case float64:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+// GetLedger reads one tenant's chain and verifies it.
+//
+// A caller cannot read another tenant's chain: the tenant is a parameter and
+// every query filters on it.
 func GetLedger(db *sql.DB, tenantID string) (*LedgerSummary, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("ledger read requires a tenant scope")
 	}
-	rows, err := db.Query("SELECT id, event_type, actor, payload, previous_hash, current_hash, created_at FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no ASC", tenantID)
+	l, err := ledgerFor(db)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := l.Verify(context.Background(), tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	summary := &LedgerSummary{
+		IsChainValid:        result.Intact,
+		LastEventHash:       result.HeadHash,
+		FirstBreachSequence: result.FirstBreakAt,
+		BreachReason:        result.Reason,
+		AnchorGap:           ledger.AnchorGapStatement,
+		Events:              make([]AuditEvent, 0),
+	}
+	if summary.LastEventHash == "" {
+		summary.LastEventHash = ledger.GenesisHash
+	}
+
+	rows, err := db.Query(`
+		SELECT id, sequence_no, event_type, actor, object_type, object_id,
+		       correlation_id, payload, previous_hash, current_hash, created_at
+		FROM audit_events WHERE tenant_id = ? ORDER BY sequence_no ASC`, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	events := make([]AuditEvent, 0)
-	isValid := true
-	var firstBreachID int64
-	expectedPrev := "0000000000000000000000000000000000000000000000000000000000000000"
-	lastHash := expectedPrev
-
 	for rows.Next() {
 		var ev AuditEvent
 		var rawPayload string
-		if err := rows.Scan(&ev.ID, &ev.EventType, &ev.Actor, &rawPayload, &ev.PreviousHash, &ev.CurrentHash, &ev.CreatedAt); err != nil {
+		var objectType, correlation sql.NullString
+		var objectID sql.NullInt64
+		if err := rows.Scan(&ev.ID, &ev.SequenceNo, &ev.EventType, &ev.Actor,
+			&objectType, &objectID, &correlation, &rawPayload,
+			&ev.PreviousHash, &ev.CurrentHash, &ev.CreatedAt); err != nil {
 			return nil, err
 		}
+		ev.ObjectType = objectType.String
+		ev.ObjectID = objectID.Int64
+		ev.Correlation = correlation.String
 		_ = json.Unmarshal([]byte(rawPayload), &ev.Payload)
 
-		// (a) linkage: this row must chain to the previous row's hash
-		if ev.PreviousHash != expectedPrev {
-			isValid = false
-			ev.IntegrityStatus = "BROKEN_LINK"
-		}
-		// (b) content integrity: recompute the hash from the stored fields
-		want := recomputeHash(ev.PreviousHash, ev.EventType, ev.Actor, rawPayload, ev.CreatedAt)
-		if want != ev.CurrentHash {
-			isValid = false
-			ev.IntegrityStatus = "CONTENT_TAMPERED"
-			if firstBreachID == 0 {
-				firstBreachID = ev.ID
-			}
-		} else if ev.IntegrityStatus == "" {
+		// Per-record status comes from where the chain first broke. Records
+		// before the break verified; the break and everything after it cannot
+		// be relied on, because a chain is only as good as its weakest link and
+		// every subsequent hash was computed from the broken one.
+		switch {
+		case result.Intact:
 			ev.IntegrityStatus = "VERIFIED"
-		}
-		if ev.IntegrityStatus == "BROKEN_LINK" && firstBreachID == 0 {
-			firstBreachID = ev.ID
+		case ev.SequenceNo < result.FirstBreakAt:
+			ev.IntegrityStatus = "VERIFIED"
+		case ev.SequenceNo == result.FirstBreakAt:
+			ev.IntegrityStatus = "BROKEN"
+		default:
+			ev.IntegrityStatus = "UNVERIFIABLE_AFTER_BREAK"
 		}
 
-		expectedPrev = ev.CurrentHash
-		lastHash = ev.CurrentHash
-		events = append(events, ev)
+		summary.Events = append(summary.Events, ev)
 	}
-
-	return &LedgerSummary{
-		TotalEvents:      len(events),
-		IsChainValid:     isValid,
-		LastEventHash:    lastHash,
-		FirstBreachEvent: firstBreachID,
-		Events:           events,
-	}, nil
+	summary.TotalEvents = len(summary.Events)
+	return summary, rows.Err()
 }

@@ -246,6 +246,20 @@ jobs:
             echo "FAIL: the PostgreSQL claim path did not run"; echo "$out"; exit 1; }
           echo "OK: SKIP LOCKED claiming verified against a real PostgreSQL server"
 
+      # The evidence chain serialises appends per tenant, and the mechanism is
+      # PostgreSQL-specific: it locks the tenant row, which SQLite has no
+      # equivalent for. Both halves must run.
+      - name: Evidence ledger against PostgreSQL
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: |
+          go test -race ./internal/ledger/
+          out=$(go test -v -run TestConcurrentAppends ./internal/ledger/ 2>&1)
+          echo "$out" | grep -q "PASS: TestConcurrentAppendsProduceOneLinearSequence/postgres" || {
+            echo "FAIL: the PostgreSQL append path did not run"; echo "$out"; exit 1; }
+          echo "OK: per-tenant append serialisation verified against a real PostgreSQL server"
+
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.
       - name: Assert the RLS tests were not skipped

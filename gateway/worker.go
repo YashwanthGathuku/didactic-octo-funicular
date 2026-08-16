@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sentinel-gateway/internal/jobs"
+	"sentinel-gateway/internal/ledger"
 	"sentinel-gateway/internal/nacha"
 	"sentinel-gateway/internal/objectstore"
 )
@@ -21,6 +22,14 @@ import (
 
 // KindValidateArtifact is the job kind for validating a stored artifact.
 const KindValidateArtifact = "VALIDATE_ARTIFACT"
+
+// ledgerVerifyInterval is how often the evidence chain is walked.
+//
+// Hourly is a starting point, not a measured one. A full walk costs one pass
+// over a tenant's records, so the right interval depends on chain length and
+// this repository has no production chain to measure. It is stated as a
+// default rather than a recommendation.
+const ledgerVerifyInterval = time.Hour
 
 // validateArtifactHandler reads an artifact from immutable storage, validates
 // it, and records the outcome.
@@ -205,12 +214,22 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 
 	dispatcher := jobs.NewDispatcher(queue, &auditLogDeliverer{db: db}, time.Second, 50)
 
+	// The evidence chain is verified periodically and the result is recorded in
+	// the chain itself. A chain nobody checks is a chain that is broken for
+	// however long it takes someone to notice.
+	evidence, err := ledger.New(db, "sqlite")
+	if err != nil {
+		return nil, err
+	}
+
 	runCtx, cancel := context.WithCancel(ctx)
 	pool.Start(runCtx)
 	go dispatcher.Run(runCtx)
+	go evidence.RunVerifier(runCtx, ledgerVerifyInterval)
 
 	log.Printf("Job workers started: %d workers, %d concurrent per tenant, %s leases",
 		poolCfg.Workers, poolCfg.MaxPerTenant, 60*time.Second)
+	log.Printf("Evidence chain verification every %s. %s", ledgerVerifyInterval, ledger.AnchorGapStatement)
 
 	return func() {
 		// Stop leasing and drain first, then cancel: cancelling first would

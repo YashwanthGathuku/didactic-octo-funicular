@@ -193,7 +193,7 @@ func runMigrateCommand(args []string) {
 		log.Fatalf("%v", err)
 	}
 
-	db, err := sql.Open("sqlite", cfg.DatabaseURL)
+	db, err := sql.Open("sqlite", sqliteDSN(cfg.DatabaseURL))
 	if err != nil {
 		log.Fatalf("open database %q: %v", cfg.DatabaseURL, err)
 	}

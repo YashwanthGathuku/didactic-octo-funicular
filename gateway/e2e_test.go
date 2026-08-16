@@ -23,7 +23,7 @@ func setupTestDb(t *testing.T) *sql.DB {
 	// trap. busy_timeout lets writers wait for the single write lock instead of
 	// failing immediately under concurrency.
 	path := filepath.Join(t.TempDir(), "test.db")
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		t.Fatalf("Failed to open sqlite: %v", err)
 	}
