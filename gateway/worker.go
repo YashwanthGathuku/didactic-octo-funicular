@@ -224,7 +224,7 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 		// partner's delivery is most likely to go missing.
 		log.Println("Job workers not started: artifact storage is not configured, so there is nothing to validate.")
 		schedCtx, cancel := context.WithCancel(ctx)
-		if err := startScheduler(schedCtx, db); err != nil {
+		if err := startScheduler(schedCtx, db, queue); err != nil {
 			cancel()
 			return nil, err
 		}
@@ -252,7 +252,7 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 	// the same process as the workers because both are background work with the
 	// same lifecycle, and because a missing-file alert is worthless if the
 	// component that produces it can be deployed separately and forgotten.
-	if err := startScheduler(runCtx, db); err != nil {
+	if err := startScheduler(runCtx, db, queue); err != nil {
 		cancel()
 		return nil, err
 	}

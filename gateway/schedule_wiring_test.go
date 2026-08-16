@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"sentinel-gateway/internal/jobs"
 	"sentinel-gateway/internal/nacha"
 	"sentinel-gateway/internal/schedule"
 )
@@ -372,5 +373,95 @@ func TestDemoSeedProducesAMaterializableSchedule(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Error("the seed created no contract versions, so no feed is scheduled at all")
+	}
+}
+
+// A breach must reach the outbox, and from there the evidence ledger.
+//
+// The scheduler opens the incident and records who to tell; the outbox event is
+// what carries the breach into the rest of the system. Publishing it after the
+// commit would lose it to exactly the crash it needs to survive, so the test
+// asserts it lands in the same transaction as the transition.
+func TestABreachPublishesToTheOutboxInTheSameTransaction(t *testing.T) {
+	db := setupTestDb(t)
+	t.Cleanup(func() { db.Close() })
+
+	ctx := context.Background()
+	tenantID := "TENANT-DEMO"
+	if _, err := db.Exec(
+		`INSERT INTO tenants (id, name) VALUES (?, ?) ON CONFLICT (id) DO NOTHING`,
+		tenantID, tenantID); err != nil {
+		t.Fatal(err)
+	}
+	newScheduledContract(t, db, tenantID, nil)
+
+	queue, err := jobs.New(db, "sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := schedulerFor(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetEscalator(&outboxEscalator{queue: queue})
+
+	// Move the clock far enough past every materialized deadline that they all
+	// breach, without waiting for real time to pass.
+	store.SetClock(func() time.Time { return time.Now().UTC().Add(30 * 24 * time.Hour) })
+	if _, err := store.Advance(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var events int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM outbox_events WHERE tenant_id = ? AND event_type = 'EXPECTATION_BREACHED'`,
+		tenantID).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events == 0 {
+		t.Fatal("a breach published no outbox event; nothing downstream can learn a file is missing")
+	}
+
+	var incidents, notifications int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM incidents WHERE tenant_id = ? AND type = 'MISSING_FILE'`,
+		tenantID).Scan(&incidents); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM notification_intents WHERE tenant_id = ? AND kind = 'EXPECTATION_BREACHED'`,
+		tenantID).Scan(&notifications); err != nil {
+		t.Fatal(err)
+	}
+	if incidents != events || notifications != events {
+		t.Errorf("%d outbox events, %d incidents, %d notification intents; a breach must produce "+
+			"exactly one of each", events, incidents, notifications)
+	}
+
+	// The dispatcher carries it into the append-only ledger, which refuses a
+	// payload carrying anything credential-shaped or record-shaped -- so this
+	// also proves the breach payload is safe to distribute.
+	dispatcher := jobs.NewDispatcher(queue, &auditLogDeliverer{db: db}, time.Second, 50)
+	delivered, failed, err := dispatcher.DispatchOnce(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed != 0 {
+		t.Errorf("%d breach events failed delivery; the ledger refuses payloads it considers "+
+			"unsafe, so a failure here means the alert carries something it should not", failed)
+	}
+	if delivered == 0 {
+		t.Error("no breach event was delivered")
+	}
+
+	var audited int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM audit_events WHERE tenant_id = ? AND event_type = 'EXPECTATION_BREACHED'`,
+		tenantID).Scan(&audited); err != nil {
+		t.Fatal(err)
+	}
+	if audited != events {
+		t.Errorf("audit records = %d, want %d; a breach must be evidence, not just a log line",
+			audited, events)
 	}
 }

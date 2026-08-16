@@ -402,6 +402,17 @@ func (s *Store) transition(
 		tenantID, id, string(from), string(to), SchedulerName, reason); err != nil {
 		return false, err
 	}
+
+	// A breach opens an incident and records who has to be told, in this same
+	// transaction. Escalating after the commit would let a crash in between
+	// leave the breach on record with nobody informed -- silent in exactly the
+	// way this subsystem exists to prevent.
+	if to == domain.ExpectationBreached {
+		if err := s.escalate(ctx, tx, tenantID, id, now); err != nil {
+			return false, err
+		}
+	}
+
 	return true, tx.Commit()
 }
 

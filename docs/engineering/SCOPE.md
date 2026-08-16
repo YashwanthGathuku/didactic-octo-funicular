@@ -56,8 +56,10 @@ Status meanings are strict:
 | Federal Reserve business calendar | Implemented | Prompt 10. Encoded as the published rules, including the Reserve Banks' Saturday rule, with mandatory-reason tenant overrides. No network fetch of the published calendar occurs. |
 | Explicit timezone and DST handling | Implemented | Prompt 10. The spring-forward gap and fall-back ambiguity are resolved deterministically and the resolution is persisted. |
 | Arrival matching with recorded ambiguity | Implemented | Prompt 10. An arrival that could satisfy more than one occurrence attributes nothing and records every candidate for review. |
-| Breach notification and escalation | **Planned** | An occurrence reaches BREACHED and the transition is recorded. No incident is opened and no notification is sent; `owner_subject` and `escalation_policy_id` are stored and never read. |
-| Review resolution for ambiguous arrivals | **Planned** | Candidates are written as REVIEW_REQUIRED and there is no path to accept or reject one. |
+| Breach incident and escalation record | Implemented | A breach opens an incident, records a notification intent addressed to the contract owner, and publishes an outbox event, all in the transition's transaction. |
+| Breach notification delivery | **Planned** | The obligation is durable and attributed; no channel drains the queue, so an operator reads the incident list rather than being paged. |
+| Review resolution for ambiguous arrivals | Partial | `ResolveCandidate` accepts or rejects with a required actor and reason; no HTTP route calls it yet. |
+| Waiving an expectation | Partial | `Waive` requires an actor and reason and resolves the incident; no HTTP route, and no second-signature approval. |
 | Contract and calendar management API | **Planned** | No authenticated route creates or amends a contract, version, calendar or override. Prompt 12. |
 | Outbound feed delivery | **Planned** | `direction` is stored and validated; nothing sends a file. An OUTBOUND contract materializes occurrences that only an arrival could satisfy. |
 | Predictive breach risk | **Non-goal** | Removed in Prompt 01 and not reintroduced. |

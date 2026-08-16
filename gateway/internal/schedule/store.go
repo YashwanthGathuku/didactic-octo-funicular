@@ -22,6 +22,11 @@ type Store struct {
 	db      *sql.DB
 	dialect dialect
 	now     func() time.Time
+
+	// escalator is what a breach means beyond opening an incident. Optional:
+	// the incident and the notification intent are written either way, because
+	// those are domain records rather than an integration.
+	escalator Escalator
 }
 
 // NewStore builds a Store.

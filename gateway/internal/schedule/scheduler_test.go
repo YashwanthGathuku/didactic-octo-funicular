@@ -62,7 +62,7 @@ func openSQLite(t *testing.T) *sql.DB {
 	for _, name := range []string{
 		"001_init_schema.sql", "002_tenancy_and_state.sql", "003_secret_store.sql",
 		"004_artifact_storage.sql", "005_redacted_findings.sql", "006_jobs_and_outbox.sql",
-		"007_ledger_integrity.sql", "008_scheduling.sql",
+		"007_ledger_integrity.sql", "008_scheduling.sql", "009_breach_escalation.sql",
 	} {
 		body, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		if err != nil {
@@ -189,6 +189,9 @@ CREATE TABLE expectations (
     due_local TEXT NOT NULL DEFAULT '',
     timezone TEXT NOT NULL DEFAULT '',
     review_required INTEGER NOT NULL DEFAULT 0,
+    waived_by TEXT,
+    waived_reason TEXT,
+    waived_at TIMESTAMPTZ,
     row_version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -234,6 +237,42 @@ CREATE TABLE business_calendar_overrides (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, calendar_id, calendar_date)
 );
+CREATE TABLE incidents (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id),
+    expectation_id BIGINT REFERENCES expectations(id),
+    file_instance_id BIGINT,
+    type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('OPEN','INVESTIGATING','RESOLVED','CLOSED')),
+    contract_version_id BIGINT REFERENCES file_contract_versions(id),
+    summary TEXT NOT NULL DEFAULT '',
+    owner_subject TEXT NOT NULL DEFAULT '',
+    escalation_policy_id TEXT NOT NULL DEFAULT '',
+    resolved_at TIMESTAMPTZ,
+    resolved_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX idx_incidents_occurrence_type
+    ON incidents(tenant_id, expectation_id, type) WHERE expectation_id IS NOT NULL;
+CREATE TABLE notification_intents (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id),
+    kind TEXT NOT NULL,
+    subject_type TEXT NOT NULL,
+    subject_id BIGINT NOT NULL,
+    payload TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL DEFAULT '',
+    recipient TEXT NOT NULL DEFAULT '',
+    escalation_policy_id TEXT NOT NULL DEFAULT '',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    delivered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX idx_notification_dedupe
+    ON notification_intents(tenant_id, dedupe_key) WHERE dedupe_key <> '';
 CREATE TABLE expectation_match_candidates (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id TEXT NOT NULL REFERENCES tenants(id),

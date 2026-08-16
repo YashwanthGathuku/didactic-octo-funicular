@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"sentinel-gateway/internal/jobs"
 	"sentinel-gateway/internal/nacha"
 	"sentinel-gateway/internal/schedule"
 )
@@ -28,16 +29,63 @@ func schedulerFor(db *sql.DB) (*schedule.Store, error) {
 }
 
 // startScheduler runs materialization and advancement until ctx is cancelled.
-func startScheduler(ctx context.Context, db *sql.DB) error {
+//
+// The queue is optional. Without it the scheduler still opens incidents and
+// records notification intents -- those are domain records written inside the
+// transition -- and only the outbox event is skipped.
+func startScheduler(ctx context.Context, db *sql.DB, queue *jobs.Queue) error {
 	store, err := schedulerFor(db)
 	if err != nil {
 		return err
+	}
+	if queue != nil {
+		store.SetEscalator(&outboxEscalator{queue: queue})
 	}
 	cfg := schedule.DefaultRunConfig()
 	go store.Run(ctx, cfg)
 	log.Printf("Scheduler started: materializing %d days ahead, advancing every %s",
 		cfg.HorizonDays, cfg.Interval)
 	return nil
+}
+
+// outboxEscalator publishes a breach to the transactional outbox.
+//
+// It publishes rather than delivering. A breach is detected inside a database
+// transaction, and calling a notification service from there would hold a write
+// transaction open across a network call -- and would deliver an alert for a
+// transaction that may still roll back. The outbox is the correct seam: the
+// event commits with the breach, and the dispatcher from Prompt 08 delivers it
+// afterwards with its own retry budget.
+type outboxEscalator struct {
+	queue *jobs.Queue
+}
+
+func (e *outboxEscalator) Breached(ctx context.Context, tx *sql.Tx, b schedule.Breach) error {
+	return e.queue.PublishTx(ctx, tx, jobs.OutboxEvent{
+		TenantID:    b.TenantID,
+		EventType:   "EXPECTATION_BREACHED",
+		SubjectType: "expectation",
+		SubjectID:   b.OccurrenceID,
+		// Keyed by occurrence, so a retried transition produces one event.
+		DedupeKey: fmt.Sprintf("breach-%d", b.OccurrenceID),
+		// Identifiers and deadlines only. This payload reaches the evidence
+		// ledger, so it must carry nothing derived from file content -- and
+		// internal/ledger refuses a payload that does.
+		Payload: map[string]any{
+			"incidentId":         b.IncidentID,
+			"expectationId":      b.OccurrenceID,
+			"contractId":         b.ContractID,
+			"contractVersion":    b.Version,
+			"feedId":             b.FeedID,
+			"businessDate":       b.BusinessDate.String(),
+			"dueAt":              b.DueAt.Format(time.RFC3339),
+			"dueLocal":           b.DueLocal,
+			"timezone":           b.Timezone,
+			"breachedAt":         b.BreachedAt.Format(time.RFC3339),
+			"owner":              b.OwnerSubject,
+			"escalationPolicyId": b.EscalationPolicyID,
+		},
+	})
 }
 
 // matchArrivalToExpectation attributes a newly stored artifact to whatever it

@@ -310,6 +310,43 @@ that is not the scheduler — the most misleading possible demo of a scheduler. 
 now seeds a calendar and contract versions only; occurrences come from the
 scheduler alone, and `TestDemoSeedProducesAMaterializableSchedule` asserts both.
 
+## What a breach now does
+
+Detection without escalation is a system that knows a file is missing and does
+not say so. Every step below happens **inside the transaction that records the
+`BREACHED` transition**, so a crash cannot leave the breach on record with
+nobody informed:
+
+1. **An incident opens**, one per occurrence, idempotent through a partial
+   unique index on `(tenant, expectation_id, type)`. Idempotent through the
+   constraint rather than a read-then-write, because two schedulers can reach
+   this at once and a check followed by an insert lets both through. A duplicate
+   alert is how an operator's queue stops being read.
+2. **A notification intent is written**, addressed to the contract version's
+   `owner_subject` under its `escalation_policy_id`. The recipient and policy are
+   explicit columns, not fields inside the payload: a routing decision made by
+   digging through free-form JSON is a routing decision nobody can audit.
+3. **An outbox event is published**, which the Prompt 08 dispatcher carries into
+   the evidence ledger. Publishing rather than delivering is the point — calling
+   a notification service from inside a write transaction would hold it open
+   across a network call and would alert on a transaction that may still roll
+   back.
+
+The incident copies the owner and policy rather than joining to them. A feed's
+owner changes, and an incident records who was responsible *then*; re-deriving
+it later would silently rewrite the answer.
+
+The escalator is a narrow interface taking the transaction, and
+`internal/schedule` does not import `internal/jobs`: what a breach means beyond
+"open an incident and record who to tell" is the application's decision.
+`TestAFailingEscalatorRollsBackTheTransition` asserts the whole thing is atomic —
+if escalation fails, the occurrence is not left BREACHED.
+
+The alert payload carries identifiers and deadlines only. A notification is the
+most widely distributed artifact this system produces, so it is the worst place
+for anything derived from file content; the ledger's own payload rules refuse
+one that carries it, which the wiring test relies on as a second check.
+
 ## Verification
 
 ```
@@ -329,20 +366,26 @@ Container builds NOT RUN: no Docker daemon in this environment
    create or amend one, so a real deployment configures feeds by direct database
    access. Prompt 12 lists contract management and version history as screens;
    the routes behind them do not exist yet.
-2. **Nothing consumes a breach.** An occurrence reaches `BREACHED` and the
-   transition is recorded in `status_history`, but no incident is opened, no
-   outbox event is published, and the `owner_subject` and
-   `escalation_policy_id` a contract carries are stored and never read. The
-   detection is real; the notification is not built. This is the single largest
-   gap in this prompt — a breach nobody is told about is only marginally better
-   than a breach nobody detects.
-3. **No review resolution path.** `expectation_match_candidates` rows are
-   written with `resolution = 'REVIEW_REQUIRED'` and there is no way to move
-   them to `ACCEPTED` or `REJECTED`. The ambiguity is recorded honestly and then
-   sits there. `resolved_by` and `resolved_at` exist and are never written.
-4. **`WAIVED` is unreachable.** The state is modelled and no code path enters
-   it, so an occurrence that everyone agrees should not have existed still
-   breaches.
+2. ~~**Nothing consumes a breach.**~~ **Closed.** See "What a breach now does"
+   below. A breach opens an incident, records a notification intent addressed to
+   the contract version's owner under its escalation policy, and publishes an
+   outbox event that reaches the evidence ledger — all inside the transaction
+   that recorded the transition. What remains undone is the **last mile**: no
+   channel actually delivers the notification. `PendingNotifications` returns
+   the queue and nothing drains it, so an operator must read the incident list
+   rather than being paged. That is a smaller and more honest gap than the
+   original — the obligation is durable and attributed, it is just not yet
+   posted anywhere.
+3. ~~**No review resolution path.**~~ **Closed.** `ResolveCandidate` accepts or
+   rejects a candidate with a required actor and reason. Accepting attributes
+   the artifact and closes the same artifact's other candidates; rejecting
+   leaves the occurrence ageing. Still missing: an HTTP route to call it (see
+   item 1) and any notion of who is *permitted* to resolve a review beyond the
+   tenant check.
+4. ~~**`WAIVED` is unreachable.**~~ **Closed.** `Waive` requires an actor and a
+   reason, refuses an already-arrived occurrence, writes the status history, and
+   resolves the occurrence's open incident. Still missing: the same HTTP route
+   gap, and no approval step — one person can waive without a second signature.
 5. **The application still runs on SQLite.** The scheduler is verified against a
    real PostgreSQL 16 server, and `migrations_postgres/` carries none of these
    tables — the PostgreSQL half of the suite builds the schema itself. This is
