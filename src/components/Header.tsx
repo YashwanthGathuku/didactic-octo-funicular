@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck, Clock, FileText, AlertTriangle, Activity, Building2, GitCompare } from 'lucide-react';
+import { ShieldCheck, Clock, FileText, AlertTriangle, Activity, Building2, GitCompare, Database } from 'lucide-react';
 
 interface HeaderProps {
   onOpenAudit: () => void;
   onOpenUpload: () => void;
   onOpenContracts: () => void;
   onOpenDiff?: () => void;
+  onOpenConnectors?: () => void;
   openIncidentsCount: number;
   quarantinedCount: number;
 }
@@ -14,6 +15,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAudit,
   onOpenUpload,
   onOpenContracts,
+  onOpenConnectors,
   onOpenDiff,
   openIncidentsCount,
   quarantinedCount
@@ -152,6 +154,17 @@ export const Header: React.FC<HeaderProps> = ({
             <Building2 size={14} color="var(--accent-cyan)" />
             <span>Contracts & Partners</span>
           </button>
+
+          {onOpenConnectors && (
+            <button
+              className="btn btn-secondary"
+              onClick={onOpenConnectors}
+              style={{ padding: '6px 12px', fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Database size={14} color="var(--accent-cyan)" />
+              <span>Source Connections</span>
+            </button>
+          )}
 
           {onOpenDiff && (
             <button 

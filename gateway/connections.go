@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -64,6 +65,22 @@ func connectionStoreFor(db *sql.DB, cfg *Config) (*connectors.Store, error) {
 		}
 		connectionStore, connectionStoreErr = connectors.NewStore(
 			db, "sqlite", connectorRegistry(), secretStore)
+		if connectionStoreErr != nil {
+			return
+		}
+
+		// Lifecycle events go to the append-only evidence chain, so "who
+		// pointed this at a production replica, and when" has an answer that
+		// cannot be edited afterwards.
+		connectionStore.SetAuditor(&ledgerConnectorAuditor{db: db})
+		connectionStore.SetAuditFailureHandler(func(ev connectors.AuditEvent, err error) {
+			// Loud, and not fatal to the operation it describes. Refusing to
+			// delete a connection because the ledger was unavailable would
+			// leave a live credential in place for the duration of an
+			// unrelated outage.
+			log.Printf("connections: AUDIT FAILURE recording %s for connection %d in tenant %s: %v",
+				ev.Action, ev.ConnectionID, ev.TenantID, err)
+		})
 	})
 	return connectionStore, connectionStoreErr
 }
@@ -359,4 +376,20 @@ func writeConnectionError(w http.ResponseWriter, err error) {
 	writeJSON(w, http.StatusBadRequest, map[string]any{
 		"error": "connection_rejected", "message": err.Error(),
 	})
+}
+
+// ledgerConnectorAuditor writes connection lifecycle events to the evidence
+// chain.
+//
+// The payload arrives already built by internal/connectors, which is the one
+// place that decides what a connection event may say. This adapter adds
+// nothing: a second place assembling the payload is a second place that can
+// put a host or a credential into it.
+type ledgerConnectorAuditor struct {
+	db *sql.DB
+}
+
+func (a *ledgerConnectorAuditor) RecordConnectorEvent(ctx context.Context, ev connectors.AuditEvent) error {
+	_, err := AppendAuditEvent(a.db, ev.TenantID, string(ev.Action), ev.Actor, ev.Payload)
+	return err
 }

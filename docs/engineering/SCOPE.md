@@ -82,8 +82,9 @@ Flow's own system of record and is unaffected by anything in this section.
 | Storing a connection | Implemented | Migration 010. Credentials go to the secret store; only the reference is in the connection tables, asserted by an exhaustive dump. |
 | Runtime conformance evidence | Implemented | The run publishes an artefact the deployment carries and the binary validates: a record that is incomplete, stale, or built against a different driver version leaves the connector unselectable. |
 | Approved query templates | **Planned** | The approval model exists; no templates ship and no route defines one. |
-| Per-connector rate and concurrency limits | **Planned** | Per-execution row, byte, time and cursor bounds are enforced. `maxPerMinute` is stored and not yet counted against. |
-| Connection lifecycle audit events | **Planned** | The secret store records events for the credential half; creating, testing and deleting a connection are not written to the evidence ledger. |
+| Per-connector rate and concurrency limits | Implemented | Per-execution row, byte, time and cursor bounds, plus a per-minute fixed window whose refusals are audited. Per process, so replicas each permit the rate. |
+| Connection lifecycle audit events | Implemented | Create, test, rotate and delete are written to the evidence chain, carrying identifiers and classifications only — no credential and no hostname. |
+| Creating a connection from the wizard | **Planned** | The wizard renders the server's fields; submitting still goes through the API rather than the screen. |
 | Arbitrary SQL from browser or AI | **Non-goal** | There is no entry point that accepts a statement. Not restricted — absent. |
 
 ### Evidence and audit

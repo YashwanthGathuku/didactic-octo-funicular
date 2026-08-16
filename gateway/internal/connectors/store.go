@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"sentinel-gateway/internal/secrets"
@@ -45,6 +46,11 @@ type Store struct {
 	registry *Registry
 	secrets  secrets.Store
 	now      func() time.Time
+
+	auditor        Auditor
+	auditFailures  atomic.Int64
+	onAuditFailure func(AuditEvent, error)
+	limiter        *rateLimiter
 }
 
 // NewStore builds the persistence layer.
@@ -72,11 +78,17 @@ func NewStore(db *sql.DB, driverName string, r *Registry, sec secrets.Store) (*S
 	default:
 		return nil, fmt.Errorf("unsupported driver %q for the connection store", driverName)
 	}
-	return &Store{db: db, dialect: d, registry: r, secrets: sec, now: time.Now}, nil
+	st := &Store{db: db, dialect: d, registry: r, secrets: sec, now: time.Now}
+	st.limiter = newRateLimiter(func() time.Time { return st.now() })
+	return st, nil
 }
 
 // SetClock replaces the time source, for tests.
 func (s *Store) SetClock(fn func() time.Time) { s.now = fn }
+
+// SetAuditFailureHandler installs a callback for events that could not be
+// recorded. The gateway logs them; a test can assert on them.
+func (s *Store) SetAuditFailureHandler(fn func(AuditEvent, error)) { s.onAuditFailure = fn }
 
 func (s *Store) rebind(q string) string {
 	if s.dialect != dialectPostgres {
@@ -312,7 +324,28 @@ func (s *Store) Create(ctx context.Context, sc secrets.Scope, req CreateRequest)
 		retireWritten()
 		return nil, err
 	}
-	return s.Get(ctx, sc.TenantID(), id)
+
+	conn, err := s.Get(ctx, sc.TenantID(), id)
+	if err != nil {
+		return nil, err
+	}
+	s.audit(ctx, AuditEvent{
+		TenantID: sc.TenantID(), Action: ActionCreated, Actor: sc.ActorID(), ConnectionID: id,
+		Payload: map[string]any{
+			"connectionId":  id,
+			"connectorType": conn.ConnectorType,
+			"displayName":   conn.DisplayName,
+			"authMode":      conn.AuthMode,
+			// Which credentials were configured, by field name. The count and
+			// the names are what an operator needs to reconcile a connection
+			// against the secret store; the values are not.
+			"secretsConfigured": conn.SecretFields,
+			"weakSecrets":       conn.WeakSecrets,
+			"resourceCount":     len(conn.Allowlist),
+			"tlsMode":           conn.Fields["tls_mode"],
+		},
+	})
+	return conn, nil
 }
 
 // defaultMaxPerMinute bounds executions per connection per minute.
@@ -527,6 +560,13 @@ func (s *Store) TestConnection(ctx context.Context, sc secrets.Scope, id int64) 
 	if err != nil {
 		return Health{}, err
 	}
+	// The rate limit applies to a real check because a check is a real
+	// connection to a customer's database, and a loop calling it is
+	// indistinguishable from a loop querying it.
+	if err := s.checkRate(ctx, sc, sc.ActorID(), c); err != nil {
+		return Health{}, err
+	}
+
 	driver, _, err := s.registry.Driver(c.ConnectorType)
 	if err != nil {
 		// The connector has stopped being available since the connection was
@@ -560,6 +600,21 @@ func (s *Store) TestConnection(ctx context.Context, sc secrets.Scope, id int64) 
 	if err := s.recordHealth(ctx, sc, c, health); err != nil {
 		return health, err
 	}
+
+	// The outcome is audited whether it passed or failed. A trail that recorded
+	// only successful checks would make silence ambiguous between "nobody
+	// tested it" and "everybody who tested it failed".
+	s.audit(ctx, AuditEvent{
+		TenantID: c.TenantID, Action: ActionTested, Actor: sc.ActorID(), ConnectionID: c.ID,
+		Payload: map[string]any{
+			"connectionId":  c.ID,
+			"connectorType": c.ConnectorType,
+			"state":         string(health.State),
+			// The classification, never the driver's message.
+			"errorClass": string(health.ErrorCategory),
+			"latencyMs":  health.Latency.Milliseconds(),
+		},
+	})
 	return health, checkErr
 }
 
@@ -643,7 +698,23 @@ func (s *Store) Delete(ctx context.Context, sc secrets.Scope, id int64) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrConnectionNotFound
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	s.audit(ctx, AuditEvent{
+		TenantID: c.TenantID, Action: ActionDeleted, Actor: sc.ActorID(), ConnectionID: c.ID,
+		Payload: map[string]any{
+			"connectionId":  c.ID,
+			"connectorType": c.ConnectorType,
+			"displayName":   c.DisplayName,
+			// Recorded because it is the question asked after a credential
+			// turns up somewhere it should not be: were the connection's
+			// secrets retired with it.
+			"secretsRetired": c.SecretFields,
+		},
+	})
+	return nil
 }
 
 // ReplaceSecret rotates one credential field.
@@ -707,14 +778,26 @@ func (s *Store) ReplaceSecret(ctx context.Context, sc secrets.Scope, id int64, f
 	if weak {
 		w = 1
 	}
-	_, err = s.db.ExecContext(ctx, s.rebind(`
+	if _, err := s.db.ExecContext(ctx, s.rebind(`
 		INSERT INTO source_connection_secrets
 			(tenant_id, connection_id, field_id, secret_name, weak, created_at, rotated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (tenant_id, connection_id, field_id)
 		DO UPDATE SET weak = EXCLUDED.weak, rotated_at = EXCLUDED.rotated_at`),
-		sc.TenantID(), c.ID, field, name, w, now, now)
-	return err
+		sc.TenantID(), c.ID, field, name, w, now, now); err != nil {
+		return err
+	}
+
+	s.audit(ctx, AuditEvent{
+		TenantID: c.TenantID, Action: ActionSecretRotated, Actor: sc.ActorID(), ConnectionID: c.ID,
+		Payload: map[string]any{
+			"connectionId":  c.ID,
+			"connectorType": c.ConnectorType,
+			"field":         field,
+			"weak":          weak,
+		},
+	})
+	return nil
 }
 
 // MarkUsed stamps a connection's last use.

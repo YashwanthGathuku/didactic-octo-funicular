@@ -247,6 +247,65 @@ Results are masked at this boundary by the column's declared classification, and
 an undeclared column is treated as `UNCLASSIFIED`, which masks. Defaulting to
 public would disclose every column anyone forgot to classify.
 
+## The connection lifecycle is audited
+
+Creating, testing, rotating and deleting a connection are written to the
+append-only evidence chain. The secret store already recorded its own events for
+the credential half; the connection half had none, and those are exactly the
+records an operator reconstructs during an incident — "who pointed this at a
+production replica, and when" had no answer.
+
+The payload is built inside `internal/connectors`, so one place decides what a
+connection event may say. Every field is an identifier, a state or a
+classification. The **host is deliberately omitted**: a customer's internal
+hostname is not a secret and is also not something that needs to be in an export
+shared with a third party. A failed check is recorded as a failure rather than
+skipped — a trail carrying only successes makes silence ambiguous between
+"nobody tested it" and "everybody who tested it failed".
+
+**An audit failure does not fail the operation it describes.** That is a real
+trade-off, made deliberately: refusing to delete a connection because the ledger
+is unavailable would leave a live credential in place for the duration of an
+unrelated outage. The failure is logged loudly and counted, and
+`Store.AuditFailures` exposes the count so a health endpoint can surface it — an
+audit sink that has been silently failing is worse than one never configured,
+because the trail looks complete.
+
+## Executions are bounded per minute
+
+`maxPerMinute` is now enforced, defaulting to 60. Per-execution limits bound one
+query's rows, bytes and time; without a rate limit, an unbounded number of
+bounded queries is still unbounded, and the load lands on a customer's
+production database caused by their reporting integration.
+
+It is a **fixed window**, not a token bucket. The boundary allows a burst of up
+to twice the limit, which is a real imprecision and an acceptable one: the
+purpose is to stop a runaway loop, not to shape traffic, and a fixed window is
+something an operator reading the code can predict. Stale windows are swept, or
+the map would grow by one entry per connection ever seen — a slow leak invisible
+until a tenant with many connections arrives.
+
+A refusal is audited. A connection hitting its limit is either a misconfigured
+caller or a runaway loop, and an operator should find out from the trail rather
+than from the customer.
+
+## The operator surface
+
+`SavedConnectionsPanel` lists saved connections in the cockpit rather than
+behind a modal, because a connection that has never been checked, or that
+started failing overnight, is something an operator should meet rather than go
+looking for.
+
+`NEVER_CHECKED` renders with its own icon and a **grey** treatment — never a
+colour that reads as success. That is the same rule the schema enforces with a
+CHECK constraint and the API enforces by returning the state explicitly: a
+connection nobody has tested showing green is precisely the defect the
+Integration Hub shipped.
+
+Nothing in the panel masks a credential, because nothing in it receives one. A
+bug in that file cannot disclose one. Replacing a credential is the only way to
+change it, and the form says why the current value cannot be shown.
+
 ## Verification
 
 ```
@@ -340,7 +399,7 @@ honest one.
 ## Verification
 
 ```
-gofmt PASS · vet PASS · go test PASS · go test -race PASS
+gofmt PASS · vet PASS · tidy PASS · go test PASS · go test -race PASS
 21/21 conformance checks passed against real PostgreSQL 16.13, 0 skipped
 evidence round trip verified: a real run promotes the connector to AVAILABLE
 migrations 001-010 apply and are idempotent through the real command path
@@ -361,19 +420,22 @@ Container builds NOT RUN: no Docker daemon in this environment
    exist; the set a deployment would actually run is empty, and there is no
    route to define one. `ExecuteTemplate` is therefore reachable only from the
    conformance suite.
-4. **`maxPerMinute` is stored and not enforced.** The column exists, the
-   default is 60, and nothing counts executions against it. Per-execution row,
-   byte and time bounds *are* enforced.
-5. **No audit events for connection lifecycle.** Creating, testing, rotating
-   and deleting a connection are not written to the evidence ledger. The secret
-   store records its own events for the credential half; the connection half
-   has none.
+4. ~~**`maxPerMinute` is stored and not enforced.**~~ **Closed.** Enforced as a
+   fixed window, with refusals audited. What remains: the limit is per process,
+   so two gateway replicas each permit the configured rate.
+5. ~~**No audit events for connection lifecycle.**~~ **Closed.** Create, test,
+   rotate and delete are written to the evidence chain. What remains: an audit
+   failure is counted and logged and does not fail the operation, so a
+   sufficiently long ledger outage loses events that are only recoverable from
+   the server log.
 6. **Eight connectors have no driver.** That is the intended state of a staged
    rollout, stated so the catalog's size is not mistaken for coverage.
 7. **`DiscoverResources` has no cursor.** Bounded by `MaxRows`; a tenant with
    more tables than the bound gets a truncated list with no way to page past it.
-8. **No UI for saved connections.** The wizard renders the form and there is no
-   screen listing saved connections, their health, or a replace-credential
-   action. The routes exist and nothing calls them.
+8. ~~**No UI for saved connections.**~~ **Closed.** `SavedConnectionsPanel`
+   lists them with health, last-used, rate limit and a replace-credential
+   action. What remains: the wizard collects the fields and does not yet POST
+   them, so a connection is still created through the API rather than the
+   screen.
 9. **The 90-day evidence expiry is a judgement, not a measurement.** It is
    stated as one in the code.

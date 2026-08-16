@@ -8,6 +8,8 @@ import { AuditLedgerModal } from './components/AuditLedgerModal';
 import { UploadModal } from './components/UploadModal';
 import { ContractConfigModal } from './components/ContractConfigModal';
 import { FileDiffModal } from './components/FileDiffModal';
+import { ConnectorWizardModal } from './components/ConnectorWizardModal';
+import { SavedConnectionsPanel } from './components/SavedConnectionsPanel';
 
 import {
   Partner,
@@ -66,6 +68,7 @@ export const App: React.FC = () => {
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [showContractsModal, setShowContractsModal] = useState<boolean>(false);
   const [showDiffModal, setShowDiffModal] = useState<boolean>(false);
+  const [showConnectorWizard, setShowConnectorWizard] = useState<boolean>(false);
 
   // Initialize initial Genesis domain event
   useEffect(() => {
@@ -235,6 +238,7 @@ export const App: React.FC = () => {
         onOpenUpload={() => setShowUploadModal(true)}
         onOpenContracts={() => setShowContractsModal(true)}
         onOpenDiff={() => setShowDiffModal(true)}
+        onOpenConnectors={() => setShowConnectorWizard(true)}
         openIncidentsCount={openIncidentsCount}
         quarantinedCount={quarantinedCount}
       />
@@ -242,6 +246,17 @@ export const App: React.FC = () => {
       {/* Main Operations Cockpit Content */}
       <main style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
         <DemoDataBanner />
+
+        {/*
+          Saved source connections, with the health the server actually
+          recorded. It sits in the cockpit rather than behind a modal because a
+          connection that has never been checked, or that started failing
+          overnight, is something an operator should meet rather than go
+          looking for.
+        */}
+        <section style={{ border: '1px solid var(--border-subtle, #334155)', borderRadius: '8px' }}>
+          <SavedConnectionsPanel />
+        </section>
 
 
         {/* Top Section: Expected Delivery Windows & SLA Radar */}
@@ -488,6 +503,11 @@ export const App: React.FC = () => {
             setInspectedFile(null);
           }}
         />
+      )}
+
+      {/* Metadata-driven source connection wizard */}
+      {showConnectorWizard && (
+        <ConnectorWizardModal onClose={() => setShowConnectorWizard(false)} />
       )}
 
       {/* Cryptographic Append-Only Audit Modal */}

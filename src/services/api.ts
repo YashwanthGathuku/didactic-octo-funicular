@@ -364,3 +364,90 @@ export async function parseConnectionUri(
     },
   );
 }
+
+// ---------------------------------------------------------------------------
+// Saved source connections
+// ---------------------------------------------------------------------------
+
+/**
+ * A saved connection, as every read path returns it.
+ *
+ * There is no credential field and no connection string, and there is no
+ * client-side masking either — the server does not send one, so there is
+ * nothing here to forget to mask. `secretsConfigured` names which credentials
+ * exist, by field id.
+ */
+export interface SourceConnection {
+  id: number;
+  connectorType: string;
+  displayName: string;
+  authMode: string;
+  fields: Record<string, string>;
+  resourceAllowlist: string[];
+  maxPerMinute: number;
+  secretsConfigured: string[];
+  /** Credentials the customer chose below this platform's floor. */
+  weakSecrets?: string[];
+  health: ConnectionHealth;
+  conformanceCommit?: string;
+  conformanceServer?: string;
+  lastUsedAt?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+/**
+ * NEVER_CHECKED is a distinct state from healthy and must render as such. A
+ * connection nobody has tested showing green is the defect the whole connector
+ * platform exists to prevent.
+ */
+export type ConnectionHealthState = 'NEVER_CHECKED' | 'HEALTHY' | 'DEGRADED' | 'FAILED';
+
+export interface ConnectionHealth {
+  State: ConnectionHealthState;
+  CheckedAt: string;
+  ErrorCategory: string;
+  Detail: string;
+  Latency: number;
+}
+
+export interface ConnectionTestResult {
+  state: ConnectionHealthState;
+  checkedAt: string;
+  latencyMs: number;
+  /** A sanitized classification, never the database driver's own message. */
+  errorClass?: string;
+  detail?: string;
+}
+
+export async function getConnections(): Promise<ApiResult<{ connections: SourceConnection[] }>> {
+  return request<{ connections: SourceConnection[] }>(`${API_BASE_URL}/connections`);
+}
+
+export async function testConnection(id: number): Promise<ApiResult<ConnectionTestResult>> {
+  return request<ConnectionTestResult>(`${API_BASE_URL}/connections/${id}/test`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Replacing is the only way to change a stored credential.
+ *
+ * There is no update that takes the current value, because nothing can read the
+ * current value — not this client, not the server's own read paths.
+ */
+export async function replaceConnectionSecret(
+  id: number,
+  field: string,
+  value: string,
+): Promise<ApiResult<null>> {
+  return request<null>(`${API_BASE_URL}/connections/${id}/secrets/${encodeURIComponent(field)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  });
+}
+
+export async function deleteConnection(id: number): Promise<ApiResult<null>> {
+  return request<null>(`${API_BASE_URL}/connections/${id}`, { method: 'DELETE' });
+}
