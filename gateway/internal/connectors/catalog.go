@@ -38,8 +38,13 @@ type ConformanceRecord struct {
 }
 
 // Complete reports whether the record supports an AVAILABLE status.
+//
+// A skipped check disqualifies the record. RunConformance already folds skips
+// into the failure count, but a record can also arrive hand-written or from an
+// evidence file, and those paths would otherwise let a run with its TLS
+// verification untested vouch for a driver.
 func (r *ConformanceRecord) Complete() bool {
-	return r != nil && r.Failed == 0 && r.Passed > 0 &&
+	return r != nil && r.Failed == 0 && len(r.Skipped) == 0 && r.Passed > 0 &&
 		r.ServerVersion != "" && r.TestCommit != "" && !r.RunAt.IsZero()
 }
 

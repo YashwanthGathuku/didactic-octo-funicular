@@ -259,42 +259,121 @@ Container builds NOT RUN: no Docker daemon in this environment
 The full conformance output is in the CI job "Connector conformance against
 PostgreSQL", which fails the build on any FAIL **or any SKIP**.
 
+## Storing a connection
+
+Migration 010 adds `source_connections`, `source_connection_secrets` and
+`source_connection_health`. The shape is dictated by one rule: **a credential
+never lands in these tables.** Non-secret configuration goes in a column; every
+secret goes to the Prompt 05 secret store and only its *name* is recorded here.
+
+`TestTheCredentialIsNotInTheConnectionTables` dumps every cell of every table in
+the database — the same exhaustive dump the Prompt 01 quarantine tests use — and
+searches for the fixture credential. Checking only the tables this package
+writes would miss one that leaked sideways into an audit payload, which is
+exactly how the Integration Hub's secret escaped.
+
+### The write ordering is forced
+
+Credentials are written to the secret store **before** this package's
+transaction opens, and the secret name is derived from the tenant and the
+connection's display name — which are unique together and known before the row
+exists — rather than from the generated id.
+
+It has to be that way round. The first implementation derived the name from the
+id, so it called the secret store from inside its own transaction; on SQLite
+that is a self-deadlock, and it presented as every save hanging for the full
+ten-second busy timeout and then failing with "storing the credential failed".
+It is also the correct order regardless: a connection row without its credential
+can never work, while a sealed secret with no connection is inert — and is
+retired if the transaction does not commit.
+
+Reads use the **stored** name rather than re-deriving it. Re-deriving would
+break the moment anything about the derivation changed, and the failure would be
+a credential that cannot be read rather than an error someone sees at deploy
+time.
+
+### A weak customer credential is accepted and reported
+
+A customer's six-character database password is stored, sealed, and flagged in
+`weakSecrets` by field name. Refusing it would not make it longer; it would push
+an operator to keep the password somewhere this application does not protect.
+`TestAWeakCustomerCredentialIsAcceptedAndReported` also asserts the weak
+credential is not disclosed — being weak is not a reason to protect it less.
+
+### Health is never optimistic
+
+A new connection is `NEVER_CHECKED` with no timestamp, and the schema's CHECK
+constraint keeps that a distinct value from `HEALTHY`. `TestConnection` writes
+whatever the driver returned; testing an unreachable host records `FAILED` with
+a sanitized error class, and the stored detail is asserted to carry neither the
+credential nor the account name.
+
+Every check is kept in `source_connection_health` rather than overwriting the
+last. A connection failing now is a different situation from one that has been
+failing for a week, and the second is invisible if each check overwrites.
+
+## Runtime evidence
+
+The conformance run produces an artefact; the deployment carries it; the binary
+validates it. `SENTINEL_CONNECTOR_EVIDENCE` names the file.
+
+A record is rejected — leaving the connector unselectable — when it records a
+failure, records a **skipped** check, is more than 90 days old, or names a
+driver version that disagrees with the running build. That last one matters
+most: evidence produced against a different driver build verified different
+code.
+
+The file is written by `WriteEvidence` and read by `LoadEvidence`, in the same
+package, so producer and consumer cannot drift — and drift there would present
+as a deployment that silently has no evidence, indistinguishable from one that
+never ran the suite. `WriteEvidence` refuses to write for a run that did not
+pass.
+
+`TestConformanceRunPublishesEvidence` runs the real suite against a real server,
+publishes the artefact, reads it back through the loader the binary uses, and
+asserts it promotes PostgreSQL to `AVAILABLE`. CI uploads the same file.
+
+With no evidence file, every connector is `IMPLEMENTING`: visible, unselectable,
+and `Create` refuses. That is the default on a development machine and it is the
+honest one.
+
+## Verification
+
+```
+gofmt PASS · vet PASS · go test PASS · go test -race PASS
+21/21 conformance checks passed against real PostgreSQL 16.13, 0 skipped
+evidence round trip verified: a real run promotes the connector to AVAILABLE
+migrations 001-010 apply and are idempotent through the real command path
+frontend: tsc --noEmit PASS · npm run build PASS
+Container builds NOT RUN: no Docker daemon in this environment
+```
+
 ## What is not done
 
-1. **No connection is storable.** There is no `connections` table, no migration,
-   and no create/update/delete route. The catalog, descriptors, validation, URI
-   parsing, the driver and the conformance suite all exist; the persistence
-   between them does not. A tenant cannot yet save a connection, so nothing in
-   this platform is reachable in production use.
-2. **A running process reports every connector as `IMPLEMENTING`.** The
-   conformance run happens in CI, not at startup, so `loadConformanceRecord`
-   returns nil and nothing is selectable at runtime. That is deliberate and it
-   is the honest state: promoting the entry from a constant in the binary would
-   be a claim of verification made by the component that did not do the
-   verifying — the same defect as `mTLSVerified: true`. Closing it means
-   shipping the CI record as a build artefact the binary reads and validates
-   against its own driver version.
-3. **Only the password auth mode is verified.** The PostgreSQL descriptor also
-   offers client certificates, and the conformance fixture runs one auth mode.
-   Client-certificate authentication is therefore NOT VERIFIED.
-4. **TLS verification is verified negatively only against a non-TLS server.**
-   The local fixture connects to a server without TLS, so the
-   untrusted-certificate check passes by the connection being refused rather
-   than by a certificate being rejected. A fixture with a self-signed endpoint
-   would be a stronger demonstration.
-5. **No query templates ship.** `RegisterTemplate` and the whole approval model
-   exist; the set of administrator-approved templates a deployment would
-   actually run is empty, and there is no route to define one.
-6. **No per-connector rate or concurrency limits.** `Limits` bounds rows, bytes,
-   time and cursor size per execution. There is no limit on executions per
-   minute, so a caller can issue bounded queries without bound.
-7. **No audit events or last-used metadata.** The guide asks for both on the
-   connector model. Neither exists, because there is no connector model
-   persisted to attach them to.
-8. **Eight connectors have no driver**, so eight ninths of the catalog is a
-   field model and a capability profile. That is the intended state of a staged
-   rollout and it is stated here so the catalog's size is not mistaken for
-   coverage.
-9. **`DiscoverResources` has no cursor.** It is bounded by `MaxRows` and a
-   tenant with more tables than the bound gets a truncated list with no way to
-   page past it.
+1. **Only the password auth mode is verified.** The PostgreSQL descriptor also
+   offers client certificates, and the conformance fixture runs one mode.
+   Client-certificate authentication is NOT VERIFIED.
+2. **TLS verification is demonstrated negatively against a non-TLS server.**
+   The local fixture's server has no TLS, so the untrusted-certificate check
+   passes by the connection being refused rather than by a certificate being
+   rejected. A self-signed endpoint would be a stronger demonstration.
+3. **No query templates ship.** `RegisterTemplate` and the whole approval model
+   exist; the set a deployment would actually run is empty, and there is no
+   route to define one. `ExecuteTemplate` is therefore reachable only from the
+   conformance suite.
+4. **`maxPerMinute` is stored and not enforced.** The column exists, the
+   default is 60, and nothing counts executions against it. Per-execution row,
+   byte and time bounds *are* enforced.
+5. **No audit events for connection lifecycle.** Creating, testing, rotating
+   and deleting a connection are not written to the evidence ledger. The secret
+   store records its own events for the credential half; the connection half
+   has none.
+6. **Eight connectors have no driver.** That is the intended state of a staged
+   rollout, stated so the catalog's size is not mistaken for coverage.
+7. **`DiscoverResources` has no cursor.** Bounded by `MaxRows`; a tenant with
+   more tables than the bound gets a truncated list with no way to page past it.
+8. **No UI for saved connections.** The wizard renders the form and there is no
+   screen listing saved connections, their health, or a replace-credential
+   action. The routes exist and nothing calls them.
+9. **The 90-day evidence expiry is a judgement, not a measurement.** It is
+   stated as one in the code.

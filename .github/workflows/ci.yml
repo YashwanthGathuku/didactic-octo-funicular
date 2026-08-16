@@ -294,6 +294,28 @@ jobs:
           fi
           echo "OK: the PostgreSQL connector passed every conformance check against a real server"
 
+      # The evidence artefact is what lets a deployed binary mark the connector
+      # AVAILABLE. Without it the process reports IMPLEMENTING and refuses to
+      # store a connection -- which is correct, and also means the artefact has
+      # to be produced here rather than asserted in code.
+      - name: Publish the conformance evidence artefact
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+          SENTINEL_CONNECTOR_EVIDENCE_OUT: ${{ github.workspace }}/connector-evidence.json
+        run: |
+          go test -run TestConformanceRunPublishesEvidence -v ./internal/connectors/
+          test -s "$SENTINEL_CONNECTOR_EVIDENCE_OUT" || {
+            echo "FAIL: no evidence artefact was produced"; exit 1; }
+          cat "$SENTINEL_CONNECTOR_EVIDENCE_OUT"
+
+      - name: Upload the conformance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: connector-conformance-evidence
+          path: connector-evidence.json
+          if-no-files-found: error
+
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.
       - name: Assert the RLS tests were not skipped

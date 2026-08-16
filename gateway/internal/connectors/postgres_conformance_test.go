@@ -338,3 +338,62 @@ func testCommit() string {
 	}
 	return "local-build"
 }
+
+// The conformance run publishes the evidence artefact a deployment carries.
+//
+// The file is written by the same code that reads it, so the format cannot
+// drift between producer and consumer -- and drift there would present as a
+// deployment that silently has no evidence, which looks identical to one that
+// never ran the suite.
+func TestConformanceRunPublishesEvidence(t *testing.T) {
+	dsn := postgresDSN(t)
+	fixture, cleanup := fixtureFromDSN(t, dsn)
+	defer cleanup()
+
+	c := NewPostgresConnector()
+	defer c.Close()
+
+	report := RunConformance(context.Background(), c, fixture)
+	if !report.Passed() {
+		t.Skipf("the run did not pass, so there is no evidence to publish:\n%s", report.Summary())
+	}
+
+	path := os.Getenv("SENTINEL_CONNECTOR_EVIDENCE_OUT")
+	if path == "" {
+		path = t.TempDir() + "/evidence.json"
+	}
+	if err := WriteEvidence(path, report); err != nil {
+		t.Fatalf("write evidence: %v", err)
+	}
+
+	// Read it back through the loader the binary uses, and confirm it promotes
+	// the connector. A file that cannot do that is not evidence.
+	t.Setenv(EvidenceFileEnv, path)
+	evidence, err := LoadEvidence()
+	if err != nil {
+		t.Fatalf("the published evidence was rejected by the loader: %v", err)
+	}
+
+	r := NewRegistry()
+	driver := NewPostgresConnector()
+	defer driver.Close()
+	notes := ApplyEvidence(r, []Connector{driver}, evidence)
+
+	d, err := r.Descriptor("postgresql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Status != StatusAvailable {
+		t.Fatalf("status = %s after applying this run's own evidence; notes: %v", d.Status, notes)
+	}
+	t.Logf("evidence written to %s and accepted: %v", path, notes)
+
+	// A run that failed must refuse to publish. Evidence is the whole gate, so
+	// the one thing WriteEvidence must never do is record a pass that did not
+	// happen.
+	broken := report
+	broken.Checks = append([]CheckResult{{Name: "synthetic", Passed: false}}, broken.Checks...)
+	if err := WriteEvidence(t.TempDir()+"/bad.json", broken); err == nil {
+		t.Error("evidence was written for a run that did not pass")
+	}
+}

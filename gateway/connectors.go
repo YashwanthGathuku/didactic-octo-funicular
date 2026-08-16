@@ -34,34 +34,32 @@ func connectorRegistry() *connectors.Registry {
 	registryOnce.Do(func() {
 		registry = connectors.NewRegistry()
 
-		// The driver is attached with no conformance record, which makes it
-		// IMPLEMENTING rather than AVAILABLE.
+		// Evidence comes from a file the conformance run produces and the
+		// deployment ships, not from a constant in the binary.
 		//
-		// That is the honest state of a running process: the conformance suite
-		// runs against a real server in CI, not at startup, so a process that
-		// has just booted has not itself verified anything. Promoting the
-		// entry here from a constant would be the connector equivalent of
-		// returning mTLSVerified: true -- a claim of verification made by the
-		// component that did not do it.
-		//
-		// LoadConformanceRecord is how a deployment supplies the evidence from
-		// its verification run.
-		if err := registry.Register(connectors.NewPostgresConnector(), loadConformanceRecord()); err != nil {
-			log.Printf("connector registry: %v", err)
+		// A process that has just booted has verified nothing itself, so
+		// promoting a connector from a compiled-in value would be a claim of
+		// verification made by the component that did not do the verifying --
+		// the same defect as returning mTLSVerified: true. With no evidence
+		// file the driver is registered anyway and stays IMPLEMENTING:
+		// visible, and not selectable.
+		evidence, err := connectors.LoadEvidence()
+		if err != nil {
+			// Logged and treated as absent. A deployment that meant to carry
+			// evidence and shipped something broken must find out, and the
+			// safe direction is the connector being unusable rather than
+			// wrongly trusted.
+			log.Printf("connector evidence: %v", err)
+			evidence = nil
+		}
+
+		for _, note := range connectors.ApplyEvidence(registry,
+			[]connectors.Connector{connectors.NewPostgresConnector()}, evidence) {
+			log.Printf("connectors: %s", note)
 		}
 	})
 	return registry
 }
-
-// loadConformanceRecord returns the evidence a deployment carries for its
-// drivers.
-//
-// It returns nil here. The record is produced by the conformance run in CI and
-// there is no mechanism yet for a deployment to carry it -- so every connector
-// is IMPLEMENTING at runtime and none is selectable. That is a smaller claim
-// than the platform can support and it is the true one; see
-// docs/engineering/CONNECTOR_PLATFORM.md for what closing it requires.
-func loadConformanceRecord() *connectors.ConformanceRecord { return nil }
 
 // registerConnectorRoutes mounts the catalog and descriptor endpoints.
 func registerConnectorRoutes(r chi.Router) {

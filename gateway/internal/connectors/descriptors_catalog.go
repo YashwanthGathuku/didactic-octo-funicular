@@ -22,7 +22,7 @@ const notImplementedReason = "no driver has been implemented; the field model an
 // PostgreSQL has schemas, BigQuery has datasets, Databricks has catalogs.
 func allowlistField(label, help string) Field {
 	return Field{
-		ID: "resource_allowlist", Label: label, Kind: KindList, Required: true,
+		ID: allowlistFieldID, Label: label, Kind: KindList, Required: true,
 		Help: help,
 	}
 }

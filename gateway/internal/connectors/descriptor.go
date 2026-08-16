@@ -140,6 +140,10 @@ type Descriptor struct {
 	Conformance *ConformanceRecord `json:"conformance,omitempty"`
 }
 
+// allowlistFieldID is the descriptor field whose value lives on
+// Config.ResourceAllowlist rather than in the field map.
+const allowlistFieldID = "resource_allowlist"
+
 // FieldByID finds a field.
 func (d Descriptor) FieldByID(id string) (Field, bool) {
 	for _, f := range d.Fields {
@@ -174,6 +178,13 @@ func (d Descriptor) Validate(cfg Config, sec Secrets, authMode string) error {
 
 	for _, f := range d.Fields {
 		if !f.appliesTo(authMode) {
+			continue
+		}
+
+		// The approved-resource list is carried on Config.ResourceAllowlist
+		// rather than in the field map, because it is a list and every
+		// consumer needs it as one. It is checked below, on the typed field.
+		if f.ID == allowlistFieldID {
 			continue
 		}
 

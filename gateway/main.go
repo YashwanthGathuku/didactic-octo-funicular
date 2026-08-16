@@ -482,8 +482,10 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			json.NewEncoder(w).Encode(expectations)
 		})
 
-		// The connector platform: catalog, descriptors, and URI parsing.
+		// The connector platform: catalog, descriptors, URI parsing, and the
+		// connection lifecycle.
 		registerConnectorRoutes(r)
+		registerConnectionRoutes(r, db, cfg)
 
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {

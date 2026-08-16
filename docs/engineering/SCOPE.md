@@ -79,10 +79,11 @@ Flow's own system of record and is unaffected by anything in this section.
 | Shared conformance suite | Implemented | Prompt 16.3. 21 black-box checks against a real disposable fixture; a skip counts as a failure. |
 | PostgreSQL driver | Implemented | Prompt 16.4. Passes all 21 checks against real PostgreSQL 16 in CI. |
 | MySQL, MariaDB, SQL Server, Oracle, Snowflake, Redshift, BigQuery, Databricks | **Planned** | No driver. Visible in the catalog, not selectable, and no connection can be attempted. |
-| Storing a connection | **Planned** | No table, no migration, no create route. Nothing is persistable yet, so the platform is not reachable in production use. |
-| Runtime conformance evidence | **Planned** | A running process reports every connector as IMPLEMENTING: the suite runs in CI, and the binary carries no record. Deliberate — a constant asserting verification is the defect this platform exists to prevent. |
+| Storing a connection | Implemented | Migration 010. Credentials go to the secret store; only the reference is in the connection tables, asserted by an exhaustive dump. |
+| Runtime conformance evidence | Implemented | The run publishes an artefact the deployment carries and the binary validates: a record that is incomplete, stale, or built against a different driver version leaves the connector unselectable. |
 | Approved query templates | **Planned** | The approval model exists; no templates ship and no route defines one. |
-| Per-connector rate and concurrency limits | **Planned** | Per-execution row, byte, time and cursor bounds exist; nothing bounds executions per minute. |
+| Per-connector rate and concurrency limits | **Planned** | Per-execution row, byte, time and cursor bounds are enforced. `maxPerMinute` is stored and not yet counted against. |
+| Connection lifecycle audit events | **Planned** | The secret store records events for the credential half; creating, testing and deleting a connection are not written to the evidence ledger. |
 | Arbitrary SQL from browser or AI | **Non-goal** | There is no entry point that accepts a statement. Not restricted — absent. |
 
 ### Evidence and audit

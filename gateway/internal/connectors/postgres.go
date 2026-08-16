@@ -50,6 +50,13 @@ func NewPostgresConnector() *PostgresConnector {
 // Type is the catalog identifier.
 func (p *PostgresConnector) Type() string { return "postgresql" }
 
+// Version names the library this adapter is built on.
+//
+// It is compared against the version recorded in a conformance record, so
+// evidence produced against a different driver build is rejected rather than
+// vouching for code it never exercised.
+func (p *PostgresConnector) Version() string { return PostgresDriverVersion }
+
 // Capabilities describes PostgreSQL as it actually behaves.
 func (p *PostgresConnector) Capabilities() Capabilities {
 	return Capabilities{
