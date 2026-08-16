@@ -178,11 +178,16 @@ is worse than no fixture.
 1. **`POST /files/ingest-raw` still reads the whole body into memory.** It now
    validates through this package and writes redacted findings, but it does not
    stream and writes no object. The safe path is `/files/upload` from Prompt 06.
-2. **Feed contracts are not resolved per counterparty.** `DefaultContract`
-   applies to every artifact, so `RequireBalanced` and the amount limit are
-   available and unused in the request path. Contract resolution is Prompt 10;
-   the decision records an empty `ContractID` so "no contract was applied" is
-   visible rather than inferred.
+2. **Feed contracts are resolved per counterparty; only one term reaches the
+   validator.** ~~`DefaultContract` applies to every artifact.~~ Closed by
+   Prompt 10: `contractForArtifact` resolves the contract version governing the
+   expectation an artifact satisfied, and `RequireBalanced` now comes from that
+   version's balanced mode. `MaxFileAmountMinor` and `AllowedSECCodes` are still
+   not contract-configurable — no column carries them — so they remain
+   available and unused. An artifact matching no expectation still validates
+   under the default, with an empty `ContractID` so "no contract was applied"
+   stays visible rather than inferred. See
+   `docs/engineering/FEED_CONTRACTS_AND_SCHEDULING.md`.
 3. **No duplicate file/reference detection inside the validator.** Duplicate
    *artifacts* are caught at ingest by content hash (Prompt 06). Detecting a
    re-sent file by its header's origin, creation date and ID modifier — the

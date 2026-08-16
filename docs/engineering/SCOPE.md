@@ -34,24 +34,39 @@ Status meanings are strict:
 
 | Capability | Status | Notes |
 |---|---|---|
-| Authenticated multipart upload | Partial | Works, but reads the whole file into memory (`processor.go` `ProcessFile`) and applies no size or quota bound. Streaming ingress is Prompt 06. |
+| Authenticated multipart upload | Implemented | Prompt 06. `/files/upload` streams to storage under a size and tenant quota bound. The legacy `/files/ingest-raw` still buffers; see NACHA_VALIDATION.md. |
 | SHA-256 content hashing | Implemented | Real digest over the received bytes. |
 | ABA routing Mod10 check digit | Implemented | `ValidateRoutingMod10`, covered by `TestMod10RoutingValidation`. |
 | NACHA record-length and structure checks | Partial | Record width, entry hash, and batch control arithmetic are checked. This is not the full Nacha rule set; see Prompt 07. |
 | **Fail-closed on empty / unparseable input** | Implemented | Prompt 01 fixed this. A zero-byte or unparseable file now quarantines. Covered by `quarantine_test.go`. |
 | Quarantine on validation findings | Implemented | Any finding at or above `ERROR` prevents release. |
-| Versioned release policy | Planned | Prompt 07. Today the release decision is a hardcoded severity rule, not a versioned policy document. |
+| Versioned release policy | Implemented | Prompt 07. `internal/nacha` `PolicyVersion`, recorded on every decision. |
 | ISO 20022 XML parsing | **Experimental** | Small XML projection only. No XSD, no market-practice validation, money handled as `float64`. Must not be production-claimed. |
 | BAI2 parsing | **Experimental** | Record and transaction-code logic is superficial. |
 | SWIFT MT103 / MT940 parsing | **Experimental** | Regex and tag checks, not message validation. |
-| Duplicate / idempotent delivery | Planned | Prompt 08. Redelivery currently creates a second file instance. |
-| Immutable object storage | Planned | Prompt 06. Files are not currently persisted to object storage; `storage_path` is a synthesised string. |
+| Duplicate / idempotent delivery | Implemented | Prompt 06 dedupes by content hash at ingest; Prompt 08 made job delivery and outbox dispatch idempotent. |
+| Immutable object storage | Implemented | Prompt 06. Filesystem and S3 adapters share one conformance suite; keys are server-assigned. |
+
+### Scheduling and expectations
+
+| Capability | Status | Notes |
+|---|---|---|
+| Materialized expectation occurrences | Implemented | Prompt 10. Written ahead of time, so a file that never arrives has a row that ages into OVERDUE and BREACHED. |
+| Versioned feed contracts | Implemented | Prompt 10. Editing terms creates a version; a historical occurrence resolves to the version active on its business date. |
+| Federal Reserve business calendar | Implemented | Prompt 10. Encoded as the published rules, including the Reserve Banks' Saturday rule, with mandatory-reason tenant overrides. No network fetch of the published calendar occurs. |
+| Explicit timezone and DST handling | Implemented | Prompt 10. The spring-forward gap and fall-back ambiguity are resolved deterministically and the resolution is persisted. |
+| Arrival matching with recorded ambiguity | Implemented | Prompt 10. An arrival that could satisfy more than one occurrence attributes nothing and records every candidate for review. |
+| Breach notification and escalation | **Planned** | An occurrence reaches BREACHED and the transition is recorded. No incident is opened and no notification is sent; `owner_subject` and `escalation_policy_id` are stored and never read. |
+| Review resolution for ambiguous arrivals | **Planned** | Candidates are written as REVIEW_REQUIRED and there is no path to accept or reject one. |
+| Contract and calendar management API | **Planned** | No authenticated route creates or amends a contract, version, calendar or override. Prompt 12. |
+| Outbound feed delivery | **Planned** | `direction` is stored and validated; nothing sends a file. An OUTBOUND contract materializes occurrences that only an arrival could satisfy. |
+| Predictive breach risk | **Non-goal** | Removed in Prompt 01 and not reintroduced. |
 
 ### Evidence and audit
 
 | Capability | Status | Notes |
 |---|---|---|
-| Application hash chain (append) | Partial | Real SHA-256 chaining, but append is not serialised — concurrent writers can fork the chain (`ledger.go` `AppendAuditEvent`). Prompt 09. |
+| Application hash chain (append) | Implemented | Prompt 09 made the read-compute-write one transaction, serialised per tenant. Still an application hash chain, not a Merkle tree. |
 | Tamper detection by recomputation | Implemented | `GetLedger` recomputes each row's hash; detects payload, actor, event-type and timestamp edits. Covered by `TestLedgerDetectsContentTampering` and `TestLedgerDetectsActorTampering`. |
 | Evidence export | Implemented | Exports the chain and its verification result. Carries no regulatory claim. |
 | External anchoring / signed checkpoints | Planned | Required before any tamper-evidence claim beyond "application hash chain". |

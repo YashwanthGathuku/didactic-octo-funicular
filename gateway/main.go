@@ -44,7 +44,26 @@ type SlaExpectationResponse struct {
 	GracePeriodMinutes int    `json:"gracePeriodMinutes"`
 	DeliveryStart      string `json:"deliveryStart"`
 	DeliveryEnd        string `json:"deliveryEnd"`
-	Status             string `json:"status"` // PENDING, ARRIVED, OVERDUE
+	Status             string `json:"status"` // PENDING, DUE, OVERDUE, BREACHED, ARRIVED, WAIVED
+
+	// The business date this occurrence is for, and the local reading of its
+	// deadline. The board previously showed only UTC instants, which a partner
+	// disputing a breach cannot check against their own agreement.
+	BusinessDate string `json:"businessDate,omitempty"`
+	FeedID       string `json:"feedId,omitempty"`
+	DueLocal     string `json:"dueLocal,omitempty"`
+	Timezone     string `json:"timezone,omitempty"`
+	BreachesAt   string `json:"breachesAt,omitempty"`
+
+	// ScheduleNote explains a deadline that is not simply the contracted time:
+	// a calendar adjustment, a schedule collision, or a daylight-saving
+	// transition. Empty when none applied.
+	ScheduleNote string `json:"scheduleNote,omitempty"`
+
+	// ReviewRequired means an arrival could not be attributed to exactly one
+	// occurrence and a human must decide. The occurrence is still ageing, so a
+	// row carrying this flag is not a satisfied one.
+	ReviewRequired bool `json:"reviewRequired,omitempty"`
 }
 
 type IncidentDetailResponse struct {
@@ -402,12 +421,24 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				serr.write(w)
 				return
 			}
+			// The scheduling terms come from the contract version the
+			// occurrence was materialized under, not from file_contracts. The
+			// contract row carries one mutable set of terms; the version is
+			// what governed this business date, so a board row and a
+			// historical report cannot disagree.
 			rows, err := db.Query(`
-				SELECT e.id, e.contract_id, p.name, p.routing_number, c.name, c.filename_pattern, 
-				       c.expected_time, c.grace_period_minutes, e.expected_delivery_start, e.expected_delivery_end, e.status
+				SELECT e.id, e.contract_id, p.name, p.routing_number, c.name,
+				       COALESCE(v.filename_pattern, c.filename_pattern),
+				       COALESCE(v.expected_local, c.expected_time),
+				       COALESCE(v.grace_minutes, c.grace_period_minutes),
+				       e.expected_delivery_start, e.expected_delivery_end, e.status,
+				       e.business_date, e.due_local, e.timezone, e.breach_at,
+				       e.schedule_note, e.review_required, COALESCE(v.feed_id, '')
 				FROM expectations e
-				JOIN file_contracts c ON e.contract_id = c.id
-				JOIN partners p ON c.partner_id = p.id
+				JOIN file_contracts c ON e.contract_id = c.id AND c.tenant_id = e.tenant_id
+				JOIN partners p ON c.partner_id = p.id AND p.tenant_id = e.tenant_id
+				LEFT JOIN file_contract_versions v
+				       ON v.id = e.contract_version_id AND v.tenant_id = e.tenant_id
 				WHERE e.tenant_id = ?
 				ORDER BY e.expected_delivery_end ASC
 			`, scope.TenantID())
@@ -419,11 +450,31 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 
 			expectations := make([]SlaExpectationResponse, 0)
 			for rows.Next() {
-				var exp SlaExpectationResponse
+				var (
+					exp      SlaExpectationResponse
+					business sql.NullTime
+					breach   sql.NullTime
+					review   int
+				)
 				if err := rows.Scan(&exp.ID, &exp.ContractID, &exp.PartnerName, &exp.PartnerRouting, &exp.ContractName,
-					&exp.FilenamePattern, &exp.ExpectedTime, &exp.GracePeriodMinutes, &exp.DeliveryStart, &exp.DeliveryEnd, &exp.Status); err != nil {
+					&exp.FilenamePattern, &exp.ExpectedTime, &exp.GracePeriodMinutes,
+					&exp.DeliveryStart, &exp.DeliveryEnd, &exp.Status,
+					&business, &exp.DueLocal, &exp.Timezone, &breach,
+					&exp.ScheduleNote, &review, &exp.FeedID); err != nil {
+					// A row that cannot be read is logged rather than dropped
+					// in silence: a board that quietly omits an overdue feed is
+					// worse than one that errors.
+					log.Printf("sla-board: skipping an unreadable expectation for tenant %s: %v",
+						scope.TenantID(), err)
 					continue
 				}
+				if business.Valid {
+					exp.BusinessDate = business.Time.UTC().Format("2006-01-02")
+				}
+				if breach.Valid {
+					exp.BreachesAt = breach.Time.UTC().Format(time.RFC3339)
+				}
+				exp.ReviewRequired = review != 0
 				expectations = append(expectations, exp)
 			}
 

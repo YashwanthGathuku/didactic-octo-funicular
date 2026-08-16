@@ -260,6 +260,20 @@ jobs:
             echo "FAIL: the PostgreSQL append path did not run"; echo "$out"; exit 1; }
           echo "OK: per-tenant append serialisation verified against a real PostgreSQL server"
 
+      # Materialization idempotency rests on a conflict-do-nothing upsert and
+      # occurrence windows round-trip through DATE and TIMESTAMPTZ, none of
+      # which behave the same as SQLite's text columns. Both halves must run.
+      - name: Scheduling core against PostgreSQL
+        working-directory: ./gateway
+        env:
+          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
+        run: |
+          go test -race ./internal/schedule/
+          out=$(go test -v -run TestTwoConcurrentSchedulers ./internal/schedule/ 2>&1)
+          echo "$out" | grep -q "PASS: TestTwoConcurrentSchedulersProduceOneOccurrence/postgres" || {
+            echo "FAIL: the PostgreSQL materialization path did not run"; echo "$out"; exit 1; }
+          echo "OK: idempotent materialization verified against a real PostgreSQL server"
+
       # A skip here would mean the security property went unverified, so assert
       # the tests actually ran.
       - name: Assert the RLS tests were not skipped

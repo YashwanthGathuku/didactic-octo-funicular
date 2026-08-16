@@ -91,7 +91,18 @@ func (h *validateArtifactHandler) Handle(ctx context.Context, tx *sql.Tx, job *j
 	if err != nil {
 		return fmt.Errorf("read artifact %d during validation: %w", artifactID, err)
 	}
-	decision := nacha.Decide(result, nacha.DefaultContract)
+
+	// The terms come from the contract version in force on the business date of
+	// the expectation this artifact satisfied. Prompt 07 applied one permissive
+	// default to every tenant and partner, which meant either failing the
+	// counterparties authorised to send unbalanced files or passing the ones
+	// that are not. An artifact matching no expectation still validates, under
+	// the default, and the decision records that no contract was applied.
+	contract, err := contractForArtifact(ctx, tx, job.TenantID, artifactID)
+	if err != nil {
+		return fmt.Errorf("resolve the contract governing artifact %d: %w", artifactID, err)
+	}
+	decision := nacha.Decide(result, contract)
 
 	status := "VALIDATED"
 	if decision.Quarantined() {
@@ -206,8 +217,18 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 	if cfg.ObjectStore == nil {
 		// Without artifact storage there is nothing to validate. Refusing to
 		// start the pool is better than running one whose every job fails.
+		//
+		// The scheduler still runs. Detecting a file that never arrived needs
+		// no object store -- the whole point is that no object exists -- and a
+		// deployment that cannot accept files is exactly the one where a
+		// partner's delivery is most likely to go missing.
 		log.Println("Job workers not started: artifact storage is not configured, so there is nothing to validate.")
-		return func() {}, nil
+		schedCtx, cancel := context.WithCancel(ctx)
+		if err := startScheduler(schedCtx, db); err != nil {
+			cancel()
+			return nil, err
+		}
+		return cancel, nil
 	}
 
 	pool.Register(KindValidateArtifact, &validateArtifactHandler{store: cfg.ObjectStore, queue: queue})
@@ -226,6 +247,15 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 	pool.Start(runCtx)
 	go dispatcher.Run(runCtx)
 	go evidence.RunVerifier(runCtx, ledgerVerifyInterval)
+
+	// The scheduler materializes future expectations and ages them. It runs in
+	// the same process as the workers because both are background work with the
+	// same lifecycle, and because a missing-file alert is worthless if the
+	// component that produces it can be deployed separately and forgotten.
+	if err := startScheduler(runCtx, db); err != nil {
+		cancel()
+		return nil, err
+	}
 
 	log.Printf("Job workers started: %d workers, %d concurrent per tenant, %s leases",
 		poolCfg.Workers, poolCfg.MaxPerTenant, 60*time.Second)

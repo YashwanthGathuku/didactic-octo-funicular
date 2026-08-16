@@ -21,6 +21,7 @@ import (
 
 	"sentinel-gateway/internal/auth"
 	"sentinel-gateway/internal/objectstore"
+	"sentinel-gateway/internal/schedule"
 )
 
 // Safe ingress: an authenticated upload that streams to immutable storage.
@@ -89,10 +90,30 @@ type AcceptedResponse struct {
 	Duplicate bool `json:"duplicate,omitempty"`
 
 	IdempotencyKey string `json:"idempotencyKey"`
+
+	// ExpectationMatch reports whether this arrival satisfied something that
+	// was expected: ATTRIBUTED, AMBIGUOUS, DUPLICATE or UNEXPECTED.
+	//
+	// It is returned because it changes what the uploader should expect. An
+	// AMBIGUOUS or DUPLICATE arrival clears nobody's missing-file alert until a
+	// human resolves it, and a client that assumed otherwise would report a
+	// delivery that the gateway does not consider made.
+	ExpectationMatch  string `json:"expectationMatch,omitempty"`
+	ExpectationID     int64  `json:"expectationId,omitempty"`
+	ExpectationDetail string `json:"expectationDetail,omitempty"`
 }
 
 // ingestUpload is the handler for POST /api/v1/files/upload.
 func ingestUpload(db *sql.DB, store objectstore.ObjectStore) http.HandlerFunc {
+	// Built once per handler rather than per request. A failure here means the
+	// driver name is wrong, which is a programming error, not a runtime
+	// condition -- so it is logged and matching is disabled rather than
+	// failing every upload.
+	scheduler, serr := schedulerFor(db)
+	if serr != nil {
+		log.Printf("ingest: expectation matching disabled: %v", serr)
+		scheduler = nil
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		scope, serr := resolveScope(r, auth.PermUploadArtifact)
 		if serr != nil {
@@ -165,6 +186,7 @@ func ingestUpload(db *sql.DB, store objectstore.ObjectStore) http.HandlerFunc {
 			Fingerprint:    fingerprint,
 			IdempotencyKey: idempotencyKey,
 			ClientSupplied: clientSupplied,
+			Scheduler:      scheduler,
 		})
 		if conflict != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -295,6 +317,11 @@ type ingestRecord struct {
 	Fingerprint    string
 	IdempotencyKey string
 	ClientSupplied bool
+
+	// Scheduler attributes the arrival to an expectation inside the same
+	// transaction. Nil disables matching, which is what a deployment with no
+	// contracts configured amounts to.
+	Scheduler *schedule.Store
 }
 
 // recordIngest persists the artifact and enqueues validation in one
@@ -418,6 +445,15 @@ func recordIngest(ctx context.Context, db *sql.DB, rec ingestRecord) (*AcceptedR
 		return nil, nil, err
 	}
 
+	// Attribute the arrival to whatever was expecting it, in this same
+	// transaction. Doing it afterwards would allow a crash in between, leaving
+	// a file that arrived and an expectation saying it did not -- which reads,
+	// from every report, as a missing file.
+	match := schedule.MatchResult{Outcome: schedule.MatchUnexpected}
+	if rec.Scheduler != nil {
+		match = matchArrivalToExpectation(ctx, tx, rec.Scheduler, rec.TenantID, artifactID, rec.Filename)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, nil, err
 	}
@@ -427,6 +463,12 @@ func recordIngest(ctx context.Context, db *sql.DB, rec ingestRecord) (*AcceptedR
 		SHA256: rec.Put.SHA256, SizeBytes: rec.Put.SizeBytes, MediaType: rec.Put.MediaType,
 		Filename: rec.Filename, FilenameNormalized: rec.Normalized,
 		IdempotencyKey: rec.IdempotencyKey,
+		// Reported to the uploader because it changes what they should expect:
+		// an AMBIGUOUS or DUPLICATE arrival is not going to clear anyone's
+		// missing-file alert until a human resolves it.
+		ExpectationMatch:  string(match.Outcome),
+		ExpectationID:     match.Occurrence,
+		ExpectationDetail: match.Reason,
 	}, nil, nil
 }
 
