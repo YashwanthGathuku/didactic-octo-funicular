@@ -13,6 +13,7 @@ import (
 	"sentinel-gateway/internal/nacha"
 	"sentinel-gateway/internal/objectstore"
 	"sentinel-gateway/internal/review"
+	"sentinel-gateway/internal/telemetry"
 )
 
 // The validation worker.
@@ -55,6 +56,11 @@ type validateArtifactHandler struct {
 // The object read happens before the transaction's writes and is the only I/O
 // outside the database; there is no external network call inside it.
 func (h *validateArtifactHandler) Handle(ctx context.Context, tx *sql.Tx, job *jobs.Job) error {
+	start := time.Now()
+	defer func() {
+		metricJobProcessingDuration.Observe(time.Since(start).Seconds(), telemetry.Label{Key: "kind", Value: KindValidateArtifact})
+	}()
+
 	if !job.ArtifactID.Valid {
 		// A job with no artifact cannot be retried into correctness. Returning
 		// an error lets it exhaust its budget and reach DEAD, which is right:
@@ -82,7 +88,9 @@ func (h *validateArtifactHandler) Handle(ctx context.Context, tx *sql.Tx, job *j
 		return fmt.Errorf("artifact %d has no stored object", artifactID)
 	}
 
+	getStart := time.Now()
 	body, err := h.store.Get(ctx, objectKey.String)
+	RecordDependencyOperation("object_store", "get", time.Since(getStart).Seconds(), err)
 	if err != nil {
 		// A storage failure is transient in a way a malformed file is not, so
 		// this retries rather than quarantining. Quarantining an artifact
@@ -172,6 +180,10 @@ func (h *validateArtifactHandler) Handle(ctx context.Context, tx *sql.Tx, job *j
 			return fmt.Errorf("propose a release decision for artifact %d: %w", artifactID, err)
 		}
 	}
+
+	var sizeBytes int64
+	_ = tx.QueryRowContext(ctx, `SELECT size_bytes FROM file_instances WHERE tenant_id = ? AND id = ?`, job.TenantID, artifactID).Scan(&sizeBytes)
+	RecordPipelineCompletion(status, sizeBytes, result.RecordsParsed, time.Since(start).Seconds())
 
 	// The event goes to the outbox in this same transaction. Publishing it
 	// after the commit would lose it on exactly the crash it needs to survive.
@@ -282,6 +294,21 @@ func startWorkers(ctx context.Context, db *sql.DB, cfg *Config) (stop func(), er
 	pool.Start(runCtx)
 	go dispatcher.Run(runCtx)
 	go evidence.RunVerifier(runCtx, ledgerVerifyInterval)
+
+	// Periodically refresh worker saturation and database job state metrics.
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				metricWorkerSaturation.Set(pool.SaturationRatio(), telemetry.Label{Key: "pool", Value: "default"})
+				RefreshDatabaseJobGauges(db)
+			}
+		}
+	}()
 
 	// The scheduler materializes future expectations and ages them. It runs in
 	// the same process as the workers because both are background work with the

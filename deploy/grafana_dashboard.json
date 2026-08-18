@@ -18,9 +18,9 @@
     },
     {
       "id": 1,
-      "title": "Streaming Parse Velocity (Records / Second)",
+      "title": "Streaming Parse Velocity (Records / Sec)",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
       "targets": [
         {
           "expr": "sentinel_streaming_parse_rate_records_per_sec",
@@ -35,7 +35,7 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "dark-green", "value": 200000 }
+              { "color": "dark-green", "value": 100000 }
             ]
           },
           "unit": "short"
@@ -44,13 +44,42 @@
     },
     {
       "id": 2,
-      "title": "Total Files Ingested",
-      "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "title": "Worker Pool Saturation",
+      "type": "gauge",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
       "targets": [
         {
-          "expr": "sum(sentinel_files_ingested_total{status=\"ALL\"})",
-          "legendFormat": "Files Processed",
+          "expr": "sentinel_worker_saturation_ratio",
+          "legendFormat": "Saturation Ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Active Ingestion Jobs by State",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum by (state) (sentinel_jobs_state_count)",
+          "legendFormat": "{{state}}",
           "refId": "A"
         }
       ],
@@ -62,39 +91,13 @@
       }
     },
     {
-      "id": 3,
-      "title": "Quarantined Files (Dead-Letter Isolation)",
-      "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
-      "targets": [
-        {
-          "expr": "sentinel_files_ingested_total{status=\"QUARANTINED\"}",
-          "legendFormat": "Quarantined",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": 0 },
-              { "color": "red", "value": 1 }
-            ]
-          },
-          "unit": "short"
-        }
-      }
-    },
-    {
       "id": 4,
-      "title": "Merkle Hash Chain Height",
+      "title": "Audit Chain Height",
       "type": "stat",
-      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
       "targets": [
         {
-          "expr": "sentinel_merkle_chain_height",
+          "expr": "sentinel_audit_chain_height",
           "legendFormat": "Chain Height",
           "refId": "A"
         }
@@ -108,19 +111,14 @@
     },
     {
       "id": 5,
-      "title": "Ingestion & Quarantine Volume Over Time",
+      "title": "Pipeline File Throughput by Outcome",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 7 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
       "targets": [
         {
-          "expr": "rate(sentinel_files_ingested_total{status=\"VALID\"}[1m])",
-          "legendFormat": "Valid Files / sec",
+          "expr": "rate(sentinel_pipeline_files_total[1m])",
+          "legendFormat": "{{status}}",
           "refId": "A"
-        },
-        {
-          "expr": "rate(sentinel_files_ingested_total{status=\"QUARANTINED\"}[1m])",
-          "legendFormat": "Quarantined / sec",
-          "refId": "B"
         }
       ],
       "fieldConfig": {
@@ -135,9 +133,81 @@
     },
     {
       "id": 6,
+      "title": "Decision & Ingestion Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(sentinel_decision_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50 decision",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(sentinel_decision_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 decision",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(sentinel_decision_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99 decision",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Active SSE Subscribers & Replay Streams",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "sentinel_sse_subscribers_active",
+          "legendFormat": "Live Subscribers",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(sentinel_sse_replays_total[5m])",
+          "legendFormat": "Replays / sec",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "External Dependency Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 14 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(sentinel_dependency_request_duration_seconds_bucket[5m])) by (le, dependency))",
+          "legendFormat": "{{dependency}} p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 9,
       "title": "Active Operational Incidents",
       "type": "gauge",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 7 },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 14 },
       "targets": [
         {
           "expr": "sentinel_active_incidents",
@@ -163,7 +233,7 @@
   ],
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["sentinel-flow", "fintech", "payments", "reliability"],
+  "tags": ["sentinel-flow", "fintech", "payments", "reliability", "observability"],
   "time": {
     "from": "now-1h",
     "to": "now"
@@ -172,6 +242,6 @@
     "refresh_intervals": ["5s", "10s", "30s", "1m"]
   },
   "timezone": "browser",
-  "title": "Sentinel Flow - Executive Reliability Dashboard",
+  "title": "Sentinel Flow - Operational Reliability & SLO Dashboard",
   "uid": "sentinel-flow-reliability"
 }

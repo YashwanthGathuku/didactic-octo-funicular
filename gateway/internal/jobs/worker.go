@@ -98,6 +98,7 @@ type Pool struct {
 	succeeded atomic.Int64
 	failed    atomic.Int64
 	lost      atomic.Int64
+	active    atomic.Int64
 }
 
 // NewPool builds a worker pool.
@@ -251,8 +252,29 @@ func (p *Pool) claimRespectingQuotas(ctx context.Context, workerID string) (*Job
 	return p.queue.Claim(ctx, workerID, saturated, p.cfg.MaxPerTenant)
 }
 
+// ActiveWorkers returns the number of currently executing workers.
+func (p *Pool) ActiveWorkers() int64 {
+	return p.active.Load()
+}
+
+// Capacity returns the configured max worker count.
+func (p *Pool) Capacity() int {
+	return p.cfg.Workers
+}
+
+// SaturationRatio returns active workers divided by capacity (0.0 - 1.0).
+func (p *Pool) SaturationRatio() float64 {
+	if p.cfg.Workers == 0 {
+		return 0.0
+	}
+	return float64(p.active.Load()) / float64(p.cfg.Workers)
+}
+
 // execute runs one attempt with a heartbeat and a timeout.
 func (p *Pool) execute(ctx context.Context, workerID string, job *Job) {
+	p.active.Add(1)
+	defer p.active.Add(-1)
+
 	handler, ok := p.handlers[job.Kind]
 	if !ok {
 		// An unregistered kind is a deployment error, not a transient one.

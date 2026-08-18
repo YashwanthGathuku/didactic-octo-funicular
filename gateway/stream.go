@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"sentinel-gateway/internal/auth"
+	"sentinel-gateway/internal/telemetry"
 )
 
 // Server-Sent Events, read from the transactional outbox.
@@ -79,11 +81,11 @@ func RegisterStreamRoutes(r chi.Router, db *sql.DB) {
 	r.Get("/stream", streamEvents(db))
 }
 
+var activeSSESubscribers atomic.Int64
+
 func streamEvents(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Authorized like every other read. The previous endpoint sat inside
-		// the authenticated router and then scoped nothing, so authentication
-		// gated the connection and authorization gated none of its content.
+		// Authorized like every other read.
 		scope, serr := resolveScope(r, auth.PermReadTenant)
 		if serr != nil {
 			serr.write(w)
@@ -103,12 +105,20 @@ func streamEvents(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		active := activeSSESubscribers.Add(1)
+		metricSSESubscribersActive.Set(float64(active))
+		defer func() {
+			rem := activeSSESubscribers.Add(-1)
+			metricSSESubscribersActive.Set(float64(rem))
+		}()
+
 		// Establish the starting point before any header is written, so a
 		// failure here is still an HTTP error rather than an error delivered
 		// inside a 200 stream.
 		head, err := streamHead(r.Context(), db, scope.TenantID())
 		if err != nil {
 			log.Printf("stream: head read failed for tenant %s: %v", scope.TenantID(), err)
+			metricSSEDroppedConnections.Inc()
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "stream_unavailable"})
 			return
 		}
@@ -124,6 +134,11 @@ func streamEvents(db *sql.DB) http.HandlerFunc {
 			if err == nil && oldest > 0 && cursor < oldest-1 {
 				gap = true
 			}
+			replayStatus := "normal"
+			if gap {
+				replayStatus = "gap"
+			}
+			metricSSEReplays.Inc(telemetry.Label{Key: "status", Value: replayStatus})
 		} else {
 			// No cursor: start at the head rather than replaying history. A
 			// first connection wants what happens next; a reconnecting one

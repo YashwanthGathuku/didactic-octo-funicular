@@ -146,13 +146,16 @@ func ingestUpload(db *sql.DB, store objectstore.ObjectStore) http.HandlerFunc {
 			return
 		}
 
-		key, err := objectstore.NewKey(tenantID, time.Now())
+		uploadStart := time.Now()
+		key, err := objectstore.NewKey(tenantID, uploadStart)
 		if err != nil {
 			writeIngestError(w, http.StatusInternalServerError, "internal_error", "could not allocate an object key")
 			return
 		}
 
+		putStart := time.Now()
 		put, err := store.Put(r.Context(), key, part, MaxArtifactBytes)
+		RecordDependencyOperation("object_store", "put", time.Since(putStart).Seconds(), err)
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -206,6 +209,9 @@ func ingestUpload(db *sql.DB, store objectstore.ObjectStore) http.HandlerFunc {
 			writeIngestError(w, http.StatusInternalServerError, "internal_error", "could not record the artifact")
 			return
 		}
+
+		metricArrivalToJobVisible.Observe(time.Since(uploadStart).Seconds())
+		GlobalMetrics.RecordFileIngested("RECEIVED", int(put.SizeBytes))
 
 		w.Header().Set("Content-Type", "application/json")
 		// 202: the artifact is stored and validation is queued. It has not run.

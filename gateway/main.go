@@ -25,6 +25,7 @@ import (
 	"sentinel-gateway/internal/egress"
 	"sentinel-gateway/internal/objectstore"
 	"sentinel-gateway/internal/secrets"
+	"sentinel-gateway/internal/telemetry"
 )
 
 // SlaExpectationResponse carries deterministic deadline state only.
@@ -277,6 +278,36 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	// Opaque correlation ID and distributed tracing middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cid := telemetry.ExtractCorrelationID(r)
+			w.Header().Set(telemetry.CorrelationIDHeader, cid)
+			ctx := telemetry.WithCorrelationID(r.Context(), cid)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
+
+	// Low-cardinality HTTP metrics middleware
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/metrics" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			start := time.Now()
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			next.ServeHTTP(ww, r)
+
+			rctx := chi.RouteContext(r.Context())
+			pattern := r.URL.Path
+			if rctx != nil && rctx.RoutePattern() != "" {
+				pattern = rctx.RoutePattern()
+			}
+			RecordHTTPRequest(r.Method, pattern, ww.Status(), time.Since(start).Seconds())
+		})
+	})
+
 	// Add CORS middleware
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -359,6 +390,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				return
 			}
 		}
+		RefreshDatabaseJobGauges(db)
 		ServePrometheusMetrics(w, r)
 	})
 

@@ -2,8 +2,12 @@ package main
 
 import (
 	"database/sql"
-	_ "modernc.org/sqlite"
+	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
+
+	"sentinel-gateway/internal/nacha"
 )
 
 func TestMod10RoutingValidation(t *testing.T) {
@@ -58,9 +62,6 @@ func TestNachaCorruptedEntryHashDetection(t *testing.T) {
 		t.Errorf("Expected status QUARANTINED for corrupted entry hash, got %s", result.Status)
 	}
 
-	// The rule id changed with the rule registry introduced in Prompt 07. The
-	// old ACH_ERR_0802_HASH_MISMATCH carried no version and no provenance, so a
-	// finding recorded under it could not say which formulation produced it.
 	foundHashMismatch := false
 	for _, f := range result.Findings {
 		if f.Code == "NACHA.MATH.BATCH_ENTRY_HASH" {
@@ -109,8 +110,6 @@ func TestHashChainTamperDetection(t *testing.T) {
 	}
 
 	// Deliberately tamper with historical event #2's current_hash
-	// Drop the append-only guard first: this test models an attacker with direct
-	// database access, which is the only actor who could mutate these rows.
 	_, _ = db.Exec(`DROP TRIGGER IF EXISTS audit_events_no_update`)
 	_, err = db.Exec("UPDATE audit_events SET current_hash = 'TAMPERED_FAKE_HASH_0000000000000000000000000000000000000000' WHERE id = 2")
 	if err != nil {
@@ -124,6 +123,67 @@ func TestHashChainTamperDetection(t *testing.T) {
 
 	if tamperedLedger.IsChainValid {
 		t.Errorf("Expected tampered ledger to fail verification, but got IsChainValid = true")
+	}
+}
+
+func TestBenchmarkHarnessPresetsAndPercentiles(t *testing.T) {
+	// Run small preset harness (100 records, 2 workers, 3 iterations)
+	res := RunHarness("small", 100, 2, 3)
+
+	if res.RecordCount != 100 {
+		t.Errorf("expected 100 records, got %d", res.RecordCount)
+	}
+	if res.Concurrency != 2 {
+		t.Errorf("expected concurrency 2, got %d", res.Concurrency)
+	}
+	if res.Iterations != 3 {
+		t.Errorf("expected 3 iterations, got %d", res.Iterations)
+	}
+	if res.TotalRecords != int64((100+4)*2*3) {
+		t.Errorf("expected %d total records, got %d", (100+4)*2*3, res.TotalRecords)
+	}
+	if res.P50LatencyMs < 0 || res.P95LatencyMs < 0 || res.P99LatencyMs < 0 {
+		t.Errorf("expected non-negative latency percentiles, got p50=%g, p95=%g, p99=%g",
+			res.P50LatencyMs, res.P95LatencyMs, res.P99LatencyMs)
+	}
+	if res.P95LatencyMs < res.P50LatencyMs {
+		t.Errorf("expected p95 (%g) >= p50 (%g)", res.P95LatencyMs, res.P50LatencyMs)
+	}
+	if res.P99LatencyMs < res.P95LatencyMs {
+		t.Errorf("expected p99 (%g) >= p95 (%g)", res.P99LatencyMs, res.P95LatencyMs)
+	}
+	if res.RecordsPerSec <= 0 {
+		t.Errorf("expected positive records per second, got %g", res.RecordsPerSec)
+	}
+	if res.ValidCount != 6 { // 2 workers * 3 iterations
+		t.Errorf("expected 6 valid results, got %d", res.ValidCount)
+	}
+	if res.Errors > 0 {
+		t.Errorf("expected 0 errors, got %d", res.Errors)
+	}
+}
+
+func TestBenchmarkHarnessRejectsStructurallyInvalidFiles(t *testing.T) {
+	// Corrupting corpus by removing 94-char padding or altering control math
+	validCorpus := GenerateLargeNachaCorpus(50)
+	lines := strings.Split(string(validCorpus), "\n")
+
+	// 1. Truncate a record (e.g. shorten entry record 2)
+	lines[2] = lines[2][:50]
+	corrupted := strings.Join(lines, "\n")
+
+	metrics := RunStreamingBenchmark(10)
+	if metrics.RecordsPerSecond <= 0 {
+		t.Errorf("expected positive records per second for valid benchmark run")
+	}
+
+	// Parsing corrupted byte slice with nacha validator directly
+	res, _ := nacha.Validate(strings.NewReader(corrupted))
+	if res != nil {
+		decision := nacha.Decide(res, nacha.DefaultContract)
+		if !decision.Quarantined() {
+			t.Errorf("expected corrupted NACHA corpus to fail validation and be quarantined")
+		}
 	}
 }
 
