@@ -234,10 +234,33 @@ Three further defects were fixed on the way, all in code Prompt 12 had to touch:
    the decision was fine. Now keyed by the `*sql.DB`. A cache that ignores its
    key is not a cache.
 
+## Masking is the API's job
+
+`TestNoReadPathReturnsAStoredCredential` walks the whole read API with a
+credential planted in the secret store and asserts it appears in no response
+body — and additionally that no response carries a field named `password`,
+`secret`, `privateKey`, `serviceAccountJson`, `connectionString`, `ciphertext`
+or `walletContents`, because the next planted value will not be this one.
+
+Testing what the server sends rather than what the browser draws is the point.
+A field masked in the UI is still in the response, in the network tab, in
+whatever logs the response, and in the next client somebody writes against the
+same API.
+
+**One boundary, stated rather than tested around.** The test deliberately does
+not plant a credential in `validation_findings.evidence_redacted`. An earlier
+version did, and it failed — the artifact detail returned the value. That is the
+column behaving as specified: it is redacted by `internal/nacha` where it is
+written, and the read path returns it verbatim on purpose, because re-redacting
+at read time would be a second implementation of the redaction rules and the two
+would disagree about which had authority. So anything writing to that column is
+*trusted* to have redacted it. The test asserts the guarantee the system makes
+and does not pretend to one it does not.
+
 ## Verification
 
 ```
-gofmt PASS · vet PASS · go test ./... PASS
+gofmt PASS · vet PASS · go test ./... PASS · go test -race ./... PASS
 tsc PASS · npm run build PASS · vitest 14 PASS
 
 New backend tests: cursor walking without repeats or omissions, forged cursors

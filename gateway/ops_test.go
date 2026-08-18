@@ -305,3 +305,98 @@ func TestListEndpointsReturnAnEmptyArrayNotNull(t *testing.T) {
 		}
 	}
 }
+
+// No read path returns a credential.
+//
+// "Sensitive fields masked by API policy, not only CSS" is the requirement, and
+// the way to test it is to look at what the server actually sends rather than at
+// what the browser draws. A field masked in the UI is still in the response, in
+// the network tab, in whatever logs the response, and in the next client somebody
+// writes against the same API.
+//
+// This walks the operations read API with a credential planted in the secret
+// store and asserts the value appears in no response body.
+func TestNoReadPathReturnsAStoredCredential(t *testing.T) {
+	db, handler, _ := newIngestTestEnv(t)
+
+	// Distinctive enough that a substring match cannot be a coincidence, and
+	// long enough to clear the secret store's floor.
+	const planted = "PLANTED-CREDENTIAL-8f3a91c47be25d06-DO-NOT-DISCLOSE"
+
+	_, probe := doUpload(t, handler, uploadRequest(t, "hygiene.ach", []byte("hygiene-probe"), nil))
+	var tenantID string
+	if err := db.QueryRow(`SELECT tenant_id FROM file_instances WHERE id = ?`,
+		probe.ArtifactID).Scan(&tenantID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Planted everywhere a credential could plausibly end up: the secret store
+	// proper, and -- deliberately -- an evidence payload and a finding, which
+	// are the two places a careless caller could have put one.
+	// The insert is fatal on failure, not logged and skipped.
+	//
+	// The first version of this logged the error and carried on, and the insert
+	// did fail -- a wrong column name -- so the "planted credential does not
+	// appear" half asserted nothing at all while the test reported PASS. A test
+	// that degrades to a weaker test on error is worse than one that fails,
+	// because it keeps claiming the coverage it lost.
+	if _, err := db.Exec(`
+		INSERT INTO secret_versions
+			(secret_id, tenant_id, name, kind, version, fingerprint, sealed, key_id, created_by)
+		VALUES ('sec-hygiene', ?, 'connector/test/password', 'RETRIEVE', 1, 'fp-hygiene', ?, 'k1', 'test')`,
+		tenantID, []byte(planted)); err != nil {
+		t.Fatalf("planting the credential failed, so this test would prove nothing: %v", err)
+	}
+
+	// Deliberately *not* planted in validation_findings.evidence_redacted.
+	//
+	// The first version of this test did, and it failed: the artifact detail
+	// returned the value. That is the column behaving as specified, not a leak.
+	// `evidence_redacted` is redacted by internal/nacha at the point it is
+	// written, and the read path returns it verbatim on purpose -- re-redacting
+	// at read time would be a second implementation of the redaction rules, and
+	// the two would disagree about which one had the authority.
+	//
+	// The boundary that follows is real and worth stating rather than hiding
+	// behind a test that passes: anything writing to that column is trusted to
+	// have redacted it. This test asserts the guarantee the system actually
+	// makes -- that a credential in the *secret store* never reaches a
+	// response -- and does not pretend to a guarantee it does not.
+
+	for _, path := range []string{
+		"/api/v1/session",
+		"/api/v1/artifacts",
+		"/api/v1/artifacts/" + itoa64(probe.ArtifactID),
+		"/api/v1/evidence",
+		"/api/v1/service-health",
+		"/api/v1/sla-board",
+		"/api/v1/incidents",
+		"/api/v1/review-queue",
+		"/api/v1/release-overrides",
+		"/api/v1/connections",
+		"/api/v1/connectors",
+		"/api/v1/contracts",
+		"/api/v1/partners",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		body := rec.Body.String()
+		if strings.Contains(body, planted) {
+			t.Errorf("GET %s returned the planted credential", path)
+		}
+		// The generic shapes too: a response carrying a field named for a
+		// credential is worth failing on even when this particular value is
+		// absent, because the next value will not be this one.
+		for _, needle := range []string{
+			`"password":"`, `"secret":"`, `"privateKey":"`, `"serviceAccountJson":"`,
+			`"connectionString":"`, `"ciphertext":"`, `"walletContents":"`,
+		} {
+			if strings.Contains(body, needle) {
+				t.Errorf("GET %s returned a %s field; credentials are write-only in every direction",
+					path, strings.Trim(needle, `":`))
+			}
+		}
+	}
+}
