@@ -101,13 +101,38 @@ type ActionProposal struct {
 	Description string `json:"description"`
 }
 
+type Hypothesis struct {
+	Rank              int      `json:"rank"`
+	Hypothesis        string   `json:"hypothesis"`
+	Confidence        string   `json:"confidence"`
+	Rationale         string   `json:"rationale"`
+	EvidenceCitations []string `json:"evidence_citations"`
+}
+
+type AuditMetadata struct {
+	Model            string         `json:"model"`
+	Provider         string         `json:"provider"`
+	PromptVersion    string         `json:"prompt_version"`
+	SchemaVersion    string         `json:"schema_version"`
+	LatencyMs        float64        `json:"latency_ms"`
+	TokenUsage       map[string]int `json:"token_usage"`
+	EstimatedCostUSD float64        `json:"estimated_cost_usd"`
+}
+
 type AnalystResponse struct {
-	Summary         string                 `json:"summary"`
-	Citations       []string               `json:"citations"`
-	ProposedActions []ActionProposal       `json:"proposed_actions"`
-	Confidence      float64                `json:"confidence"`
-	AgentVersion    string                 `json:"agent_version"`
-	Metrics         map[string]interface{} `json:"metrics"`
+	IncidentID         int64            `json:"incident_id"`
+	TenantID           string           `json:"tenant_id"`
+	FileID             int64            `json:"file_id"`
+	Summary            string           `json:"summary"`
+	Hypotheses         []Hypothesis     `json:"hypotheses"`
+	MissingEvidence    []string         `json:"missing_evidence"`
+	RunbookPassageIDs  []string         `json:"runbook_passage_ids"`
+	RecommendedActions []string         `json:"recommended_actions"`
+	Statement          string           `json:"statement"`
+	Audit              AuditMetadata    `json:"audit"`
+	Citations          []string         `json:"citations,omitempty"`
+	ProposedActions    []ActionProposal `json:"proposed_actions,omitempty"`
+	Confidence         float64          `json:"confidence,omitempty"`
 }
 
 func main() {
@@ -953,10 +978,12 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 
 			// Record AI run in audit ledger
 			_, _ = AppendAuditEvent(db, triageScope.TenantID(), "AI_ANALYSIS_EXECUTED", "AI_ANALYSIS_TIER", map[string]interface{}{
-				"incidentId":   incID,
-				"confidence":   aiRes.Confidence,
-				"citations":    aiRes.Citations,
-				"actionsCount": len(aiRes.ProposedActions),
+				"incidentId":      incID,
+				"summary":         aiRes.Summary,
+				"hypothesesCount": len(aiRes.Hypotheses),
+				"runbooks":        aiRes.RunbookPassageIDs,
+				"statement":       aiRes.Statement,
+				"model":           aiRes.Audit.Model,
 			})
 
 			w.Header().Set("Content-Type", "application/json")
