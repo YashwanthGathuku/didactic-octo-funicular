@@ -348,7 +348,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		r.Use(authMW.Authenticate)
 		// CSRF applies only to cookie-authenticated mutations; a request bearing
 		// an Authorization header is not forgeable cross-origin by a browser.
-		r.Use(auth.RequireCSRFToken("sentinel_session", "X-CSRF-Token"))
+		r.Use(auth.RequireCSRFToken(SessionCookieName, CSRFCookieName, CSRFHeaderName))
 		RegisterStreamRoutes(r, db)
 
 		// Liveness: is this process running? It checks nothing else, and must

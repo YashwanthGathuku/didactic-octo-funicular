@@ -960,3 +960,16 @@ var expectationStatuses = map[string]bool{
 var incidentStatuses = map[string]bool{
 	"OPEN": true, "INVESTIGATING": true, "RESOLVED": true, "CLOSED": true,
 }
+
+// Cookie and header names shared by the CSRF middleware, the login flow that
+// sets them, and the browser client that echoes them.
+//
+// Named in one place because the middleware compares two of them and a
+// mismatch between the cookie that is set and the cookie that is checked is
+// silent: mutations are simply refused, with a message that names CSRF rather
+// than the misconfiguration.
+const (
+	SessionCookieName = "sentinel_session"
+	CSRFCookieName    = "sentinel_csrf"
+	CSRFHeaderName    = "X-CSRF-Token"
+)

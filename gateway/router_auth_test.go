@@ -203,12 +203,45 @@ func TestCsrfRequiredForCookieAuthenticatedMutations(t *testing.T) {
 		t.Errorf("a mismatched CSRF token returned %d, want 403", rec.Code)
 	}
 
-	// The matching token succeeds.
+	// Echoing the *session* cookie is not a CSRF token.
+	//
+	// This is the case the first implementation accepted, and it could never
+	// have been produced by a browser: SessionCookie is HttpOnly so script
+	// cannot read it. Comparing the header against the session cookie meant
+	// every real cookie-authenticated mutation was refused and the only
+	// requests that passed were ones no browser could send. The token is now
+	// the separate, readable CSRF cookie.
 	req = httptest.NewRequest("POST", "/api/v1/incidents/1/approve",
-		strings.NewReader(`{"justification":"legitimate operator action"}`))
+		strings.NewReader(`{"justification":"echoing the session cookie"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", "session-value")
 	req.AddCookie(&http.Cookie{Name: "sentinel_session", Value: "session-value"})
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("echoing the HttpOnly session cookie was accepted as a CSRF token: %d", rec.Code)
+	}
+
+	// A session cookie with no CSRF cookie beside it is refused, so the
+	// control cannot be removed by deleting one cookie.
+	req = httptest.NewRequest("POST", "/api/v1/incidents/1/approve",
+		strings.NewReader(`{"justification":"no csrf cookie at all"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "anything")
+	req.AddCookie(&http.Cookie{Name: "sentinel_session", Value: "session-value"})
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a session cookie with no CSRF cookie was accepted: %d", rec.Code)
+	}
+
+	// The matching token succeeds: header equals the readable CSRF cookie.
+	req = httptest.NewRequest("POST", "/api/v1/incidents/1/approve",
+		strings.NewReader(`{"justification":"legitimate operator action"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "csrf-value")
+	req.AddCookie(&http.Cookie{Name: "sentinel_session", Value: "session-value"})
+	req.AddCookie(&http.Cookie{Name: "sentinel_csrf", Value: "csrf-value"})
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

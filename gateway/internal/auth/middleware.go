@@ -111,7 +111,21 @@ func bearerToken(r *http.Request) string {
 // Only applied when the request carries a session cookie: a request
 // authenticated purely by an Authorization header is not CSRF-able, because a
 // browser will not attach that header cross-origin on its own.
-func RequireCSRFToken(cookieName, headerName string) func(http.Handler) http.Handler {
+//
+// Two cookie names, and they are different cookies on purpose. The session
+// cookie decides *whether* this is a cookie-authenticated mutation; the CSRF
+// cookie is what the header is compared against. The first form of this
+// function took one name and compared the header to the session cookie -- but
+// SessionCookie is HttpOnly precisely so script cannot read it, so no browser
+// could ever produce a matching header and every cookie-authenticated mutation
+// would have been refused. It was invisible only because nothing sets a
+// session cookie yet: the PKCE login flow in pkce.go is implemented and not
+// wired to a route. The defect would have surfaced on the day it was.
+//
+// The double-submit property is unchanged: the CSRF cookie is readable to this
+// origin's script and to nobody else's, and it is meaningless without the
+// HttpOnly session cookie that accompanies it.
+func RequireCSRFToken(sessionCookie, csrfCookie, headerName string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
@@ -120,15 +134,24 @@ func RequireCSRFToken(cookieName, headerName string) func(http.Handler) http.Han
 				return
 			}
 
-			c, err := r.Cookie(cookieName)
+			c, err := r.Cookie(sessionCookie)
 			if err != nil || c.Value == "" {
 				// No session cookie: not a cookie-authenticated mutation.
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			// A session cookie with no CSRF cookie beside it is a refusal, not
+			// a pass. Treating a missing token as "nothing to check" would
+			// make the control removable by deleting one cookie.
+			token, err := r.Cookie(csrfCookie)
+			if err != nil || token.Value == "" {
+				deny(w, http.StatusForbidden, "csrf_token_missing")
+				return
+			}
+
 			sent := r.Header.Get(headerName)
-			if sent == "" || subtle.ConstantTimeCompare([]byte(sent), []byte(c.Value)) != 1 {
+			if sent == "" || subtle.ConstantTimeCompare([]byte(sent), []byte(token.Value)) != 1 {
 				deny(w, http.StatusForbidden, "csrf_token_invalid")
 				return
 			}
