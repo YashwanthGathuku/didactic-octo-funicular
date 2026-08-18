@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
 
 :root {
   --bg-primary: #070B12;
@@ -35,10 +36,28 @@
   --shadow-glow: 0 0 20px rgba(6, 182, 212, 0.15);
 }
 
+/*
+ * The box-sizing rule only. `margin: 0` and `padding: 0` used to be here too,
+ * and they silently disabled every padding and margin utility in the operations
+ * console.
+ *
+ * Not by source order -- @import is hoisted, so moving the Tailwind import does
+ * nothing. Tailwind v4 emits its utilities inside `@layer utilities`, and
+ * unlayered CSS beats layered CSS at any position in the file, so an unlayered
+ * `* { padding: 0 }` outranks `px-6` no matter where either appears. The
+ * classes were in the markup and in the stylesheet and had no effect;
+ * `display: flex` and the background colours worked, which is exactly what made
+ * it look correctly configured.
+ *
+ * Tailwind's own preflight already zeroes margin and padding, in a layer, so
+ * these two declarations were redundant as well as harmful.
+ *
+ * Found by rendering the built page in a real browser and reading the computed
+ * style. The build was green throughout, and reading the CSS output would not
+ * have shown it either -- the rules were all present.
+ */
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {

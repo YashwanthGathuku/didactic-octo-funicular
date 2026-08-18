@@ -267,3 +267,41 @@ func TestOperationsRoutesRefuseAnUnauthorizedCaller(t *testing.T) {
 		}
 	}
 }
+
+// A list endpoint must never answer with `null`.
+//
+// A Go nil slice marshals to `null`, and `null` is not an empty list. The
+// browser reads `.length` on it, throws, and React unmounts the whole tree --
+// so a tenant with no contracts got a blank page rather than "no contracts are
+// configured". An empty tenant is a normal condition on the first day of every
+// deployment, which is the worst possible time for the screen to be blank.
+func TestListEndpointsReturnAnEmptyArrayNotNull(t *testing.T) {
+	db := setupTestDb(t)
+	t.Cleanup(func() { db.Close() })
+	// A tenant with nothing in it, which is what makes this the empty case.
+	handler := NewRouter(db, ingestDemoConfig(), nil)
+
+	for _, path := range []string{
+		"/api/v1/contracts",
+		"/api/v1/partners",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d %s", path, rec.Code, rec.Body.String())
+		}
+		body := strings.TrimSpace(rec.Body.String())
+		if body == "null" {
+			t.Errorf("GET %s returned the literal null for an empty list", path)
+		}
+		var decoded []any
+		if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+			t.Errorf("GET %s did not return a JSON array: %v (body %s)", path, err, body)
+		}
+		if decoded == nil {
+			t.Errorf("GET %s decoded to a nil slice; a client cannot tell it from a missing field", path)
+		}
+	}
+}

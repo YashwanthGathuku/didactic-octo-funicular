@@ -286,7 +286,26 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token")
+			w.Header().Set("Access-Control-Allow-Headers",
+				"Accept, Authorization, Content-Type, X-CSRF-Token, X-Sentinel-Tenant, Last-Event-ID")
+
+			// Without this the browser discards every response to a request
+			// made with credentials: 'include' -- which is every request the
+			// operations UI makes, because the session cookie has to be
+			// attached. The whole UI failed at CORS and the gateway's logs
+			// showed the requests arriving and being answered normally, which
+			// is the least diagnosable shape this bug could take.
+			//
+			// Safe here only because the origin is a single configured value
+			// and never the request's own Origin header: credentials plus a
+			// reflected origin is the classic way to make an authenticated API
+			// readable by any site.
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+			// Bounds the preflight cache. Without it browsers pick their own
+			// default, and a policy change takes an unpredictable time to
+			// reach clients.
+			w.Header().Set("Access-Control-Max-Age", "600")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
@@ -563,7 +582,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			}
 			defer rows.Close()
 
-			var partners []map[string]interface{}
+			partners := make([]map[string]interface{}, 0)
 			for rows.Next() {
 				var id int64
 				var name, routing, created string
@@ -617,7 +636,13 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			}
 			defer rows.Close()
 
-			var contracts []map[string]interface{}
+			// Initialised, not left nil. A nil slice marshals to `null`, and
+			// `null` is not an empty list: the browser reads `.length` on it
+			// and the whole component tree unmounts. An empty tenant is a
+			// normal condition and must not crash the screen reporting it.
+			// Found by loading the contracts screen against a gateway with no
+			// contracts -- the type said Contract[] and the wire said null.
+			contracts := make([]map[string]interface{}, 0)
 			for rows.Next() {
 				var id, partnerID int64
 				var partnerName, name, direction, pattern, expTime, tz string

@@ -4550,3 +4550,3326 @@ that no server had any record of. Real ingestion remains available through
 
 ---
 
+
+
+---
+
+# Prompt 12 — the client-side cockpit
+
+Removed when the operations UI was rebuilt on server data. 3,211 lines across
+twelve files, all of which either rendered state no server had produced or
+duplicated a server implementation in the browser.
+
+The pattern common to all of them: each could render a plausible screen with the
+gateway switched off. That is the property Prompt 12 removes, and it is why
+these are deletions rather than refactors — a component that *can* fall back to
+local state will, on the day it matters.
+
+**Source commit:** `da31823`
+
+
+## `src/App.tsx`
+
+**548 lines** · the cockpit built on the synthetic corpus. Held SYNTHETIC_PARTNERS, SYNTHETIC_CONTRACTS and generateInitialOccurrences() as component state, so the board rendered a partner list no server had ever heard of. Also owned a client-side TamperEvidentEventStore that appended a GATEWAY_INITIALIZED event to a hash chain in the browser, and a catch block that, when AI triage failed, called runExceptionAnalyst and presented the result as an analysis -- a fabricated verdict produced by exactly the fallback path Prompt 12 forbids.
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import { Header } from './components/Header';
+import { DemoDataBanner } from './components/DemoDataBanner';
+import { SlaBoard } from './components/SlaBoard';
+import { FileInspectorModal } from './components/FileInspectorModal';
+import { AiAnalystPanel } from './components/AiAnalystPanel';
+import { AuditLedgerModal } from './components/AuditLedgerModal';
+import { UploadModal } from './components/UploadModal';
+import { ContractConfigModal } from './components/ContractConfigModal';
+import { FileDiffModal } from './components/FileDiffModal';
+import { ConnectorWizardModal } from './components/ConnectorWizardModal';
+import { SavedConnectionsPanel } from './components/SavedConnectionsPanel';
+
+import {
+  Partner,
+  FileContract,
+  ExpectationOccurrence,
+  FileInstance,
+  Incident,
+  Approval,
+  AgentRun
+} from './types/financial';
+
+import {
+  SYNTHETIC_PARTNERS,
+  SYNTHETIC_CONTRACTS,
+  generateInitialOccurrences,
+  SAMPLE_VALID_NACHA,
+  SAMPLE_CORRUPTED_NACHA
+} from './mockData/syntheticCorpus';
+
+// The browser-side NACHA parser and deadline engine are no longer imported.
+// They duplicated server logic, so a verdict could be rendered that no server
+// had produced. Validation state now comes from the gateway. The files remain
+// in the tree for Prompt 12 to fold into a typed API client or delete.
+//
+// runExceptionAnalyst is retained: it is a deterministic matcher from finding
+// codes to approved runbook passages, not a model call. It is mislabelled as
+// "AI" in the panel that renders it; Prompt 15 replaces it with the real
+// read-only analyst and corrects the naming.
+import { runExceptionAnalyst } from './ai/exceptionAnalyst';
+import { TamperEvidentEventStore } from './audit/hashChain';
+import { SentinelApi, ApiIngestionResult } from './services/api';
+
+import {
+  Activity,
+  ShieldCheck,
+  AlertTriangle,
+  FileText,
+  Terminal,
+  Database
+} from 'lucide-react';
+
+const eventStore = new TamperEvidentEventStore();
+
+export const App: React.FC = () => {
+  // Core Platform State
+  const [partners] = useState<Partner[]>(SYNTHETIC_PARTNERS);
+  const [contracts] = useState<FileContract[]>(SYNTHETIC_CONTRACTS);
+  const [occurrences, setOccurrences] = useState<ExpectationOccurrence[]>(generateInitialOccurrences());
+  const [files, setFiles] = useState<FileInstance[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [activeAgentRun, setActiveAgentRun] = useState<{ agentRun: AgentRun; incident: Incident } | null>(null);
+
+  // Selected Inspect Modals
+  const [inspectedFile, setInspectedFile] = useState<{ file: FileInstance; rawContent: string } | null>(null);
+  const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
+  const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
+  const [showContractsModal, setShowContractsModal] = useState<boolean>(false);
+  const [showDiffModal, setShowDiffModal] = useState<boolean>(false);
+  const [showConnectorWizard, setShowConnectorWizard] = useState<boolean>(false);
+
+  // Initialize initial Genesis domain event
+  useEffect(() => {
+    eventStore.appendEvent(
+      'TENANT-DEFAULT',
+      'SYS-GATEWAY',
+      'FILE',
+      'GATEWAY_INITIALIZED',
+      'SYSTEM_KERNEL',
+      { version: 'v1.0.0-PROD', engine: 'Moov-ACH-Nacha2025' },
+      'CORR-INIT-001'
+    );
+  }, []);
+
+  // Human Approval Action from Eliza AI Panel
+  const handleApproveAction = async (actionType: Approval['actionType'], reason: string) => {
+    if (!activeAgentRun) return;
+
+    try {
+      await SentinelApi.approveIncident(activeAgentRun.incident.id, 'SUPERVISOR_OPERATOR_GATHU', `${actionType}: ${reason}`);
+    } catch (e) {
+      console.warn('Go Gateway approval sync notice:', e);
+    }
+
+    await eventStore.appendEvent(
+      'TENANT-DEFAULT',
+      activeAgentRun.incident.id,
+      'APPROVAL',
+      'HUMAN_SUPERVISOR_ACTION_COMMITTED',
+      'SUPERVISOR_OPERATOR_GATHU',
+      { actionType, reason, incidentId: activeAgentRun.incident.id },
+      `CORR-${Date.now()}`
+    );
+
+    // Resolve or update incident
+    setIncidents(prev => prev.map(inc => inc.id === activeAgentRun.incident.id ? { ...inc, status: 'RESOLVED', resolutionNote: `Authorized by Human Supervisor (${actionType}): ${reason}` } : inc));
+  };
+
+  // Ingested File Handler from Upload Modal or SFTP
+  const handleFileIngested = async (apiResult: ApiIngestionResult, rawContent: string) => {
+    const contract = contracts[0];
+    const partner = partners[0];
+
+    const newFile: FileInstance = {
+      id: `FILE-${apiResult.fileId || Date.now()}`,
+      sourceEventId: `SRC-EVT-DIRECT-${Date.now()}`,
+      partnerId: partner.id,
+      contractId: contract.id,
+      occurrenceId: 'EXP-MERIDIAN-TODAY',
+      filename: apiResult.filename,
+      byteSize: apiResult.sizeBytes,
+      sha256Hash: apiResult.hash,
+      s3Uri: `s3://sentinel-originals/${apiResult.status.toLowerCase()}/${apiResult.filename}`,
+      state: apiResult.status === 'VALIDATED' ? 'VALID' : 'QUARANTINED',
+      receivedAtUtc: new Date().toISOString(),
+      validationResult: {
+        runId: `VAL-RUN-${Date.now()}`,
+        // The parser and rule-pack versions were fixed strings asserting a
+        // Moov version and a Nacha rule pack edition regardless of what ran.
+        // The policy version below is the one the server actually applied.
+        parserVersion: '',
+        rulePackVersion: apiResult.policyVersion,
+        startedAtUtc: new Date().toISOString(),
+        completedAtUtc: new Date().toISOString(),
+        outcome: apiResult.status === 'VALIDATED' ? 'VALID' : 'QUARANTINED',
+        totalRecordsParsed: apiResult.totalRecordsParsed,
+        totalDebitsMinor: apiResult.totalDebitsMinor,
+        totalCreditsMinor: apiResult.totalCreditsMinor,
+        policyVersion: apiResult.policyVersion,
+        contractId: apiResult.contractId,
+        notCheckedRuleIds: apiResult.notCheckedRuleIds,
+        findings: apiResult.findings.map(f => ({
+          id: `FND-${f.id}`,
+          code: f.code,
+          ruleVersion: f.ruleVersion,
+          provenance: f.provenance,
+          severity: f.severity as any,
+          lineNumber: f.lineNumber,
+          byteOffset: f.byteOffset,
+          fieldStart: f.fieldStart,
+          fieldEnd: f.fieldEnd,
+          message: f.description,
+          evidence: f.evidence,
+          expected: f.expected,
+          actual: f.actual
+        })),
+        // resourceMetrics deliberately omitted: the gateway does not measure or
+        // report them. This previously attached a fixed 4.2ms / 1.8MB / 28.5MB/s
+        // to every ingested file regardless of the file.
+      }
+    };
+
+    setFiles(prev => [newFile, ...prev]);
+
+    if (apiResult.status === 'QUARANTINED') {
+      const newIncident: Incident = {
+        id: `INC-${apiResult.incidentId || Date.now()}`,
+        type: 'NACHA_ENTRY_HASH_MISMATCH',
+        severity: 'CRITICAL',
+        title: `Quarantined ACH Batch: ${newFile.filename}`,
+        occurrenceId: 'EXP-MERIDIAN-TODAY',
+        fileInstanceId: newFile.id,
+        partnerId: partner.id,
+        status: 'OPEN',
+        openedAtUtc: new Date().toISOString(),
+        slaDeadlineUtc: '16:45:00 UTC',
+        resolutionNote: `Pre-flight validation halted release. ${apiResult.findings[0]?.description || 'Invalid records detected.'}`
+      };
+      setIncidents(prev => [newIncident, ...prev]);
+      setOccurrences(prev => prev.map(o => o.id === 'EXP-MERIDIAN-TODAY' ? { ...o, status: 'QUARANTINED', matchedFileInstanceId: newFile.id } : o));
+
+      // Trigger AI triage
+      try {
+        const aiRes = await SentinelApi.triggerTriage(newIncident.id);
+        const agentRun: AgentRun = {
+          id: `AGENT-RUN-${Date.now()}`,
+          incidentId: newIncident.id,
+          agentVersion: aiRes.agent_version || 'Astra 2.0 RRR Standard',
+          modelIdentifier: 'astra-2.0-financial-reasoning',
+          ranAtUtc: new Date().toISOString(),
+          inputDigest: apiResult.hash.substring(0, 16),
+          citedEventIds: [`EVT-${Date.now()}`],
+          citedFindingCodes: apiResult.findings.map(f => f.code),
+          citedRunbookSections: aiRes.citations,
+          findingsSummary: aiRes.summary,
+          hypotheses: [
+            {
+              hypothesis: 'Nacha Control Specification Violation',
+              confidence: 'HIGH',
+              supportingEvidence: apiResult.findings.map(f => f.description)
+            }
+          ],
+          proposedActionPlan: aiRes.proposed_actions.map((act, i) => ({
+            step: i + 1,
+            action: act.description,
+            authorityTier: 2 as const,
+            requiresHumanApproval: true
+          })),
+          metrics: {
+            durationMs: aiRes.metrics?.durationMs || 120,
+            inputTokens: aiRes.metrics?.inputTokens || 450,
+            outputTokens: aiRes.metrics?.outputTokens || 210,
+            estimatedCostUsd: aiRes.metrics?.estimatedCostUsd || 0.00045
+          }
+        };
+        setActiveAgentRun({ agentRun, incident: newIncident });
+      } catch {
+        const agentRun = runExceptionAnalyst(newIncident, newFile, contract, partner, newFile.validationResult);
+        setActiveAgentRun({ agentRun, incident: newIncident });
+      }
+    } else {
+      setOccurrences(prev => prev.map(o => o.id === 'EXP-MERIDIAN-TODAY' ? { ...o, status: 'VALID', matchedFileInstanceId: newFile.id } : o));
+      setIncidents(prev => prev.filter(i => i.occurrenceId !== 'EXP-MERIDIAN-TODAY'));
+    }
+
+    setInspectedFile({ file: newFile, rawContent });
+  };
+
+  const openIncidentsCount = incidents.filter(i => i.status === 'OPEN' || i.status === 'IN_INVESTIGATION').length;
+  const quarantinedCount = files.filter(f => f.state === 'QUARANTINED').length;
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column' }}>
+      {/* Platform Header */}
+      <Header 
+        onOpenAudit={() => setShowAuditModal(true)}
+        onOpenUpload={() => setShowUploadModal(true)}
+        onOpenContracts={() => setShowContractsModal(true)}
+        onOpenDiff={() => setShowDiffModal(true)}
+        onOpenConnectors={() => setShowConnectorWizard(true)}
+        openIncidentsCount={openIncidentsCount}
+        quarantinedCount={quarantinedCount}
+      />
+
+      {/* Main Operations Cockpit Content */}
+      <main style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', flex: 1 }}>
+        <DemoDataBanner />
+
+        {/*
+          Saved source connections, with the health the server actually
+          recorded. It sits in the cockpit rather than behind a modal because a
+          connection that has never been checked, or that started failing
+          overnight, is something an operator should meet rather than go
+          looking for.
+        */}
+        <section style={{ border: '1px solid var(--border-subtle, #334155)', borderRadius: '8px' }}>
+          <SavedConnectionsPanel />
+        </section>
+
+
+        {/* Top Section: Expected Delivery Windows & SLA Radar */}
+        <SlaBoard 
+          occurrences={occurrences}
+          contracts={contracts}
+          partners={partners}
+          onSelectOccurrence={(occ) => {
+            const matchedFile = files.find(f => f.id === occ.matchedFileInstanceId);
+            if (matchedFile) {
+              setInspectedFile({
+                file: matchedFile,
+                rawContent: matchedFile.state === 'VALID' ? SAMPLE_VALID_NACHA : SAMPLE_CORRUPTED_NACHA
+              });
+            }
+          }}
+        />
+
+        {/* Middle Split Grid: In-Flight Radar & Incidents Queue */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px' }}>
+          {/* Live In-Flight & Ingested File Stream */}
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Activity size={18} color="var(--accent-cyan)" />
+                <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Inbound Transmission Stream & Validation Ledger
+                </h2>
+              </div>
+              <span className="badge badge-neutral">{files.length} Transmissions</span>
+            </div>
+
+            {files.length === 0 ? (
+              <div style={{
+                textAlign: 'center',
+                padding: '40px 20px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '8px',
+                border: '1px dashed var(--border-subtle)',
+                color: 'var(--text-muted)'
+              }}>
+                <Database size={28} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
+                <p style={{ fontSize: '0.875rem' }}>No file transmissions received yet in this window.</p>
+                <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                  Use the <strong>Chaos Controls</strong> above to simulate a real SFTP file drop or test validation.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {files.map(file => {
+                  const partner = partners.find(p => p.id === file.partnerId);
+                  const isQuarantined = file.state === 'QUARANTINED';
+
+                  return (
+                    <div 
+                      key={file.id}
+                      style={{
+                        background: 'var(--bg-secondary)',
+                        border: `1px solid ${isQuarantined ? 'rgba(239, 68, 68, 0.3)' : 'var(--border-subtle)'}`,
+                        borderRadius: '6px',
+                        padding: '12px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                            {file.filename}
+                          </span>
+                          <span className={`badge ${isQuarantined ? 'badge-danger' : 'badge-success'}`}>
+                            {file.state}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          Partner: <strong style={{ color: 'var(--text-secondary)' }}>{partner?.name}</strong> | Size: {file.byteSize} bytes | SHA: {file.sha256Hash.substring(0, 16)}...
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => setInspectedFile({
+                            file,
+                            rawContent: file.state === 'VALID' ? SAMPLE_VALID_NACHA : SAMPLE_CORRUPTED_NACHA
+                          })}
+                          style={{ fontSize: '0.75rem', padding: '5px 10px' }}
+                        >
+                          <FileText size={13} />
+                          <span>Inspect</span>
+                        </button>
+
+                        {isQuarantined && (
+                          <button
+                            className="btn btn-primary"
+                            onClick={() => {
+                              const relatedInc = incidents.find(i => i.fileInstanceId === file.id) || {
+                                id: `INC-${file.id}`,
+                                type: 'NACHA_ENTRY_HASH_MISMATCH',
+                                severity: 'CRITICAL',
+                                title: `Quarantined ACH Batch: ${file.filename}`,
+                                fileInstanceId: file.id,
+                                partnerId: file.partnerId,
+                                status: 'OPEN',
+                                openedAtUtc: file.receivedAtUtc,
+                                slaDeadlineUtc: '16:45:00 UTC'
+                              };
+                              const agentRun = runExceptionAnalyst(relatedInc, file, contracts[0], partner, file.validationResult);
+                              setActiveAgentRun({ agentRun, incident: relatedInc });
+                            }}
+                            style={{ fontSize: '0.75rem', padding: '5px 10px' }}
+                          >
+                            <Terminal size={13} />
+                            <span>AI Triage</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Incidents & Operational Exceptions Queue */}
+          <div className="glass-panel" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={18} color="var(--accent-crimson)" />
+                <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Active Operational Exceptions Queue
+                </h2>
+              </div>
+              <span className="badge badge-danger">{incidents.length} Incidents</span>
+            </div>
+
+            {incidents.length === 0 ? (
+              <div style={{
+                textAlign: 'center',
+                padding: '40px 20px',
+                background: 'var(--bg-secondary)',
+                borderRadius: '8px',
+                border: '1px dashed var(--border-subtle)',
+                color: 'var(--accent-emerald)'
+              }}>
+                <ShieldCheck size={28} style={{ margin: '0 auto 8px auto' }} />
+                <p style={{ fontSize: '0.875rem', fontWeight: 600 }}>All Systems Nominal</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Zero active SLA breaches, quarantine holds, or missing counterparty files.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {incidents.map(inc => {
+                  const partner = partners.find(p => p.id === inc.partnerId);
+                  const isResolved = inc.status === 'RESOLVED';
+
+                  return (
+                    <div 
+                      key={inc.id}
+                      style={{
+                        background: 'var(--bg-secondary)',
+                        border: `1px solid ${isResolved ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        borderRadius: '6px',
+                        padding: '12px 16px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={`badge ${isResolved ? 'badge-success' : 'badge-danger'}`}>
+                            {inc.type}
+                          </span>
+                          <span className="badge badge-neutral">{inc.severity}</span>
+                        </div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          Opened: {inc.openedAtUtc.substring(11, 19)} UTC
+                        </span>
+                      </div>
+
+                      <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {inc.title}
+                      </h4>
+
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        {inc.resolutionNote || 'Investigation pending. Awaiting operator resolution or AI triage.'}
+                      </p>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => {
+                            const file = files.find(f => f.id === inc.fileInstanceId);
+                            const agentRun = runExceptionAnalyst(inc, file, contracts[0], partner, file?.validationResult);
+                            setActiveAgentRun({ agentRun, incident: inc });
+                          }}
+                          style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                        >
+                          <Terminal size={12} />
+                          <span>Investigate with AI Analyst</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom Section: Active Eliza AI Exception Analyst Workspace */}
+        {activeAgentRun && (
+          <AiAnalystPanel 
+            agentRun={activeAgentRun.agentRun}
+            incident={activeAgentRun.incident}
+            onApproveAction={handleApproveAction}
+            onClose={() => setActiveAgentRun(null)}
+          />
+        )}
+      </main>
+
+      {/* Deep Semantic File Inspector Modal */}
+      {inspectedFile && (
+        <FileInspectorModal 
+          fileInstance={inspectedFile.file}
+          partner={partners.find(p => p.id === inspectedFile.file.partnerId)}
+          contract={contracts.find(c => c.id === inspectedFile.file.contractId)}
+          rawContent={inspectedFile.rawContent}
+          onClose={() => setInspectedFile(null)}
+          onLaunchAiTriage={(file) => {
+            const relInc = incidents.find(i => i.fileInstanceId === file.id) || {
+              id: `INC-${file.id}`,
+              type: 'NACHA_ENTRY_HASH_MISMATCH',
+              severity: 'CRITICAL',
+              title: `Quarantined ACH Batch: ${file.filename}`,
+              fileInstanceId: file.id,
+              partnerId: file.partnerId,
+              status: 'OPEN',
+              openedAtUtc: file.receivedAtUtc,
+              slaDeadlineUtc: '16:45:00 UTC'
+            };
+            const agentRun = runExceptionAnalyst(relInc, file, contracts[0], partners[0], file.validationResult);
+            setActiveAgentRun({ agentRun, incident: relInc });
+            setInspectedFile(null);
+          }}
+        />
+      )}
+
+      {/* Metadata-driven source connection wizard */}
+      {showConnectorWizard && (
+        <ConnectorWizardModal onClose={() => setShowConnectorWizard(false)} />
+      )}
+
+      {/* Cryptographic Append-Only Audit Modal */}
+      {showAuditModal && (
+        <AuditLedgerModal 
+          eventStore={eventStore}
+          onClose={() => setShowAuditModal(false)}
+        />
+      )}
+
+      {/* Direct Ingestion & Preset Harness Modal */}
+      {showUploadModal && (
+        <UploadModal 
+          onClose={() => setShowUploadModal(false)}
+          onFileIngested={(result, rawContent) => {
+            handleFileIngested(result, rawContent);
+            setShowUploadModal(false);
+          }}
+        />
+      )}
+
+      {/* Counterparty & Contract Configuration Manager Modal */}
+      {showContractsModal && (
+        <ContractConfigModal 
+          onClose={() => setShowContractsModal(false)}
+        />
+      )}
+
+      {/* Visual File Redliner & Fixed-Width Field Matrix Modal */}
+      {showDiffModal && (
+        <FileDiffModal 
+          onClose={() => setShowDiffModal(false)}
+        />
+      )}
+    </div>
+  );
+};
+export default App;
+```
+
+
+## `src/components/SlaBoard.tsx`
+
+**131 lines** · computed SLA state in the browser with assessOccurrenceSla. A second implementation of the scheduling the gateway performs, so the board could disagree with the deadline that was actually judged against. Replaced by FeedBoard, which renders what /sla-board returns and computes nothing.
+
+```tsx
+import React from 'react';
+import { ExpectationOccurrence, Partner, FileContract } from '../types/financial';
+import { assessOccurrenceSla } from '../scheduler/deadlineEngine';
+import { Clock, ShieldAlert, CheckCircle2, AlertCircle, ArrowUpRight } from 'lucide-react';
+
+interface SlaBoardProps {
+  occurrences: ExpectationOccurrence[];
+  contracts: FileContract[];
+  partners: Partner[];
+  onSelectOccurrence: (occurrence: ExpectationOccurrence) => void;
+}
+
+export const SlaBoard: React.FC<SlaBoardProps> = ({
+  occurrences,
+  contracts,
+  partners,
+  onSelectOccurrence
+}) => {
+  return (
+    <div className="glass-panel" style={{ padding: '20px' }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Clock size={18} color="var(--accent-cyan)" />
+          <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+            Expected Delivery Windows & SLA Breach Radar
+          </h2>
+        </div>
+        <span className="badge badge-neutral">
+          {occurrences.length} Active Windows
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+        {occurrences.map(occ => {
+          const contract = contracts.find(c => c.id === occ.contractId);
+          const partner = partners.find(p => p.id === occ.partnerId);
+          const assessment = assessOccurrenceSla(occ);
+
+          return (
+            <div 
+              key={occ.id}
+              onClick={() => onSelectOccurrence(occ)}
+              style={{
+                background: 'var(--bg-secondary)',
+                border: `1px solid ${assessment.isBreached ? 'rgba(239, 68, 68, 0.4)' : 'var(--border-subtle)'}`,
+                borderRadius: '8px',
+                padding: '16px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-active)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = assessment.isBreached ? 'rgba(239, 68, 68, 0.4)' : 'var(--border-subtle)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              {/* Top Row: Partner & Status */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <div>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {partner?.name || 'Counterparty'}
+                  </span>
+                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                    {contract?.name || occ.expectedDescription}
+                  </h3>
+                </div>
+                <span className={`badge badge-${assessment.badgeVariant}`}>
+                  {assessment.statusLabel}
+                </span>
+              </div>
+
+              {/* Middle Row: Times & Breach Probability */}
+              <div style={{
+                background: 'var(--bg-primary)',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                margin: '12px 0',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '8px',
+                fontSize: '0.8125rem'
+              }}>
+                <div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>SLA DEADLINE (UTC)</div>
+                  <div className="font-mono" style={{ fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                    {occ.dueAtUtc.substring(11, 19)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>GRACE EXPIRY</div>
+                  <div className="font-mono" style={{ fontWeight: 600, color: assessment.isBreached ? 'var(--accent-crimson)' : 'var(--text-secondary)', marginTop: '2px' }}>
+                    {occ.graceExpiresAtUtc.substring(11, 19)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Progress & Risk Indicator */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {assessment.isBreached ? (
+                    <ShieldAlert size={14} color="var(--accent-crimson)" />
+                  ) : assessment.occurrence.status === 'VALID' ? (
+                    <CheckCircle2 size={14} color="var(--accent-emerald)" />
+                  ) : (
+                    <AlertCircle size={14} color="var(--accent-amber)" />
+                  )}
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    Breach Probability: <strong style={{ color: assessment.breachProbability > 0.5 ? 'var(--accent-crimson)' : 'var(--text-primary)' }}>{(assessment.breachProbability * 100).toFixed(0)}%</strong>
+                  </span>
+                </div>
+                <span style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                  Inspect <ArrowUpRight size={12} />
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/components/AuditLedgerModal.tsx`
+
+**241 lines** · rendered the browser-side TamperEvidentEventStore. It verified a chain the browser had built, which proves nothing about the record the server holds. Replaced by EvidenceTimeline, which reads the server chain and states its verification separately from the paged list.
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import { DomainEvent } from '../types/financial';
+import { TamperEvidentEventStore } from '../audit/hashChain';
+import { X, ShieldCheck, Download, CheckCircle } from 'lucide-react';
+
+interface AuditLedgerModalProps {
+  eventStore: TamperEvidentEventStore;
+  onClose: () => void;
+}
+
+export const AuditLedgerModal: React.FC<AuditLedgerModalProps> = ({
+  eventStore,
+  onClose
+}) => {
+  const [events, setEvents] = useState<DomainEvent[]>([]);
+  const [integrity, setIntegrity] = useState<{ isValid: boolean; totalEvents: number; error?: string }>({
+    isValid: true,
+    totalEvents: 0
+  });
+
+  useEffect(() => {
+    const loadAndVerify = async () => {
+      const allEvents = eventStore.getEvents();
+      setEvents(allEvents);
+      const res = await eventStore.verifyIntegrity();
+      setIntegrity(res);
+    };
+    loadAndVerify();
+  }, [eventStore]);
+
+  const handleExportJson = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(events, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `sentinel-flow-audit-ledger-${Date.now()}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleExportCompliancePackage = async () => {
+    try {
+      const pkg = await fetch('http://localhost:8080/api/v1/compliance/export').then(r => r.json());
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(pkg, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `SEC_17a4_COMPLIANCE_PROOF_PACKAGE_${Date.now()}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch {
+      handleExportJson();
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(5, 8, 14, 0.85)',
+      backdropFilter: 'blur(8px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 110,
+      padding: '24px'
+    }}>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-medium)',
+        borderRadius: '12px',
+        width: '100%',
+        maxWidth: '920px',
+        maxHeight: '90vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.8)',
+        overflow: 'hidden'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '16px 24px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'var(--bg-card)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '6px',
+              background: 'var(--accent-emerald-dim)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '1px solid rgba(16, 185, 129, 0.4)'
+            }}>
+              <ShieldCheck size={18} color="var(--accent-emerald)" />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.0625rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Append-Only Audit Ledger
+              </h2>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Application hash chain — linear SHA-256 predecessor links, verified by recomputation
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button 
+              className="btn btn-primary"
+              onClick={handleExportCompliancePackage}
+              style={{ fontSize: '0.8125rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--accent-emerald)', borderColor: 'var(--accent-emerald)', color: '#000', fontWeight: 700 }}
+            >
+              <Download size={14} />
+              <span>Download Evidence Export</span>
+            </button>
+            <button 
+              className="btn btn-secondary"
+              onClick={handleExportJson}
+              style={{ fontSize: '0.8125rem', padding: '6px 12px' }}
+            >
+              <Download size={14} />
+              <span>Export Raw Ledger (JSON)</span>
+            </button>
+            <button 
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px'
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Verification Status Banner */}
+        <div style={{
+          padding: '12px 24px',
+          background: integrity.isValid ? 'var(--accent-emerald-dim)' : 'var(--accent-crimson-dim)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.8125rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {integrity.isValid ? (
+              <>
+                <CheckCircle size={16} color="var(--accent-emerald)" />
+                <span style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}>
+                  Cryptographic Chain Verified ({events.length} blocks without tampering)
+                </span>
+              </>
+            ) : (
+              <span style={{ color: 'var(--accent-crimson)', fontWeight: 600 }}>
+                {integrity.error}
+              </span>
+            )}
+          </div>
+          <span className="font-mono" style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+            Algorithm: SHA-256 linear hash chain (not a Merkle tree)
+          </span>
+        </div>
+
+        {/* Events List */}
+        <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {events.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
+              No domain events recorded in session yet.
+            </div>
+          ) : (
+            events.map((evt, idx) => (
+              <div 
+                key={evt.id}
+                style={{
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  padding: '14px 16px',
+                  position: 'relative'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="badge badge-cyan">#{idx + 1} {evt.eventType}</span>
+                    <span className="badge badge-neutral">{evt.aggregateType}:{evt.aggregateId}</span>
+                  </div>
+                  <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {evt.timestampUtc}
+                  </span>
+                </div>
+
+                {/* Hashes Row */}
+                <div style={{
+                  background: 'var(--bg-secondary)',
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  fontSize: '0.7rem',
+                  fontFamily: 'var(--font-mono)',
+                  marginBottom: '8px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <span style={{ color: 'var(--text-dim)', width: '90px' }}>PREV HASH:</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{evt.previousHash}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <span style={{ color: 'var(--accent-cyan)', width: '90px', fontWeight: 600 }}>BLOCK HASH:</span>
+                    <span style={{ color: 'var(--accent-cyan)' }}>{evt.currentHash}</span>
+                  </div>
+                </div>
+
+                {/* Payload snippet */}
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Actor: </span>
+                  <strong>{evt.actor}</strong>
+                  <span style={{ margin: '0 8px', color: 'var(--border-subtle)' }}>|</span>
+                  <span style={{ color: 'var(--text-muted)' }}>Correlation ID: </span>
+                  <span className="font-mono">{evt.correlationId}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/components/AiAnalystPanel.tsx`
+
+**311 lines** · fed by the triage fallback. When the AI tier was unreachable the panel showed a locally generated "analysis" with confidence, hypotheses and citations, indistinguishable from one a model produced.
+
+```tsx
+import React, { useState } from 'react';
+import { AgentRun, Incident, Approval } from '../types/financial';
+import { Bot, Shield, CheckCircle2, AlertOctagon, Send, Lock, Copy, Check } from 'lucide-react';
+
+interface AiAnalystPanelProps {
+  agentRun: AgentRun;
+  incident: Incident;
+  onApproveAction: (actionType: Approval['actionType'], reason: string) => void;
+  onClose: () => void;
+}
+
+export const AiAnalystPanel: React.FC<AiAnalystPanelProps> = ({
+  agentRun,
+  incident,
+  onApproveAction,
+  onClose
+}) => {
+  const [approvalReason, setApprovalReason] = useState<string>('');
+  const [copiedDraft, setCopiedDraft] = useState<boolean>(false);
+  const [submittedAction, setSubmittedAction] = useState<boolean>(false);
+
+  const handleCopyDraft = () => {
+    if (agentRun.draftExternalPartnerNotice) {
+      navigator.clipboard.writeText(agentRun.draftExternalPartnerNotice);
+      setCopiedDraft(true);
+      setTimeout(() => setCopiedDraft(false), 2000);
+    }
+  };
+
+  const handleExecuteApproval = (actionType: Approval['actionType']) => {
+    onApproveAction(actionType, approvalReason || 'Operator confirmed pre-flight exception and authorized workflow transition.');
+    setSubmittedAction(true);
+  };
+
+  return (
+    <div className="glass-panel" style={{ padding: '24px', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+      {/* Top Banner: Model & Agent ID */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingBottom: '16px',
+        borderBottom: '1px solid var(--border-subtle)',
+        marginBottom: '20px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
+            background: 'var(--accent-violet-dim)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(99, 102, 241, 0.4)'
+          }}>
+            <Bot size={20} color="var(--accent-violet)" />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {agentRun.agentVersion}
+              </h3>
+              <span className="badge badge-cyan" style={{ fontSize: '0.65rem' }}>
+                Constrained RRR-Model
+              </span>
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Execution Target: <strong style={{ color: 'var(--text-secondary)' }}>{agentRun.modelIdentifier}</strong> | Run ID: {agentRun.id}
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>
+            Latency: {agentRun.metrics.durationMs}ms
+          </span>
+          <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>
+            Tokens: {agentRun.metrics.inputTokens + agentRun.metrics.outputTokens}
+          </span>
+        </div>
+      </div>
+
+      {/* Safety Notice: Zero Autonomous Execution */}
+      <div style={{
+        background: 'rgba(99, 102, 241, 0.08)',
+        border: '1px solid rgba(99, 102, 241, 0.25)',
+        borderRadius: '6px',
+        padding: '10px 14px',
+        marginBottom: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        fontSize: '0.8125rem',
+        color: '#C7D2FE'
+      }}>
+        <Shield size={16} color="var(--accent-violet)" />
+        <span>
+          <strong>Constrained Agent Safety Guarantee:</strong> This AI agent holds read-only tools and cannot directly alter financial records or bypass dual-control release policies without signed human supervisor authorization.
+        </span>
+      </div>
+
+      {/* Findings Summary */}
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+          1. Evidence Synthesis & Citations
+        </h4>
+        <div style={{
+          background: 'var(--bg-primary)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '6px',
+          padding: '14px',
+          fontSize: '0.875rem',
+          color: 'var(--text-secondary)',
+          lineHeight: 1.6
+        }}>
+          {agentRun.findingsSummary}
+
+          <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {agentRun.citedFindingCodes.map((code, idx) => (
+              <span key={idx} className="badge badge-danger" style={{ fontSize: '0.7rem' }}>
+                Cited Finding: {code}
+              </span>
+            ))}
+            {agentRun.citedRunbookSections.map((rb, idx) => (
+              <span key={idx} className="badge badge-cyan" style={{ fontSize: '0.7rem' }}>
+                {rb}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Hypotheses */}
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+          2. Root-Cause Hypotheses
+        </h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {agentRun.hypotheses.map((hypo, idx) => (
+            <div 
+              key={idx}
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '6px',
+                padding: '12px 14px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Hypothesis #{idx + 1}: {hypo.hypothesis}
+                </span>
+                <span className={`badge ${hypo.confidence === 'HIGH' ? 'badge-warning' : 'badge-neutral'}`}>
+                  Confidence: {hypo.confidence}
+                </span>
+              </div>
+              <ul style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', paddingLeft: '20px', marginTop: '4px' }}>
+                {hypo.supportingEvidence.map((ev, i) => (
+                  <li key={i}>{ev}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Action Plan & Human Approval Gate */}
+      <div style={{ marginBottom: '20px' }}>
+        <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+          3. Proposed Remediation Plan & Authority Tiers
+        </h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {agentRun.proposedActionPlan.map((action, idx) => (
+            <div 
+              key={idx}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '6px',
+                fontSize: '0.8125rem'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="badge badge-neutral">Step {action.step}</span>
+                <span style={{ color: 'var(--text-primary)' }}>{action.action}</span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="badge badge-cyan">Tier {action.authorityTier}</span>
+                {action.requiresHumanApproval ? (
+                  <span className="badge badge-danger">Requires Approval</span>
+                ) : (
+                  <span className="badge badge-success">Automated / Read-Only</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* External Partner Notification Draft */}
+      {agentRun.draftExternalPartnerNotice && (
+        <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              4. Drafted Counterparty SLA Notification
+            </h4>
+            <button 
+              className="btn btn-secondary"
+              onClick={handleCopyDraft}
+              style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+            >
+              {copiedDraft ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
+              <span>{copiedDraft ? 'Copied to Clipboard' : 'Copy Draft Notice'}</span>
+            </button>
+          </div>
+          <div className="log-viewer" style={{ whiteSpace: 'pre-wrap', maxHeight: '180px' }}>
+            {agentRun.draftExternalPartnerNotice}
+          </div>
+        </div>
+      )}
+
+      {/* Human Supervisor Approval Box */}
+      <div style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border-medium)',
+        borderRadius: '8px',
+        padding: '16px',
+        marginTop: '12px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <Lock size={16} color="var(--accent-amber)" />
+          <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+            Human Supervisor Sign-Off & Dual-Control Gate
+          </h4>
+        </div>
+
+        {submittedAction ? (
+          <div style={{
+            padding: '12px',
+            background: 'var(--accent-emerald-dim)',
+            border: '1px solid rgba(16, 185, 129, 0.4)',
+            borderRadius: '6px',
+            color: 'var(--accent-emerald)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.875rem'
+          }}>
+            <CheckCircle2 size={18} />
+            <span>Action authorized and committed to tamper-evident audit ledger.</span>
+          </div>
+        ) : (
+          <div>
+            <input 
+              type="text"
+              placeholder="Enter a justification for this decision (required, recorded in the audit ledger)..."
+              value={approvalReason}
+              onChange={(e) => setApprovalReason(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '6px',
+                padding: '10px 14px',
+                color: 'var(--text-primary)',
+                fontSize: '0.8125rem',
+                marginBottom: '12px',
+                outline: 'none'
+              }}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={onClose}
+                style={{ fontSize: '0.8125rem' }}
+              >
+                Close Panel
+              </button>
+              {incident.type === 'MISSING_FILE_DEADLINE' ? (
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => handleExecuteApproval('WAIVE_MISSING_FILE')}
+                  style={{ fontSize: '0.8125rem' }}
+                >
+                  <Send size={14} />
+                  <span>Authorize Temporary SLA Extension</span>
+                </button>
+              ) : (
+                <button 
+                  className="btn btn-danger"
+                  onClick={() => handleExecuteApproval('EXCEPTIONAL_RELEASE')}
+                  style={{ fontSize: '0.8125rem' }}
+                >
+                  <AlertOctagon size={14} />
+                  <span>Authorize Exceptional Release</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/components/FileDiffModal.tsx`
+
+**507 lines** · diffed SAMPLE_VALID_NACHA against SAMPLE_CORRUPTED_NACHA -- two constants from the synthetic corpus. It compared demo data with demo data and presented the result as a file comparison.
+
+```tsx
+import React, { useState } from 'react';
+import { 
+  GitCompare, 
+  X, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Layers, 
+  ShieldCheck, 
+  Key, 
+  Copy, 
+  Check, 
+  FileText 
+} from 'lucide-react';
+import { SAMPLE_VALID_NACHA, SAMPLE_CORRUPTED_NACHA } from '../mockData/syntheticCorpus';
+
+interface FileDiffModalProps {
+  currentFilename?: string;
+  currentContent?: string;
+  onClose: () => void;
+}
+
+export const FileDiffModal: React.FC<FileDiffModalProps> = ({
+  currentFilename = 'MERIDIAN_ACH_COMMERCIAL_20260814_1645.txt',
+  currentContent = SAMPLE_CORRUPTED_NACHA,
+  onClose
+}) => {
+  const [selectedLineIndex, setSelectedLineIndex] = useState<number>(0);
+  const [copied, setCopied] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'DIFF' | 'SECURITY_VERIFY'>('DIFF');
+
+  // Security Verification Tool State
+  const [sshKeyInput, setSshKeyInput] = useState<string>(
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH1N8sDqR3kH8m9qWeRt7y4a3F9cKz8eL1mQxWpTvBn9 treasury-operator@meridian.internal'
+  );
+  const [sshResult, setSshResult] = useState<any>(null);
+  const [isVerifyingSsh, setIsVerifyingSsh] = useState<boolean>(false);
+
+  const baselineLines = SAMPLE_VALID_NACHA.split('\n');
+  const targetLines = currentContent.split(/\r?\n/).filter(l => l.length > 0);
+
+  const selectedTargetLine = targetLines[selectedLineIndex] || '';
+
+  // Decompose NACHA Record 6 or 5 into Field Matrix
+  const getFieldMatrix = (line: string) => {
+    if (!line || line.length === 0) return [];
+    const recordType = line.charAt(0);
+
+    if (recordType === '1') {
+      return [
+        { offset: '00-01', length: 1, name: 'Record Type', value: line.substring(0, 1), rule: 'Constant "1" (File Header)' },
+        { offset: '01-03', length: 2, name: 'Priority Code', value: line.substring(1, 3), rule: 'Default "01"' },
+        { offset: '03-13', length: 10, name: 'Immediate Destination', value: line.substring(3, 13), rule: '10-char Routing / Routing Space' },
+        { offset: '13-23', length: 10, name: 'Immediate Origin', value: line.substring(13, 23), rule: '10-char ODFI Origin' },
+        { offset: '23-29', length: 6, name: 'File Creation Date', value: line.substring(23, 29), rule: 'YYMMDD format' },
+        { offset: '29-33', length: 4, name: 'File Creation Time', value: line.substring(29, 33), rule: 'HHMM format' },
+        { offset: '33-34', length: 1, name: 'File ID Modifier', value: line.substring(33, 34), rule: 'A-Z or 0-9' },
+        { offset: '34-37', length: 3, name: 'Record Size', value: line.substring(34, 37), rule: 'Constant "094"' },
+        { offset: '37-39', length: 2, name: 'Blocking Factor', value: line.substring(37, 39), rule: 'Constant "10"' },
+        { offset: '39-40', length: 1, name: 'Format Code', value: line.substring(39, 40), rule: 'Constant "1"' },
+        { offset: '40-63', length: 23, name: 'Immediate Destination Name', value: line.substring(40, 63), rule: 'Receiving Gateway' },
+        { offset: '63-86', length: 23, name: 'Immediate Origin Name', value: line.substring(63, 86), rule: 'Originating Institution' },
+      ];
+    }
+
+    if (recordType === '5') {
+      return [
+        { offset: '00-01', length: 1, name: 'Record Type', value: line.substring(0, 1), rule: 'Constant "5" (Batch Header)' },
+        { offset: '01-04', length: 3, name: 'Service Class Code', value: line.substring(1, 4), rule: '200 (Mixed), 220 (Credits), 225 (Debits)' },
+        { offset: '04-20', length: 16, name: 'Company Name', value: line.substring(4, 20), rule: 'Originator Name' },
+        { offset: '20-40', length: 20, name: 'Company Discretionary Data', value: line.substring(20, 40), rule: 'Optional Discretionary' },
+        { offset: '40-50', length: 10, name: 'Company Identification', value: line.substring(40, 50), rule: '10-char IRS/ODFI ID' },
+        { offset: '50-53', length: 3, name: 'Standard Entry Class (SEC)', value: line.substring(50, 53), rule: 'PPD, CCD, CTX, WEB' },
+        { offset: '53-63', length: 10, name: 'Company Entry Description', value: line.substring(53, 63), rule: 'Purpose (e.g. PAYROLL)' },
+        { offset: '63-69', length: 6, name: 'Company Descriptive Date', value: line.substring(63, 69), rule: 'YYMMDD format' },
+        { offset: '69-75', length: 6, name: 'Effective Entry Date', value: line.substring(69, 75), rule: 'Settlement date' },
+        { offset: '75-78', length: 3, name: 'Settlement Date', value: line.substring(75, 78), rule: 'Julian date (reserved)' },
+        { offset: '78-79', length: 1, name: 'Originator Status Code', value: line.substring(78, 79), rule: 'Constant "1"' },
+        { offset: '79-87', length: 8, name: 'ODFI Identification', value: line.substring(79, 87), rule: 'Originating Routing prefix' },
+        { offset: '87-94', length: 7, name: 'Batch Number', value: line.substring(87, 94), rule: 'Sequential batch integer' }
+      ];
+    }
+
+    if (recordType === '6') {
+      return [
+        { offset: '00-01', length: 1, name: 'Record Type', value: line.substring(0, 1), rule: 'Constant "6" (Entry Detail)' },
+        { offset: '01-03', length: 2, name: 'Transaction Code', value: line.substring(1, 3), rule: '22 (DDA Credit), 27 (DDA Debit)' },
+        { offset: '03-12', length: 9, name: 'Receiving DFI Routing', value: line.substring(3, 12), rule: 'Must pass Mod10 Check Digit' },
+        { offset: '12-29', length: 17, name: 'DFI Account Number', value: line.substring(12, 29), rule: 'Left-justified account' },
+        { offset: '29-39', length: 10, name: 'Amount (in cents)', value: line.substring(29, 39), rule: '$$$$.cc numeric' },
+        { offset: '39-54', length: 15, name: 'Individual ID / Number', value: line.substring(39, 54), rule: 'Employee / Invoice Ref' },
+        { offset: '54-76', length: 22, name: 'Individual Name', value: line.substring(54, 76), rule: 'Counterparty Name' },
+        { offset: '76-78', length: 2, name: 'Discretionary Data', value: line.substring(76, 78), rule: '2-char optional' },
+        { offset: '78-79', length: 1, name: 'Addenda Record Indicator', value: line.substring(78, 79), rule: '0 = No addenda, 1 = Addenda' },
+        { offset: '79-94', length: 15, name: 'Trace Number', value: line.substring(79, 94), rule: 'ODFI ID (8) + Sequence (7)' }
+      ];
+    }
+
+    if (recordType === '8') {
+      return [
+        { offset: '00-01', length: 1, name: 'Record Type', value: line.substring(0, 1), rule: 'Constant "8" (Batch Control)' },
+        { offset: '01-04', length: 3, name: 'Service Class Code', value: line.substring(1, 4), rule: 'Matches Record 5 Service Class' },
+        { offset: '04-10', length: 6, name: 'Entry/Addenda Count', value: line.substring(4, 10), rule: 'Total count of 6 & 7 records' },
+        { offset: '10-20', length: 10, name: 'Entry Hash', value: line.substring(10, 20), rule: '10-digit sum of routing prefixes' },
+        { offset: '20-32', length: 12, name: 'Total Debit Amount', value: line.substring(20, 32), rule: 'Total debit cents' },
+        { offset: '32-44', length: 12, name: 'Total Credit Amount', value: line.substring(32, 44), rule: 'Total credit cents' },
+        { offset: '44-54', length: 10, name: 'Company Identification', value: line.substring(44, 54), rule: 'Matches Record 5 Company ID' },
+        { offset: '79-87', length: 8, name: 'ODFI Identification', value: line.substring(79, 87), rule: 'Originating Routing prefix' },
+        { offset: '87-94', length: 7, name: 'Batch Number', value: line.substring(87, 94), rule: 'Matches Record 5 Batch Number' }
+      ];
+    }
+
+    return [
+      { offset: '00-94', length: line.length, name: `Record Type ${recordType}`, value: line, rule: 'Standard 94-char fixed-width record' }
+    ];
+  };
+
+  const handleVerifySsh = async () => {
+    setIsVerifyingSsh(true);
+    try {
+      const res = await fetch('http://localhost:8080/api/v1/security/verify-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: sshKeyInput })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSshResult(data);
+      } else {
+        setSshResult({ isValid: false, statusReason: 'Invalid public key format or unsupported algorithm.' });
+      }
+    } catch {
+      // Fallback
+      setSshResult({
+        isValid: true,
+        keyType: 'ssh-ed25519',
+        fingerprint: 'SHA256:4a3F9cKz8eL1mQxWpTvBn9Rt6sDuFhJ2kLm8qWeRt7y',
+        keyBits: 256,
+        verifiedAt: new Date().toISOString(),
+        comment: 'treasury-operator@meridian.internal'
+      });
+    } finally {
+      setIsVerifyingSsh(false);
+    }
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(currentContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(10, 15, 29, 0.85)',
+      backdropFilter: 'blur(8px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 100,
+      padding: '24px'
+    }}>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '12px',
+        width: '100%',
+        maxWidth: '1200px',
+        maxHeight: '92vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '18px 24px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'rgba(14, 20, 34, 0.6)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              background: 'var(--accent-cyan-dim)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '1px solid rgba(6, 182, 212, 0.4)'
+            }}>
+              <GitCompare size={20} color="var(--accent-cyan)" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Visual File Redliner & Fixed-Width Matrix Inspector
+                </h3>
+                              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Inspect byte offsets, rule boundaries, and side-by-side golden baseline diffs
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={handleCopy}
+              className="btn btn-secondary"
+              style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              {copied ? <Check size={14} color="var(--accent-emerald)" /> : <Copy size={14} />}
+              <span>{copied ? 'Copied' : 'Copy Content'}</span>
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px'
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div style={{
+          display: 'flex',
+          borderBottom: '1px solid var(--border-subtle)',
+          padding: '0 24px',
+          background: 'rgba(14, 20, 34, 0.4)'
+        }}>
+          <button
+            onClick={() => setActiveTab('DIFF')}
+            style={{
+              padding: '12px 16px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === 'DIFF' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+              color: activeTab === 'DIFF' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Layers size={14} />
+            <span>Side-by-Side Diff & Field Matrix</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('SECURITY_VERIFY')}
+            style={{
+              padding: '12px 16px',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === 'SECURITY_VERIFY' ? '2px solid var(--accent-emerald)' : '2px solid transparent',
+              color: activeTab === 'SECURITY_VERIFY' ? 'var(--accent-emerald)' : 'var(--text-muted)',
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <ShieldCheck size={14} />
+            <span>SFTP Key Vault & Signature Verifier</span>
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+          {activeTab === 'DIFF' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* Dual File Line Viewer */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                {/* Baseline Golden Template */}
+                <div style={{
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  padding: '14px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-emerald)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle2 size={14} /> Golden Baseline (Expected Structure)
+                    </span>
+                    <span className="badge badge-neutral" style={{ fontSize: '0.65rem' }}>94 Chars / Line</span>
+                  </div>
+
+                  <div className="font-mono" style={{ fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {baselineLines.slice(0, 7).map((line, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => setSelectedLineIndex(idx)}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          background: selectedLineIndex === idx ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                          border: selectedLineIndex === idx ? '1px solid var(--accent-cyan)' : '1px solid transparent',
+                          color: '#F8FAFC',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                      >
+                        <span style={{ color: 'var(--text-muted)', marginRight: '8px' }}>{idx + 1}</span>
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Target Counterparty File */}
+                <div style={{
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '8px',
+                  padding: '14px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent-crimson)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <AlertTriangle size={14} /> Ingested Transmission ({currentFilename})
+                    </span>
+                    <span className="badge badge-crimson" style={{ fontSize: '0.65rem' }}>Quarantine Candidate</span>
+                  </div>
+
+                  <div className="font-mono" style={{ fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {targetLines.slice(0, 7).map((line, idx) => {
+                      const isMismatch = line !== baselineLines[idx];
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => setSelectedLineIndex(idx)}
+                          style={{
+                            padding: '6px 8px',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            background: selectedLineIndex === idx 
+                              ? 'rgba(239, 68, 68, 0.2)' 
+                              : isMismatch ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                            border: selectedLineIndex === idx 
+                              ? '1px solid var(--accent-crimson)' 
+                              : isMismatch ? '1px dashed rgba(239, 68, 68, 0.4)' : '1px solid transparent',
+                            color: isMismatch ? '#FCA5A5' : '#F8FAFC',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}
+                        >
+                          <span style={{ color: 'var(--text-muted)', marginRight: '8px' }}>{idx + 1}</span>
+                          {line}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Field Matrix Decomposition for Selected Line */}
+              <div style={{
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                padding: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <FileText size={16} color="var(--accent-cyan)" />
+                    <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Line {selectedLineIndex + 1} Field Offset Matrix (Record Type {selectedTargetLine.charAt(0) || '1'})
+                    </h4>
+                  </div>
+                  <span className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Record Length: {selectedTargetLine.length} / 94 Chars
+                  </span>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '8px' }}>Offset</th>
+                        <th style={{ padding: '8px' }}>Field Name</th>
+                        <th style={{ padding: '8px' }}>Len</th>
+                        <th style={{ padding: '8px' }}>Extracted Value</th>
+                        <th style={{ padding: '8px' }}>Nacha Specification Rule</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getFieldMatrix(selectedTargetLine).map((field, i) => (
+                        <tr 
+                          key={i} 
+                          style={{ 
+                            borderBottom: '1px solid rgba(255, 255, 255, 0.03)',
+                            background: i % 2 === 0 ? 'rgba(255, 255, 255, 0.01)' : 'transparent'
+                          }}
+                        >
+                          <td className="font-mono" style={{ padding: '8px', color: 'var(--accent-cyan)' }}>{field.offset}</td>
+                          <td style={{ padding: '8px', fontWeight: 600, color: 'var(--text-primary)' }}>{field.name}</td>
+                          <td className="font-mono" style={{ padding: '8px', color: 'var(--text-muted)' }}>{field.length}</td>
+                          <td className="font-mono" style={{ padding: '8px', color: '#F8FAFC', background: 'rgba(0,0,0,0.2)', borderRadius: '4px' }}>
+                            {field.value || '<EMPTY>'}
+                          </td>
+                          <td style={{ padding: '8px', color: 'var(--text-secondary)' }}>{field.rule}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'SECURITY_VERIFY' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{
+                background: 'var(--bg-primary)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '8px',
+                padding: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <Key size={16} color="var(--accent-emerald)" />
+                  <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    SFTP Public Key Fingerprint & Cryptographic Verifier
+                  </h4>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '12px' }}>
+                  Test counterparty SSH public keys (Ed25519 / RSA-4096) before authorizing SFTP ingress tunnels.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <textarea
+                    rows={3}
+                    className="font-mono"
+                    value={sshKeyInput}
+                    onChange={(e) => setSshKeyInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      background: 'rgba(0, 0, 0, 0.3)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '6px',
+                      padding: '10px',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.75rem'
+                    }}
+                  />
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn btn-primary"
+                      disabled={isVerifyingSsh}
+                      onClick={handleVerifySsh}
+                      style={{ fontSize: '0.75rem', padding: '6px 14px' }}
+                    >
+                      {isVerifyingSsh ? 'Computing Fingerprint...' : 'Verify SSH Key'}
+                    </button>
+                  </div>
+                </div>
+
+                {sshResult && (
+                  <div style={{
+                    marginTop: '14px',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    background: sshResult.isValid ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                    border: sshResult.isValid ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {sshResult.isValid ? (
+                        <CheckCircle2 size={16} color="var(--accent-emerald)" />
+                      ) : (
+                        <AlertTriangle size={16} color="var(--accent-crimson)" />
+                      )}
+                      <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: '#F8FAFC' }}>
+                        {sshResult.isValid ? 'Valid Public Key Detected' : 'Verification Failed'}
+                      </span>
+                    </div>
+
+                    {sshResult.isValid && (
+                      <div className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div><strong>Key Type:</strong> {sshResult.keyType} ({sshResult.keyBits} bits)</div>
+                        <div><strong>SHA256 Fingerprint:</strong> {sshResult.fingerprint}</div>
+                        <div><strong>Comment:</strong> {sshResult.comment || 'N/A'}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/components/FileInspectorModal.tsx`
+
+**389 lines** · rendered a FileInstance assembled in the browser from an ingest response plus invented fields (s3Uri built by string concatenation, runId from Date.now()). Replaced by the artifact detail pane, which reads /artifacts/{id}.
+
+```tsx
+import React, { useState } from 'react';
+import { FileInstance, Partner, FileContract } from '../types/financial';
+import { X, ShieldAlert, CheckCircle, Terminal, Copy, Check } from 'lucide-react';
+
+interface FileInspectorModalProps {
+  fileInstance: FileInstance;
+  partner?: Partner;
+  contract?: FileContract;
+  rawContent?: string;
+  onClose: () => void;
+  onLaunchAiTriage: (file: FileInstance) => void;
+}
+
+export const FileInspectorModal: React.FC<FileInspectorModalProps> = ({
+  fileInstance,
+  partner,
+  contract,
+  rawContent = '',
+  onClose,
+  onLaunchAiTriage
+}) => {
+  const [activeTab, setActiveTab] = useState<'findings' | 'raw' | 'controls'>('findings');
+  const [copiedHash, setCopiedHash] = useState(false);
+
+  const res = fileInstance.validationResult;
+  const isQuarantined = fileInstance.state === 'QUARANTINED';
+
+  const handleCopyHash = () => {
+    navigator.clipboard.writeText(fileInstance.sha256Hash);
+    setCopiedHash(true);
+    setTimeout(() => setCopiedHash(false), 2000);
+  };
+
+  const rawLines = rawContent.split(/\r?\n/).filter(l => l.length > 0);
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(5, 8, 14, 0.85)',
+      backdropFilter: 'blur(8px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 100,
+      padding: '24px'
+    }}>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-medium)',
+        borderRadius: '12px',
+        width: '100%',
+        maxWidth: '960px',
+        maxHeight: '90vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.8)',
+        overflow: 'hidden'
+      }}>
+        {/* Modal Header */}
+        <div style={{
+          padding: '16px 24px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'var(--bg-card)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '6px',
+              background: isQuarantined ? 'var(--accent-crimson-dim)' : 'var(--accent-emerald-dim)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: `1px solid ${isQuarantined ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)'}`
+            }}>
+              {isQuarantined ? <ShieldAlert size={18} color="var(--accent-crimson)" /> : <CheckCircle size={18} color="var(--accent-emerald)" />}
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 style={{ fontSize: '1.0625rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {fileInstance.filename}
+                </h2>
+                <span className={`badge ${isQuarantined ? 'badge-danger' : 'badge-success'}`}>
+                  {fileInstance.state}
+                </span>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Partner: <strong style={{ color: 'var(--text-secondary)' }}>{partner?.name || 'Unknown'}</strong> | Contract: {contract?.name || 'Standard ACH'}
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button 
+              className="btn btn-primary"
+              onClick={() => onLaunchAiTriage(fileInstance)}
+              style={{ fontSize: '0.8125rem', padding: '6px 14px' }}
+            >
+              <Terminal size={14} />
+              <span>Launch Astra Copilot</span>
+            </button>
+            <button 
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                padding: '4px'
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Cryptographic Lineage Header Bar */}
+        <div style={{
+          padding: '10px 24px',
+          background: 'var(--bg-primary)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.75rem',
+          color: 'var(--text-secondary)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>SHA-256 Digest:</span>
+            <span className="font-mono" style={{ color: 'var(--accent-cyan)' }}>
+              {fileInstance.sha256Hash}
+            </span>
+            <button 
+              onClick={handleCopyHash}
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              title="Copy hash"
+            >
+              {copiedHash ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
+            </button>
+          </div>
+          <div>
+            <span>Size: <strong>{fileInstance.byteSize.toLocaleString()} bytes</strong></span>
+            <span style={{ margin: '0 8px', color: 'var(--border-subtle)' }}>|</span>
+            <span>Received: <strong>{fileInstance.receivedAtUtc.substring(11, 19)} UTC</strong></span>
+          </div>
+        </div>
+
+        {/* Tabs Bar */}
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          padding: '8px 24px',
+          background: 'var(--bg-secondary)',
+          borderBottom: '1px solid var(--border-subtle)'
+        }}>
+          <button
+            onClick={() => setActiveTab('findings')}
+            className={`btn ${activeTab === 'findings' ? 'btn-secondary' : ''}`}
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.8125rem',
+              background: activeTab === 'findings' ? 'var(--bg-tertiary)' : 'transparent'
+            }}
+          >
+            Deterministic Findings ({res?.findings.length || 0})
+          </button>
+          <button
+            onClick={() => setActiveTab('controls')}
+            className={`btn ${activeTab === 'controls' ? 'btn-secondary' : ''}`}
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.8125rem',
+              background: activeTab === 'controls' ? 'var(--bg-tertiary)' : 'transparent'
+            }}
+          >
+            Control Record Balancer
+          </button>
+          <button
+            onClick={() => setActiveTab('raw')}
+            className={`btn ${activeTab === 'raw' ? 'btn-secondary' : ''}`}
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.8125rem',
+              background: activeTab === 'raw' ? 'var(--bg-tertiary)' : 'transparent'
+            }}
+          >
+            Raw 94-Char Record Inspector
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+          {activeTab === 'findings' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {res?.findings.length === 0 ? (
+                <div style={{
+                  padding: '30px',
+                  textAlign: 'center',
+                  background: 'var(--accent-emerald-dim)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: '8px',
+                  color: 'var(--accent-emerald)'
+                }}>
+                  <CheckCircle size={32} style={{ margin: '0 auto 8px auto' }} />
+                  <p style={{ fontWeight: 600 }}>Pre-Flight Verification Succeeded</p>
+                  <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    Zero syntax, block alignment, entry hash, or arithmetic discrepancies detected.
+                  </p>
+                </div>
+              ) : (
+                res?.findings.map(finding => (
+                  <div 
+                    key={finding.id}
+                    style={{
+                      background: 'var(--bg-primary)',
+                      border: `1px solid ${finding.severity === 'FATAL' || finding.severity === 'ERROR' || finding.severity === 'CRITICAL' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                      borderRadius: '8px',
+                      padding: '14px 16px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className={`badge ${finding.severity === 'BLOCKING' ? 'badge-danger' : finding.severity === 'WARNING' ? 'badge-warning' : 'badge-neutral'}`}>
+                          {finding.code}
+                        </span>
+                        {finding.lineNumber && (
+                          <span className="badge badge-neutral">Line {finding.lineNumber}</span>
+                        )}
+                        {finding.byteOffset !== undefined && (
+                          <span className="badge badge-neutral">Byte {finding.byteOffset}</span>
+                        )}
+                        {finding.fieldStart ? (
+                          <span className="badge badge-neutral">
+                            Chars {finding.fieldStart}-{finding.fieldEnd}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        {finding.code} v{finding.ruleVersion}
+                        {finding.provenance === 'UNVERIFIED_REQUIRES_LICENSED_RULES' && ' · unverified'}
+                      </span>
+                    </div>
+
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-primary)', marginTop: '4px' }}>
+                      {finding.message}
+                    </p>
+
+                    {(finding.expected || finding.actual) && (
+                      <div style={{ marginTop: '8px', display: 'flex', gap: '16px', fontSize: '0.75rem' }}>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          Declared: <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{finding.expected}</span>
+                        </span>
+                        <span style={{ color: 'var(--text-muted)' }}>
+                          Computed: <span className="font-mono" style={{ color: 'var(--accent-cyan)' }}>{finding.actual}</span>
+                        </span>
+                      </div>
+                    )}
+                    {finding.evidence && (
+                      <div style={{ marginTop: '8px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          REDACTED FIELD EXCERPT (digits masked at the server):
+                        </span>
+                        <div className="log-viewer" style={{ marginTop: '2px' }}>
+                          {finding.evidence}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {activeTab === 'controls' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              {/* Balances Card */}
+              <div className="glass-panel" style={{ padding: '16px' }}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '12px' }}>
+                  Dollar Amount Reconciliation
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8125rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Total Debits:</span>
+                    <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-crimson)' }}>
+                      ${((res?.totalDebitsMinor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Total Credits:</span>
+                    <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-emerald)' }}>
+                      ${((res?.totalCreditsMinor || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  {/*
+                    Stated as arithmetic, not as a verdict. Whether a file must
+                    balance is a term of the feed contract: a credit-only
+                    payroll file never balances and is entirely correct. The
+                    badge this replaces said "Settlement State" and rendered
+                    "Balanced (Zero-Net)" as a success, which asserted both a
+                    settlement concept this product does not have and a
+                    correctness claim the file cannot support on its own.
+                  */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Debits vs credits:</span>
+                    <span className="badge badge-neutral">
+                      {res && res.totalDebitsMinor === res.totalCreditsMinor ? 'Equal' : 'Not equal'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Decision provenance */}
+              <div className="glass-panel" style={{ padding: '16px' }}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '12px' }}>
+                  Decision provenance
+                </h3>
+                {/*
+                  The card this replaces showed a calculated and a declared
+                  entry hash and then a badge reading "Verified Modulo 10^10"
+                  that was a constant: it rendered as verified whether the two
+                  values matched or not. Hash disagreements are now reported as
+                  findings, with both sides shown, by the rule that detected
+                  them.
+                */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8125rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Release policy:</span>
+                    <span className="font-mono" style={{ fontWeight: 600, color: 'var(--accent-cyan)' }}>
+                      {res?.policyVersion || 'not recorded'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Feed contract:</span>
+                    <span className="font-mono" style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      {res?.contractId || 'none applied'}
+                    </span>
+                  </div>
+                  {res?.notCheckedRuleIds && res.notCheckedRuleIds.length > 0 && (
+                    <div style={{ padding: '6px 0' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {res.notCheckedRuleIds.length} rule(s) not checked — no licensed rule source:
+                      </span>
+                      <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {res.notCheckedRuleIds.map(id => (
+                          <span key={id} className="badge badge-warning" style={{ fontSize: '0.65rem' }}>{id}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'raw' && (
+            <div className="log-viewer" style={{ maxHeight: '400px' }}>
+              {rawLines.map((line, idx) => {
+                const lineNum = idx + 1;
+                const hasErrorOnLine = res?.findings.some(f => f.lineNumber === lineNum);
+
+                return (
+                  <div 
+                    key={lineNum}
+                    className={hasErrorOnLine ? 'log-line-error' : ''}
+                    style={{ display: 'flex', gap: '12px', padding: '2px 0' }}
+                  >
+                    <span style={{ color: 'var(--text-dim)', width: '36px', textAlign: 'right', userSelect: 'none' }}>
+                      {lineNum}
+                    </span>
+                    <span style={{ whiteSpace: 'pre', color: hasErrorOnLine ? '#FCA5A5' : 'var(--text-secondary)' }}>
+                      {line}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/components/ContractConfigModal.tsx`
+
+**365 lines** · called fetch against a hardcoded http://localhost:8080 outside the typed client, so it carried no credentials, no tenant selector and no CSRF token, and swallowed every failure with console.warn("Config fetch notice"). An unreachable gateway rendered as an empty contract list. Replaced by ContractsScreen.
+
+```tsx
+import React, { useState, useEffect } from 'react';
+import { 
+  Building2, 
+  FileSpreadsheet, 
+  X, 
+  Plus, 
+  CheckCircle2, 
+  Clock
+} from 'lucide-react';
+
+interface ContractConfigModalProps {
+  onClose: () => void;
+}
+
+export const ContractConfigModal: React.FC<ContractConfigModalProps> = ({ onClose }) => {
+  const [partners, setPartners] = useState<any[]>([]);
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'PARTNERS' | 'CONTRACTS' | 'NEW_PARTNER'>('CONTRACTS');
+  const [newPartnerName, setNewPartnerName] = useState<string>('');
+  const [newPartnerRouting, setNewPartnerRouting] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [successMsg, setSuccessMsg] = useState<string>('');
+
+  const fetchConfig = async () => {
+    try {
+      const [pRes, cRes] = await Promise.all([
+        fetch('http://localhost:8080/api/v1/partners').then(r => r.json()),
+        fetch('http://localhost:8080/api/v1/contracts').then(r => r.json())
+      ]);
+      setPartners(pRes || []);
+      setContracts(cRes || []);
+    } catch (e) {
+      console.warn('Config fetch notice:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
+
+  const handleCreatePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPartnerName || !newPartnerRouting) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('http://localhost:8080/api/v1/partners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newPartnerName, routingNumber: newPartnerRouting })
+      });
+      if (res.ok) {
+        setSuccessMsg(`Partner ${newPartnerName} successfully registered in Go Gateway ledger!`);
+        setNewPartnerName('');
+        setNewPartnerRouting('');
+        await fetchConfig();
+        setTimeout(() => setSuccessMsg(''), 3000);
+      }
+    } catch (err: any) {
+      alert(`Error creating partner: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(7, 11, 18, 0.85)',
+      backdropFilter: 'blur(8px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 100,
+      padding: '24px'
+    }}>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '12px',
+        width: '100%',
+        maxWidth: '850px',
+        maxHeight: '90vh',
+        display: 'flex',
+        flexDirection: 'column',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+        overflow: 'hidden'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '16px 24px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'rgba(14, 20, 34, 0.6)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '6px',
+              background: 'rgba(2, 132, 199, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Building2 size={18} color="var(--accent-cyan)" />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Counterparty Partners & File Contracts Manager
+              </h3>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Configure expected arrival windows, filename regex patterns, and SLA grace periods.
+              </p>
+            </div>
+          </div>
+
+          <button 
+            className="btn btn-secondary" 
+            onClick={onClose}
+            style={{ padding: '6px', borderRadius: '50%' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Tab Switcher */}
+        <div style={{
+          display: 'flex',
+          borderBottom: '1px solid var(--border-subtle)',
+          background: 'var(--bg-primary)',
+          padding: '0 24px'
+        }}>
+          <button
+            onClick={() => setActiveTab('CONTRACTS')}
+            style={{
+              padding: '12px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'CONTRACTS' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+              color: activeTab === 'CONTRACTS' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <FileSpreadsheet size={14} />
+            <span>Active File Contracts ({contracts.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('PARTNERS')}
+            style={{
+              padding: '12px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'PARTNERS' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+              color: activeTab === 'PARTNERS' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Building2 size={14} />
+            <span>Authorized Counterparties ({partners.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('NEW_PARTNER')}
+            style={{
+              padding: '12px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: activeTab === 'NEW_PARTNER' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+              color: activeTab === 'NEW_PARTNER' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+              fontWeight: 600,
+              fontSize: '0.8125rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <Plus size={14} />
+            <span>Register New Counterparty</span>
+          </button>
+        </div>
+
+        {/* Content Area */}
+        <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {successMsg && (
+            <div style={{
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              borderRadius: '8px',
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              color: 'var(--accent-emerald)',
+              fontSize: '0.8125rem',
+              fontWeight: 600
+            }}>
+              <CheckCircle2 size={16} />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {activeTab === 'CONTRACTS' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {contracts.map(c => (
+                <div
+                  key={c.id}
+                  style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: '8px',
+                    padding: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                        {c.name}
+                      </span>
+                      <span className="badge badge-cyan" style={{ fontSize: '0.65rem' }}>{c.direction}</span>
+                      <span className="badge badge-neutral" style={{ fontSize: '0.65rem' }}>{c.timezone}</span>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Counterparty: <strong style={{ color: 'var(--text-secondary)' }}>{c.partnerName}</strong> | Pattern: <code>{c.filenamePattern}</code>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end', fontSize: '0.75rem', color: 'var(--accent-amber)', fontWeight: 600 }}>
+                        <Clock size={12} />
+                        <span>Cutoff: {c.expectedTime}</span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Grace: +{c.gracePeriodMinutes}m</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'PARTNERS' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {partners.map(p => (
+                <div
+                  key={p.id}
+                  style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: '8px',
+                    padding: '14px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                      {p.name}
+                    </span>
+                    <span className="badge badge-success" style={{ fontSize: '0.65rem' }}>ACTIVE</span>
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Fed Routing (ABA): <strong className="font-mono" style={{ color: 'var(--accent-cyan)' }}>{p.routingNumber}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Registered: {p.createdAt?.substring(0, 10)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'NEW_PARTNER' && (
+            <form onSubmit={handleCreatePartner} style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxWidth: '500px' }}>
+              <div>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Institution / Counterparty Name:
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Citadel Securities Clearing LLC"
+                  value={newPartnerName}
+                  onChange={(e) => setNewPartnerName(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: '6px',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.8125rem'
+                  }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Federal Reserve ABA Routing Number (9 Digits):
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 021000021"
+                  maxLength={9}
+                  value={newPartnerRouting}
+                  onChange={(e) => setNewPartnerRouting(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: '6px',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.8125rem'
+                  }}
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={isSubmitting}
+                style={{ marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                <Plus size={14} />
+                <span>{isSubmitting ? 'Registering Counterparty...' : 'Register Counterparty in Ledger'}</span>
+              </button>
+            </form>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: '14px 24px',
+          borderTop: '1px solid var(--border-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          background: 'rgba(14, 20, 34, 0.6)'
+        }}>
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/components/DemoDataBanner.tsx`
+
+**112 lines** · superseded by the console's DemoProfileBanner, which reports the profile the *server* named rather than a constant compiled into the bundle.
+
+```tsx
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle, WifiOff, CheckCircle2 } from 'lucide-react';
+import { SentinelApi } from '../services/api';
+
+/**
+ * DemoDataBanner states two facts an operator cannot otherwise see.
+ *
+ * 1. The expectation board, partners and contracts on this screen are a local
+ *    synthetic corpus (src/mockData/syntheticCorpus.ts). They are NOT read from
+ *    the gateway. Before Prompt 01 nothing on screen said so, and synthetic
+ *    state was visually identical to real state.
+ *
+ * 2. Whether the gateway is actually reachable. Previously a backend outage was
+ *    invisible: the API client caught every error, logged "using local mock
+ *    state" to a console nobody watches, and returned an empty array, so an
+ *    outage rendered as a healthy, empty board.
+ *
+ * Prompt 12 rebuilds these screens on authenticated server data, at which point
+ * the demo half of this banner is deleted and the connectivity half becomes a
+ * real per-query degraded state.
+ */
+
+type GatewayState = 'checking' | 'reachable' | 'unreachable' | 'unauthorized';
+
+export const DemoDataBanner: React.FC = () => {
+  const [gateway, setGateway] = useState<GatewayState>('checking');
+  const [detail, setDetail] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = async () => {
+      const res = await SentinelApi.checkHealth();
+      if (cancelled) return;
+      if (res.state === 'ok') {
+        setGateway('reachable');
+        setDetail('');
+      } else if (res.state === 'unauthorized') {
+        setGateway('unauthorized');
+        setDetail(res.error);
+      } else {
+        setGateway('unreachable');
+        setDetail(res.error);
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  const gatewayLine = () => {
+    switch (gateway) {
+      case 'checking':
+        return { icon: <WifiOff size={14} />, text: 'Checking gateway…', color: 'var(--text-muted)' };
+      case 'reachable':
+        return {
+          icon: <CheckCircle2 size={14} />,
+          text: 'Gateway reachable. Uploads and triage use live server validation.',
+          color: 'var(--accent-emerald)',
+        };
+      case 'unauthorized':
+        return {
+          icon: <WifiOff size={14} />,
+          text: `Gateway reachable but rejected this client: ${detail}`,
+          color: 'var(--accent-amber)',
+        };
+      case 'unreachable':
+        return {
+          icon: <WifiOff size={14} />,
+          text: `Gateway UNAVAILABLE — ${detail} Nothing on this screen reflects live server state.`,
+          color: 'var(--accent-red, #ef4444)',
+        };
+    }
+  };
+
+  const g = gatewayLine();
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="glass-panel"
+      style={{
+        padding: '12px 16px',
+        border: '1px solid var(--accent-amber)',
+        background: 'rgba(245, 158, 11, 0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <AlertTriangle size={16} color="var(--accent-amber)" />
+        <strong style={{ fontSize: '0.8125rem', letterSpacing: '0.04em', color: 'var(--accent-amber)' }}>
+          DEMO DATA
+        </strong>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+          Expectations, partners and contracts shown below come from a local synthetic corpus, not
+          from the gateway. Do not read them as operational state.
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: g.color, fontSize: '0.75rem' }}>
+        {g.icon}
+        <span>{g.text}</span>
+      </div>
+    </div>
+  );
+};
+```
+
+
+## `src/scheduler/deadlineEngine.ts`
+
+**102 lines** · the browser copy of deadline derivation. internal/schedule is the implementation, including the Federal Reserve calendar and the DST resolution this file did not attempt.
+
+```tsx
+import { ExpectationOccurrence, FileContract, Incident, Partner } from '../types/financial';
+
+export interface SlaAssessment {
+  occurrence: ExpectationOccurrence;
+  minutesUntilDue: number;
+  minutesUntilGraceExpiry: number;
+  isBreached: boolean;
+  breachProbability: number; // 0.0 to 1.0 (from historical baseline)
+  statusLabel: string;
+  badgeVariant: 'success' | 'warning' | 'danger' | 'neutral';
+}
+
+/**
+ * Assesses the SLA status of an expectation occurrence given the current UTC time.
+ */
+export function assessOccurrenceSla(
+  occurrence: ExpectationOccurrence,
+  nowUtc: Date = new Date()
+): SlaAssessment {
+  const dueTime = new Date(occurrence.dueAtUtc).getTime();
+  const graceTime = new Date(occurrence.graceExpiresAtUtc).getTime();
+  const nowTime = nowUtc.getTime();
+
+  const minutesUntilDue = Math.round((dueTime - nowTime) / (1000 * 60));
+  const minutesUntilGraceExpiry = Math.round((graceTime - nowTime) / (1000 * 60));
+
+  let isBreached = false;
+  let breachProbability = 0.05;
+  let statusLabel = 'On Schedule';
+  let badgeVariant: SlaAssessment['badgeVariant'] = 'success';
+
+  if (occurrence.status === 'VALID' || occurrence.status === 'RELEASED') {
+    statusLabel = 'Delivered & Validated';
+    badgeVariant = 'success';
+    breachProbability = 0.0;
+  } else if (occurrence.status === 'QUARANTINED') {
+    statusLabel = 'Quarantined (Invalid)';
+    badgeVariant = 'danger';
+    isBreached = true;
+    breachProbability = 1.0;
+  } else if (occurrence.status === 'RECEIVED' || occurrence.status === 'VALIDATING') {
+    statusLabel = 'Processing In-Flight';
+    badgeVariant = 'warning';
+    breachProbability = 0.15;
+  } else if (nowTime > graceTime) {
+    isBreached = true;
+    statusLabel = 'SLA Breached (Missing File)';
+    badgeVariant = 'danger';
+    breachProbability = 1.0;
+  } else if (nowTime > dueTime) {
+    statusLabel = 'In Grace Period (Imminent Breach)';
+    badgeVariant = 'danger';
+    breachProbability = 0.85;
+  } else if (minutesUntilDue <= 30) {
+    statusLabel = `Due Soon (${minutesUntilDue}m remaining)`;
+    badgeVariant = 'warning';
+    breachProbability = 0.45;
+  } else {
+    statusLabel = `Expected in ${Math.round(minutesUntilDue / 60)}h ${minutesUntilDue % 60}m`;
+    badgeVariant = 'neutral';
+    breachProbability = 0.08;
+  }
+
+  return {
+    occurrence,
+    minutesUntilDue,
+    minutesUntilGraceExpiry,
+    isBreached,
+    breachProbability,
+    statusLabel,
+    badgeVariant
+  };
+}
+
+/**
+ * Generates an automated Missing File Incident if overdue.
+ */
+export function evaluateMissingFileIncident(
+  occurrence: ExpectationOccurrence,
+  contract: FileContract,
+  partner: Partner,
+  nowUtc: Date = new Date()
+): Incident | null {
+  const assessment = assessOccurrenceSla(occurrence, nowUtc);
+  
+  if (assessment.isBreached && occurrence.status !== 'VALID' && occurrence.status !== 'RELEASED') {
+    return {
+      id: `INC-MISSING-${occurrence.id}`,
+      type: 'MISSING_FILE_DEADLINE',
+      severity: 'CRITICAL',
+      title: `Missing Inbound File: ${contract.name} (${partner.name})`,
+      occurrenceId: occurrence.id,
+      partnerId: partner.id,
+      status: 'OPEN',
+      openedAtUtc: nowUtc.toISOString(),
+      slaDeadlineUtc: occurrence.dueAtUtc,
+      resolutionNote: `Expected by ${occurrence.dueAtUtc} (Grace expired at ${occurrence.graceExpiresAtUtc}). No matching transmission detected over SFTP.`
+    };
+  }
+
+  return null;
+}
+```
+
+
+## `src/audit/hashChain.ts`
+
+**132 lines** · the browser copy of the evidence chain. internal/ledger is the implementation; a chain built and verified in the same browser tab is not tamper evidence.
+
+```tsx
+import { DomainEvent } from '../types/financial';
+
+/**
+ * Fast SHA-256 string hash calculation (using Web Crypto API with fallback)
+ */
+export async function calculateSha256(text: string): Promise<string> {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const msgUint8 = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  
+  // Deterministic fallback hash for non-crypto environments
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(64, '0');
+}
+
+export class TamperEvidentEventStore {
+  private events: DomainEvent[] = [];
+  private latestHash = '0000000000000000000000000000000000000000000000000000000000000000';
+
+  public async appendEvent(
+    tenantId: string,
+    aggregateId: string,
+    aggregateType: DomainEvent['aggregateType'],
+    eventType: string,
+    actor: string,
+    payload: Record<string, unknown>,
+    correlationId: string,
+    causationId?: string
+  ): Promise<DomainEvent> {
+    const timestampUtc = new Date().toISOString();
+    const previousHash = this.latestHash;
+
+    const eventContentForHash = JSON.stringify({
+      previousHash,
+      tenantId,
+      aggregateId,
+      aggregateType,
+      eventType,
+      timestampUtc,
+      actor,
+      correlationId,
+      payload
+    });
+
+    const currentHash = await calculateSha256(eventContentForHash);
+
+    const event: DomainEvent = {
+      id: `EVT-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      tenantId,
+      aggregateId,
+      aggregateType,
+      eventType,
+      timestampUtc,
+      actor,
+      correlationId,
+      causationId,
+      payload,
+      previousHash,
+      currentHash
+    };
+
+    this.events.push(event);
+    this.latestHash = currentHash;
+    return event;
+  }
+
+  public getEvents(): DomainEvent[] {
+    return [...this.events];
+  }
+
+  public async verifyIntegrity(): Promise<{
+    isValid: boolean;
+    totalEvents: number;
+    tamperedEventIndex?: number;
+    error?: string;
+  }> {
+    let expectedPreviousHash = '0000000000000000000000000000000000000000000000000000000000000000';
+
+    for (let i = 0; i < this.events.length; i++) {
+      const event = this.events[i];
+      if (event.previousHash !== expectedPreviousHash) {
+        return {
+          isValid: false,
+          totalEvents: this.events.length,
+          tamperedEventIndex: i,
+          error: `Broken chain link at index ${i}: expected previousHash '${expectedPreviousHash}', found '${event.previousHash}'.`
+        };
+      }
+
+      const contentForHash = JSON.stringify({
+        previousHash: event.previousHash,
+        tenantId: event.tenantId,
+        aggregateId: event.aggregateId,
+        aggregateType: event.aggregateType,
+        eventType: event.eventType,
+        timestampUtc: event.timestampUtc,
+        actor: event.actor,
+        correlationId: event.correlationId,
+        payload: event.payload
+      });
+
+      const recalculate = await calculateSha256(contentForHash);
+      if (recalculate !== event.currentHash) {
+        return {
+          isValid: false,
+          totalEvents: this.events.length,
+          tamperedEventIndex: i,
+          error: `Payload tamper detected at event index ${i} ('${event.id}'): calculated hash '${recalculate}' does not match stored hash '${event.currentHash}'.`
+        };
+      }
+
+      expectedPreviousHash = event.currentHash;
+    }
+
+    return {
+      isValid: true,
+      totalEvents: this.events.length
+    };
+  }
+}
+```
+
+
+## `src/ai/exceptionAnalyst.ts`
+
+**202 lines** · the deterministic matcher used as a fallback when AI triage failed. Its output was rendered as an analysis. Prompt 15 builds the real read-only analyst; until then the correct behaviour on an unreachable AI tier is to say so.
+
+```tsx
+import { AgentRun, Incident, ValidationResult, FileInstance, FileContract, Partner } from '../types/financial';
+
+export interface ApprovedRunbook {
+  id: string;
+  title: string;
+  category: 'ACH_VALIDATION' | 'MISSING_FILE' | 'DUPLICATE_INGESTION' | 'SECURITY';
+  applicableFindingCodes: string[];
+  summary: string;
+  recommendedSteps: string[];
+  requiresDualApproval: boolean;
+}
+
+export const APPROVED_RUNBOOKS: ApprovedRunbook[] = [
+  {
+    id: 'RB-ACH-01',
+    title: 'NACHA Entry Hash Mismatch Triage & Remediation',
+    category: 'ACH_VALIDATION',
+    applicableFindingCodes: ['NACHA.MATH.BATCH_ENTRY_HASH', 'NACHA.MATH.FILE_ENTRY_HASH'],
+    summary: 'Occurs when the sum of routing numbers in Entry Detail records does not match the 10-digit hash declared in Batch/File Control records.',
+    recommendedSteps: [
+      '1. Verify if any Entry Detail (Type 6) records were dropped or truncated during SFTP transmission.',
+      '2. Inspect if the originating banking application truncated the 10-digit hash accumulator.',
+      '3. Issue a format remediation notice to the partner file originator citing Nacha Appendix B.',
+      '4. If verified as an originator math glitch with valid payment details, submit an exceptional release request for dual-control human approval.'
+    ],
+    requiresDualApproval: true
+  },
+  {
+    id: 'RB-ACH-02',
+    title: 'NACHA Debit/Credit Control Imbalance Triage',
+    category: 'ACH_VALIDATION',
+    applicableFindingCodes: ['NACHA.MATH.BATCH_DEBIT_TOTAL', 'NACHA.MATH.BATCH_CREDIT_TOTAL', 'NACHA.MATH.FILE_DEBIT_TOTAL', 'NACHA.MATH.FILE_CREDIT_TOTAL'],
+    summary: 'Occurs when the calculated dollar sum of individual payment records does not match the batch or file trailer totals.',
+    recommendedSteps: [
+      '1. Isolate the specific batch number with the arithmetic discrepancy.',
+      '2. Redline the declared trailer record against the calculated sum of Type 6 detail amounts.',
+      '3. Check whether the file is balanced vs. unbalanced per partner File Contract agreement.',
+      '4. Under no circumstances edit payment dollar amounts. Request an authorized re-drop from partner.'
+    ],
+    requiresDualApproval: true
+  },
+  {
+    id: 'RB-MISS-01',
+    title: 'Missing Counterparty File Cutoff Escalation',
+    category: 'MISSING_FILE',
+    applicableFindingCodes: ['MISSING_FILE_DEADLINE'],
+    summary: 'Triggered when a scheduled delivery fails to arrive within the contract window plus grace period.',
+    recommendedSteps: [
+      '1. Check SFTPGo ingress transport logs to confirm whether the partner attempted an SSH connection.',
+      '2. Check whether upstream Federal Reserve or central bank holiday schedules apply.',
+      '3. Dispatch urgent missing-file advisory to partner treasury operations desk.',
+      '4. Assess liquidity impact on downstream FedACH / Fedwire settlement windows.'
+    ],
+    requiresDualApproval: false
+  },
+  {
+    id: 'RB-SEC-01',
+    title: '0-Byte or Truncated File Ingestion Guard',
+    category: 'SECURITY',
+    applicableFindingCodes: ['NACHA.STRUCT.EMPTY', 'NACHA.STRUCT.NO_FILE_CONTROL', 'NACHA.STRUCT.TRUNCATED'],
+    summary: 'Prevents downstream core database ingestion of incomplete or empty transmissions.',
+    recommendedSteps: [
+      '1. Confirm file was fully closed by SFTP client (check transport completion event).',
+      '2. Quarantine the transmission immediately to prevent race conditions with downstream jobs.',
+      '3. Notify partner support engineer of EOF truncation.'
+    ],
+    requiresDualApproval: false
+  }
+];
+
+export function runExceptionAnalyst(
+  incident: Incident,
+  fileInstance?: FileInstance,
+  contract?: FileContract,
+  partner?: Partner,
+  validationResult?: ValidationResult
+): AgentRun {
+  const startTime = performance.now();
+  const findingCodes = validationResult?.findings.map(f => f.code) || [incident.type];
+
+  // Match relevant approved runbooks
+  const matchedRunbooks = APPROVED_RUNBOOKS.filter(rb =>
+    rb.applicableFindingCodes.some(code => findingCodes.includes(code)) ||
+    (incident.type === 'MISSING_FILE_DEADLINE' && rb.id === 'RB-MISS-01')
+  );
+
+  const citedFindingCodes = validationResult?.findings.map(f => f.code) || [incident.type];
+  const citedRunbookSections = matchedRunbooks.map(rb => `${rb.id}: ${rb.title}`);
+  const citedEventIds = [
+    `EVT-${incident.id}`,
+    fileInstance ? `EVT-SRC-${fileInstance.sourceEventId}` : `EVT-EXP-${incident.occurrenceId}`
+  ];
+
+  let findingsSummary = '';
+  const hypotheses: AgentRun['hypotheses'] = [];
+  const proposedActionPlan: AgentRun['proposedActionPlan'] = [];
+
+  if (incident.type === 'MISSING_FILE_DEADLINE') {
+    findingsSummary = `Expected transmission '${contract?.name || 'Inbound File'}' from counterparty '${partner?.name || 'Partner'}' did not arrive by scheduled deadline ${incident.slaDeadlineUtc}. Grace period has expired with zero observed SFTP arrival events.`;
+    
+    hypotheses.push({
+      hypothesis: 'Originating partner batch job failed to initiate or hung on upstream file generation.',
+      confidence: 'HIGH',
+      supportingEvidence: [
+        `Zero SSH upload completion events logged in SFTPGo since window start.`,
+        `Contract deadline was ${incident.slaDeadlineUtc} with a ${contract?.gracePeriodMinutes || 15}-minute grace period.`
+      ]
+    });
+
+    hypotheses.push({
+      hypothesis: 'Network firewall or DNS resolution issue between partner SFTP client and ingress gateway.',
+      confidence: 'MEDIUM',
+      supportingEvidence: [
+        `No TCP connection resets or authentication failures observed on port 22.`
+      ]
+    });
+
+    proposedActionPlan.push(
+      { step: 1, action: 'Inspect SFTPGo daemon connection logs for partial handshake attempts.', authorityTier: 0, requiresHumanApproval: false },
+      { step: 2, action: 'Draft priority SLA breach notification to partner primary contact.', authorityTier: 2, requiresHumanApproval: false },
+      { step: 3, action: 'If partner confirms delayed run, request temporary 45-minute SLA waiver.', authorityTier: 3, requiresHumanApproval: true }
+    );
+  } else {
+    const blockingFindings = validationResult?.findings.filter(f => f.severity === 'BLOCKING') || [];
+    const errorCount = blockingFindings.length;
+    findingsSummary = `File '${fileInstance?.filename}' was quarantined at the transfer boundary. Pre-flight inspection identified ${errorCount} deterministic violation(s) preventing safe downstream release.`;
+
+    const hashFindings = blockingFindings.filter(f =>
+      f.code === 'NACHA.MATH.BATCH_ENTRY_HASH' || f.code === 'NACHA.MATH.FILE_ENTRY_HASH');
+    if (hashFindings.length > 0) {
+      hypotheses.push({
+        hypothesis: 'Originating core system calculated Entry Hash using a non-standard 10-digit truncation or omitted an entry record from the trailer accumulator.',
+        confidence: 'HIGH',
+        // The evidence comes from the finding the server raised, which carries
+        // both sides of the disagreement. The previous version read two
+        // top-level fields the response no longer has, and cited "Nacha 2025
+        // Chapter 3" -- a licensed source this system does not have and
+        // therefore cannot cite.
+        supportingEvidence: hashFindings.map(f =>
+          `${f.code} v${f.ruleVersion} at record ${f.lineNumber ?? '?'}: declared '${f.expected ?? 'n/a'}', computed '${f.actual ?? 'n/a'}'.`
+        )
+      });
+    }
+
+    if (findingCodes.includes('NACHA.ROUTING.CHECK_DIGIT')) {
+      hypotheses.push({
+        hypothesis: 'Individual payment record contains an invalid ABA routing number failing Federal Reserve Modulo 10 verification.',
+        confidence: 'HIGH',
+        supportingEvidence: [
+          `Validation finding caught check digit discrepancy at record detail line.`,
+          `Releasing this payment downstream would cause bank return code R03/R04.`
+        ]
+      });
+    }
+
+    proposedActionPlan.push(
+      { step: 1, action: 'Generate cryptographic evidence bundle with exact line-item finding citations.', authorityTier: 0, requiresHumanApproval: false },
+      { step: 2, action: 'Draft format rejection notice for partner with redacted error excerpt.', authorityTier: 2, requiresHumanApproval: false },
+      { step: 3, action: 'Hold file in quarantine until corrected file drop is received.', authorityTier: 0, requiresHumanApproval: false }
+    );
+  }
+
+  const partnerNotice = `
+SUBJECT: [URGENT] Sentinel Flow Validation Notice: ${contract?.name || 'File Delivery'} (${incident.id})
+
+Dear ${partner?.primaryContact.name || 'Partner Operations Team'},
+
+Sentinel Flow quarantined incoming file '${fileInstance?.filename || contract?.filenamePattern}' received at ${fileInstance?.receivedAtUtc || new Date().toISOString()}.
+
+Deterministic Findings:
+${validationResult?.findings.map(f => ` • [${f.code}] Line ${f.lineNumber || 'N/A'}: ${f.message}`).join('\n') || ' • Scheduled file arrival deadline was breached with no arrival recorded.'}
+
+Required Action:
+Please review the attached diagnostic report, verify against Nacha Operating Rules, and submit a corrected file. Original file remains in quarantined state (SHA-256: ${fileInstance?.sha256Hash || 'N/A'}).
+
+Sentinel Flow Financial Gateway
+`.trim();
+
+  const durationMs = Math.round(performance.now() - startTime);
+
+  return {
+    id: `AGENT-RUN-${Date.now()}`,
+    incidentId: incident.id,
+    agentVersion: 'Sentinel-Analyst-v1.2 (Astra-RRR-Constrained)',
+    modelIdentifier: 'claude-3-5-sonnet / gpt-4o-mini (Deterministic Hybrid)',
+    ranAtUtc: new Date().toISOString(),
+    inputDigest: `SHA256:${Date.now().toString(16)}`,
+    citedEventIds,
+    citedFindingCodes,
+    citedRunbookSections,
+    findingsSummary,
+    hypotheses,
+    proposedActionPlan,
+    draftExternalPartnerNotice: partnerNotice,
+    metrics: {
+      durationMs,
+      inputTokens: 1420,
+      outputTokens: 460,
+      estimatedCostUsd: 0.0038
+    }
+  };
+}
+```
+
+
+## `src/mockData/syntheticCorpus.ts`
+
+**171 lines** · SYNTHETIC_PARTNERS, SYNTHETIC_CONTRACTS, generateInitialOccurrences and the two sample NACHA constants. Nothing in the production path may read these; the sample-file generator that remains asks the *server* for a fixture.
+
+```tsx
+import { Partner, FileContract, ExpectationOccurrence } from '../types/financial';
+
+export const SYNTHETIC_PARTNERS: Partner[] = [
+  {
+    id: 'PARTNER-MERIDIAN-01',
+    tenantId: 'TENANT-DEFAULT',
+    name: 'Meridian Treasury Services',
+    leiCode: '549300V5L2CGV15S5P38',
+    status: 'ACTIVE',
+    allowedChannelIdentities: ['sftp://meridian-ingest.sentinel.internal:22', 'sftp-user-meridian-prod'],
+    sshKeyFingerprints: ['SHA256:4a3F9cKz8eL1mQxWpTvBn9Rt6sDuFhJ2kLm8qWeRt7y'],
+    pgpKeyIds: ['0x9E8C7B6A5F4E3D2C'],
+    primaryContact: {
+      name: 'Michael Sterling (Treasury Ops Lead)',
+      email: 'm.sterling@meridian.mock.com',
+      phone: '+1 (212) 635-1000'
+    }
+  },
+  {
+    id: 'PARTNER-APEX-02',
+    tenantId: 'TENANT-DEFAULT',
+    name: 'Apex Clearing & Settlement Network',
+    leiCode: '8I5D0TI0ER51YZ7JPI37',
+    status: 'ACTIVE',
+    allowedChannelIdentities: ['sftp://apex-gateway.sentinel.internal:22', 'sftp-user-apex-clearing'],
+    sshKeyFingerprints: ['SHA256:7uK2xP9qLm4nRt6sDuFhJ2kLm8qWeRt7y4a3F9cKz8e'],
+    pgpKeyIds: ['0x1A2B3C4D5E6F7A8B'],
+    primaryContact: {
+      name: 'Sarah Chen (Settlement Engineering)',
+      email: 's.chen@apexclearing.mock.com',
+      phone: '+1 (212) 270-6000'
+    }
+  },
+  {
+    id: 'PARTNER-ATLANTIC-03',
+    tenantId: 'TENANT-DEFAULT',
+    name: 'Atlantic Custody & Trust Services',
+    leiCode: '5714005EN0VJ0SD75X48',
+    status: 'ACTIVE',
+    allowedChannelIdentities: ['sftp://atlantic-mft.sentinel.internal:22'],
+    sshKeyFingerprints: ['SHA256:9qWeRt7y4a3F9cKz8eL1mQxWpTvBn9Rt6sDuFhJ2kLm'],
+    pgpKeyIds: ['0x8F7E6D5C4B3A2910'],
+    primaryContact: {
+      name: 'David Vance (Custody Operations)',
+      email: 'd.vance@atlantictrust.mock.com',
+      phone: '+1 (617) 786-3000'
+    }
+  }
+];
+
+export const SYNTHETIC_CONTRACTS: FileContract[] = [
+  {
+    id: 'CONTRACT-MERIDIAN-ACH-01',
+    partnerId: 'PARTNER-MERIDIAN-01',
+    name: 'Meridian Inbound Commercial ACH Batch',
+    format: 'NACHA_ACH',
+    parserVersion: 'NachaEngine-v1.4',
+    rulePackVersion: 'Nacha2025-Q4',
+    filenamePattern: '^MERIDIAN_ACH_COMMERCIAL_\\d{8}_\\d{4}\\.txt$',
+    timezone: 'America/New_York',
+    businessCalendar: 'US_FED_RESERVE',
+    expectedDueTimeUtc: '16:45:00', // 4:45 PM Central Settlement Window
+    gracePeriodMinutes: 15,
+    expectedSizeBounds: { minBytes: 940, maxBytes: 50000000 },
+    expectedRecordBounds: { minRecords: 10, maxRecords: 100000 },
+    allowUnbalancedAch: false,
+    releasePolicy: 'AUTOMATIC_ON_VALID'
+  },
+  {
+    id: 'CONTRACT-APEX-SWEEP-02',
+    partnerId: 'PARTNER-APEX-02',
+    name: 'Apex End-of-Day Cash Sweep Batch',
+    format: 'NACHA_ACH',
+    parserVersion: 'NachaEngine-v1.4',
+    rulePackVersion: 'Nacha2025-Q4',
+    filenamePattern: '^APEX_SWEEP_\\d{8}\\.ach$',
+    timezone: 'America/New_York',
+    businessCalendar: 'US_FED_RESERVE',
+    expectedDueTimeUtc: '17:30:00',
+    gracePeriodMinutes: 10,
+    expectedSizeBounds: { minBytes: 940, maxBytes: 25000000 },
+    expectedRecordBounds: { minRecords: 10, maxRecords: 50000 },
+    allowUnbalancedAch: true,
+    releasePolicy: 'AUTOMATIC_ON_VALID'
+  },
+  {
+    id: 'CONTRACT-ATLANTIC-TRADE-03',
+    partnerId: 'PARTNER-ATLANTIC-03',
+    name: 'Atlantic Custody Trade Settlement',
+    format: 'NACHA_ACH',
+    parserVersion: 'NachaEngine-v1.4',
+    rulePackVersion: 'Nacha2025-Q4',
+    filenamePattern: '^ATLANTIC_SETTLE_\\d{8}\\.txt$',
+    timezone: 'America/New_York',
+    businessCalendar: 'US_FED_RESERVE',
+    expectedDueTimeUtc: '18:15:00',
+    gracePeriodMinutes: 20,
+    expectedSizeBounds: { minBytes: 940, maxBytes: 40000000 },
+    expectedRecordBounds: { minRecords: 10, maxRecords: 75000 },
+    allowUnbalancedAch: false,
+    releasePolicy: 'MANUAL_APPROVAL_REQUIRED'
+  }
+];
+
+export function generateInitialOccurrences(): ExpectationOccurrence[] {
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  return [
+    {
+      id: 'EXP-MERIDIAN-TODAY',
+      contractId: 'CONTRACT-MERIDIAN-ACH-01',
+      partnerId: 'PARTNER-MERIDIAN-01',
+      windowStartUtc: `${todayStr}T15:00:00.000Z`,
+      windowEndUtc: `${todayStr}T17:00:00.000Z`,
+      dueAtUtc: `${todayStr}T16:45:00.000Z`,
+      graceExpiresAtUtc: `${todayStr}T17:00:00.000Z`,
+      status: 'EXPECTED',
+      expectedDescription: 'Daily 4:45 PM Clearing Window (Meridian Commercial Payroll & Vendor Feeds)'
+    },
+    {
+      id: 'EXP-APEX-TODAY',
+      contractId: 'CONTRACT-APEX-SWEEP-02',
+      partnerId: 'PARTNER-APEX-02',
+      windowStartUtc: `${todayStr}T16:00:00.000Z`,
+      windowEndUtc: `${todayStr}T17:40:00.000Z`,
+      dueAtUtc: `${todayStr}T17:30:00.000Z`,
+      graceExpiresAtUtc: `${todayStr}T17:40:00.000Z`,
+      status: 'EXPECTED',
+      expectedDescription: 'EOD Corporate Treasury Concentration Sweep'
+    },
+    {
+      id: 'EXP-ATLANTIC-TODAY',
+      contractId: 'CONTRACT-ATLANTIC-TRADE-03',
+      partnerId: 'PARTNER-ATLANTIC-03',
+      windowStartUtc: `${todayStr}T17:00:00.000Z`,
+      windowEndUtc: `${todayStr}T18:35:00.000Z`,
+      dueAtUtc: `${todayStr}T18:15:00.000Z`,
+      graceExpiresAtUtc: `${todayStr}T18:35:00.000Z`,
+      status: 'EXPECTED',
+      expectedDescription: 'Institutional Securities Settle & Net Asset Value (NAV) Feed'
+    }
+  ];
+}
+
+/**
+ * Pre-constructed Valid 10-line NACHA ACH File (Balanced, Valid Hash, Valid Check Digits)
+ */
+export const SAMPLE_VALID_NACHA = `101 021000021 1234567892608141645A094101MERIDIAN CUSTODY        SENTINEL FLOW          00000001
+5200MERIDIAN PAYROLL DISCRETIONARY       1234567890PPDVENDOR PAY260814260814   1021000020000001
+62202100002112345678901      0000150000ID-10042        JOHN DOE              00021000020000001
+62702100002198765432109      0000150000ID-10043        ACME CORP             00021000020000002
+820000000200042000040000001500000000001500001234567890                         021000020000001
+9000001000001000000020004200004000000150000000000150000                                       
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999`;
+
+/**
+ * Pre-constructed Malformed NACHA ACH File (Out of Balance + Hash Mismatch + Invalid ABA Check Digit)
+ */
+export const SAMPLE_CORRUPTED_NACHA = `101 021000021 1234567892608141645A094101MERIDIAN CUSTODY        SENTINEL FLOW          00000001
+5200MERIDIAN PAYROLL DISCRETIONARY       1234567890PPDVENDOR PAY260814260814   1021000020000001
+62202100002912345678901      0000450000ID-10042        CORRUPT ENTRY         00021000020000001
+62702100002198765432109      0000150000ID-10043        ACME CORP             00021000020000002
+820000000200099999990000001500000000004500001234567890                         021000020000001
+9000001000001000000020009999999000000150000000000450000                                       
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999
+9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999`;
+```
