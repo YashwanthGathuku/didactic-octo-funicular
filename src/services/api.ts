@@ -1,66 +1,31 @@
 /**
- * Sentinel Flow - Real-Time API Client
- * Connects the React Operations Cockpit to the Go Gateway & Python AI Tier.
+ * The connector platform's client.
+ *
+ * This file used to carry its own `request()`, its own `ApiResult`, and its own
+ * base URL -- a second transport alongside `src/api/client.ts` with its own
+ * ideas about credentials, the tenant selector and CSRF. Two transports means
+ * two places to fix anything, and the one that gets fixed is the one somebody
+ * remembered. It now re-exports the single client and holds only the connector
+ * and connection *types* and calls.
  */
 
-const API_BASE_URL = 'http://localhost:8080/api/v1';
+import { ApiResult, request } from '../api/client';
+
+export type { ApiResult };
 
 /**
- * ApiResult makes dependency failure a state the UI must handle, rather than
- * something a catch block can quietly swallow.
+ * What ingestion returns.
  *
- * getSlaBoard() and getIncidents() previously caught every error, logged
- * "using local mock state", and returned []. A backend outage was therefore
- * indistinguishable from "no incidents" -- the screen rendered as healthy and
- * empty. Callers must now branch on `state`.
- *
- * Prompt 12 replaces this with a generated, typed API client that also carries
- * authentication; Prompt 04 supplies the credentials it will send.
+ * The only shape from this block that survives. Everything that used to sit
+ * alongside it -- checkHealth, getSlaBoard, getIncidents, getLedger,
+ * triggerTriage, approveIncident, triggerChaos, runBenchmark, runEvals,
+ * getComplianceExport -- was either replaced by a typed call in
+ * `src/api/endpoints.ts` or pointed at a route Prompt 01 deleted. Three of them
+ * (`/chaos/trigger`, `/benchmark/run`, and the incident triage the fabricated
+ * analyst fell back to) would have 404'd if anything had called them, and
+ * because each threw on failure, the caller could not tell a missing route from
+ * an outage.
  */
-export type ApiResult<T> =
-  | { state: 'ok'; data: T }
-  | { state: 'unavailable'; error: string }
-  | { state: 'unauthorized'; error: string };
-
-async function request<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
-  try {
-    const res = await fetch(url, init);
-    if (res.status === 401 || res.status === 403) {
-      return { state: 'unauthorized', error: `Not authorized (HTTP ${res.status}).` };
-    }
-    if (!res.ok) {
-      return { state: 'unavailable', error: `Gateway returned HTTP ${res.status}.` };
-    }
-    return { state: 'ok', data: (await res.json()) as T };
-  } catch (e) {
-    return {
-      state: 'unavailable',
-      error: e instanceof Error ? e.message : 'Gateway unreachable.',
-    };
-  }
-}
-
-export interface ApiHealth {
-  status: string;
-  service: string;
-  engine: string;
-}
-
-export interface ApiLedgerSummary {
-  totalEvents: number;
-  isChainValid: boolean;
-  lastEventHash: string;
-  events: {
-    id: number;
-    eventType: string;
-    actor: string;
-    payload: Record<string, any>;
-    previousHash: string;
-    currentHash: string;
-    createdAt: string;
-  }[];
-}
-
 export interface ApiIngestionResult {
   fileId: number;
   filename: string;
@@ -111,112 +76,23 @@ export interface ApiIngestionResult {
   incidentId?: number;
 }
 
-export interface ApiAnalystResponse {
-  summary: string;
-  citations: string[];
-  proposed_actions: {
-    type: string;
-    description: string;
-  }[];
-  confidence: number;
-  agent_version: string;
-  metrics: {
-    durationMs: number;
-    inputTokens: number;
-    outputTokens: number;
-    estimatedCostUsd: number;
-  };
+/**
+ * Ingestion, through the shared transport.
+ *
+ * It returns an ApiResult like everything else rather than throwing. The
+ * previous form threw an Error carrying the response text, so a caller had to
+ * parse a string to tell "the gateway is down" from "this file was rejected"
+ * -- and every caller that forgot took down the component tree.
+ */
+export async function ingestRawNacha(
+  filename: string,
+  content: string,
+): Promise<ApiResult<ApiIngestionResult>> {
+  return request<ApiIngestionResult>('/files/ingest-raw', {
+    method: 'POST',
+    body: { filename, content },
+  });
 }
-
-export const SentinelApi = {
-  async checkHealth(): Promise<ApiResult<ApiHealth>> {
-    return request<ApiHealth>(`${API_BASE_URL}/health`);
-  },
-
-  async getSlaBoard(): Promise<ApiResult<any[]>> {
-    return request<any[]>(`${API_BASE_URL}/sla-board`);
-  },
-
-  async getIncidents(): Promise<ApiResult<any[]>> {
-    return request<any[]>(`${API_BASE_URL}/incidents`);
-  },
-
-  async getLedger(): Promise<ApiLedgerSummary | null> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/ledger`);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
-  },
-
-  async ingestRawNacha(filename: string, content: string): Promise<ApiIngestionResult> {
-    const res = await fetch(`${API_BASE_URL}/files/ingest-raw`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, content }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Ingest failed (${res.status}): ${errText}`);
-    }
-    return await res.json();
-  },
-
-  async triggerTriage(incidentId: string | number): Promise<ApiAnalystResponse> {
-    const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/triage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      throw new Error(`AI Triage failed with status ${res.status}`);
-    }
-    return await res.json();
-  },
-
-  async approveIncident(incidentId: string | number, actor: string, justification: string): Promise<any> {
-    const res = await fetch(`${API_BASE_URL}/incidents/${incidentId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ actor, justification }),
-    });
-    if (!res.ok) {
-      throw new Error(`Approval failed with status ${res.status}`);
-    }
-    return await res.json();
-  },
-
-  async triggerChaos(scenario: 'MISSING_FILE' | 'WORKER_CRASH'): Promise<any> {
-    const res = await fetch(`${API_BASE_URL}/chaos/trigger`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scenario }),
-    });
-    if (!res.ok) {
-      throw new Error(`Chaos trigger failed with status ${res.status}`);
-    }
-    return await res.json();
-  },
-
-  async runBenchmark(records: number = 25000): Promise<any> {
-    const res = await fetch(`${API_BASE_URL}/benchmark/run?records=${records}`);
-    if (!res.ok) throw new Error('Benchmark failed');
-    return await res.json();
-  },
-
-  async runEvals(): Promise<any> {
-    const res = await fetch(`${API_BASE_URL}/evals/run`);
-    if (!res.ok) throw new Error('Evals failed');
-    return await res.json();
-  },
-
-  async getComplianceExport(): Promise<any> {
-    const res = await fetch(`${API_BASE_URL}/compliance/export`);
-    if (!res.ok) throw new Error('Compliance export failed');
-    return await res.json();
-  }
-};
 
 // ---------------------------------------------------------------------------
 // Connector platform
@@ -326,13 +202,13 @@ export interface ConnectorCatalog {
 }
 
 export async function getConnectorCatalog(): Promise<ApiResult<ConnectorCatalog>> {
-  return request<ConnectorCatalog>(`${API_BASE_URL}/connectors`);
+  return request<ConnectorCatalog>(`/connectors`);
 }
 
 export async function getConnectorDescriptor(
   type: string,
 ): Promise<ApiResult<ConnectorDescriptor>> {
-  return request<ConnectorDescriptor>(`${API_BASE_URL}/connectors/${encodeURIComponent(type)}`);
+  return request<ConnectorDescriptor>(`/connectors/${encodeURIComponent(type)}`);
 }
 
 export interface ParsedConnectionUri {
@@ -356,12 +232,8 @@ export async function parseConnectionUri(
   uri: string,
 ): Promise<ApiResult<ParsedConnectionUri>> {
   return request<ParsedConnectionUri>(
-    `${API_BASE_URL}/connectors/${encodeURIComponent(type)}/parse-uri`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uri }),
-    },
+    `/connectors/${encodeURIComponent(type)}/parse-uri`,
+    { method: 'POST', body: { uri } },
   );
 }
 
@@ -421,11 +293,11 @@ export interface ConnectionTestResult {
 }
 
 export async function getConnections(): Promise<ApiResult<{ connections: SourceConnection[] }>> {
-  return request<{ connections: SourceConnection[] }>(`${API_BASE_URL}/connections`);
+  return request<{ connections: SourceConnection[] }>(`/connections`);
 }
 
 export async function testConnection(id: number): Promise<ApiResult<ConnectionTestResult>> {
-  return request<ConnectionTestResult>(`${API_BASE_URL}/connections/${id}/test`, {
+  return request<ConnectionTestResult>(`/connections/${id}/test`, {
     method: 'POST',
   });
 }
@@ -441,13 +313,46 @@ export async function replaceConnectionSecret(
   field: string,
   value: string,
 ): Promise<ApiResult<null>> {
-  return request<null>(`${API_BASE_URL}/connections/${id}/secrets/${encodeURIComponent(field)}`, {
+  return request<null>(`/connections/${id}/secrets/${encodeURIComponent(field)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value }),
+    body: { value },
   });
 }
 
 export async function deleteConnection(id: number): Promise<ApiResult<null>> {
-  return request<null>(`${API_BASE_URL}/connections/${id}`, { method: 'DELETE' });
+  return request<null>(`/connections/${id}`, { method: 'DELETE' });
+}
+
+
+/**
+ * Creates a saved connection.
+ *
+ * The gap this closes was recorded in CONNECTOR_PLATFORM.md: the wizard
+ * collected every field the descriptor named and had nowhere to send them, so a
+ * connection could only be created through the API. A wizard that gathers
+ * credentials and then cannot save them is worse than no wizard -- the operator
+ * has typed a password into a form for nothing, and it is now in the browser's
+ * memory and possibly its autofill.
+ *
+ * Secrets travel in the same request as the rest of the fields and are named by
+ * field id. The server routes them to the secret store before its own
+ * transaction opens and never writes them to the connector tables; nothing in
+ * any read path can return them afterwards, which is why there is no
+ * corresponding update-with-current-value call.
+ */
+export interface CreateConnectionRequest {
+  connectorType: string;
+  displayName: string;
+  authMode: string;
+  fields: Record<string, string>;
+  /** Keyed by field id. Write-only, in every direction. */
+  secrets?: Record<string, string>;
+  resourceAllowlist?: string[];
+  maxPerMinute?: number;
+}
+
+export async function createConnection(
+  req: CreateConnectionRequest,
+): Promise<ApiResult<SourceConnection>> {
+  return request<SourceConnection>('/connections', { method: 'POST', body: req });
 }

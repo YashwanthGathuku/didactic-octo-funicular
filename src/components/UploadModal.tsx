@@ -12,7 +12,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { PRESET_OPTIONS, GeneratorPresetKey } from '../mockData/generator';
-import { SentinelApi, ApiIngestionResult } from '../services/api';
+import { ingestRawNacha, ApiIngestionResult } from '../services/api';
 
 interface UploadModalProps {
   onClose: () => void;
@@ -26,6 +26,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
   const [previewFilename, setPreviewFilename] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [ingestionResult, setIngestionResult] = useState<ApiIngestionResult | null>(null);
+  const [ingestError, setIngestError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,15 +52,29 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
     setIsProcessing(true);
     setIngestionResult(null);
 
-    try {
-      const result = await SentinelApi.ingestRawNacha(filename, content);
-      setIngestionResult(result);
-      onFileIngested(result, content);
-    } catch (err: any) {
-      alert(`Ingestion error: ${err.message}`);
-    } finally {
-      setIsProcessing(false);
+    // Branch on the result rather than catch a thrown Error. The previous form
+    // showed `alert(err.message)`, which put "Ingest failed (503): ..." in a
+    // browser dialog and gave the operator no way to tell a rejected file from
+    // an unreachable gateway.
+    const result = await ingestRawNacha(filename, content);
+    setIsProcessing(false);
+
+    if (result.state === 'ok') {
+      setIngestionResult(result.data);
+      onFileIngested(result.data, content);
+      setIngestError(null);
+      return;
     }
+    setIngestionResult(null);
+    setIngestError(
+      result.state === 'unavailable'
+        ? `The gateway could not be reached, so this file was not ingested: ${result.error}`
+        : result.state === 'forbidden'
+          ? 'Your account does not hold the permission to upload an artifact.'
+          : result.state === 'unauthenticated'
+            ? 'Your session is no longer valid. Sign in again and retry.'
+            : `The gateway refused this file: ${result.error}`,
+    );
   };
 
   // Handle Local File Selection / Drop
@@ -357,6 +372,24 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
           )}
 
           {/* Real-time Ingestion Result Banner */}
+          {ingestError && (
+            <div
+              role="alert"
+              style={{
+                marginBottom: '12px',
+                border: '1px solid rgba(245, 158, 11, 0.5)',
+                background: 'rgba(120, 53, 15, 0.25)',
+                borderRadius: '6px',
+                padding: '10px 12px',
+                fontSize: '0.8125rem',
+                color: '#FDE68A',
+              }}
+            >
+              <strong style={{ display: 'block' }}>Not ingested.</strong>
+              {ingestError}
+            </div>
+          )}
+
           {ingestionResult && (
             <div style={{
               background: ingestionResult.status === 'VALIDATED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',

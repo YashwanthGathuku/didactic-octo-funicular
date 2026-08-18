@@ -26,18 +26,40 @@ import (
 // answers the question -- a handler that made its own judgement would be a
 // second place, and the two would eventually disagree.
 
-// reviewStoreFor builds the review store on the application's database.
+// reviewStoreFor builds the review store for a database, once per database.
+//
+// Keyed by the *sql.DB, not cached in a single package variable behind a
+// sync.Once. The sync.Once form bound the store to whichever database happened
+// to call first and then served that one to every later caller regardless of
+// what they passed -- so a second database in the same process silently got the
+// first one's store.
+//
+// The gateway opens one database, so this never misbehaved in production. It
+// misbehaved immediately in tests, where each case opens its own database and
+// closes it on cleanup: a later test's vote reached an earlier test's closed
+// handle and surfaced as "sql: database is closed" reported to the client as a
+// 400 decision_rejected -- a refusal that named the decision as the problem
+// when the decision was fine.
+//
+// A cache that ignores its key is not a cache.
 var (
-	reviewOnce  sync.Once
-	reviewStore *review.Store
-	reviewErr   error
+	reviewMu     sync.Mutex
+	reviewStores = map[*sql.DB]*review.Store{}
 )
 
 func reviewStoreFor(db *sql.DB) (*review.Store, error) {
-	reviewOnce.Do(func() {
-		reviewStore, reviewErr = review.NewStore(db, "sqlite")
-	})
-	return reviewStore, reviewErr
+	reviewMu.Lock()
+	defer reviewMu.Unlock()
+
+	if s, ok := reviewStores[db]; ok {
+		return s, nil
+	}
+	s, err := review.NewStore(db, "sqlite")
+	if err != nil {
+		return nil, err
+	}
+	reviewStores[db] = s
+	return s, nil
 }
 
 // ledgerReleaseSink writes release-workflow events to the evidence chain and
@@ -373,7 +395,7 @@ func setReleasePolicy(db *sql.DB) http.HandlerFunc {
 		}
 		if err := store.SetPolicy(r.Context(), principal.ActorID(), p); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "invalid_policy", "message": err.Error()})
+				"error": "invalid_policy", "detail": err.Error()})
 			return
 		}
 		// Changing dual control is itself a control change, so it is evidence.
@@ -418,30 +440,30 @@ func writeReviewError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, review.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]any{
-			"error": "decision_not_found", "message": "decision not found in this tenant"})
+			"error": "decision_not_found", "detail": "decision not found in this tenant"})
 	case errors.Is(err, review.ErrStale):
 		// 409: the request was well formed and the world moved. The message
 		// names what changed, because "the approval expired" is not actionable.
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "decision_stale", "message": err.Error()})
+			"error": "decision_stale", "detail": err.Error()})
 	case errors.Is(err, review.ErrSelfApproval):
 		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error": "separation_of_duties", "message": err.Error()})
+			"error": "separation_of_duties", "detail": err.Error()})
 	case errors.Is(err, review.ErrAlreadyVoted):
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "already_voted", "message": err.Error()})
+			"error": "already_voted", "detail": err.Error()})
 	case errors.Is(err, review.ErrNotApproved):
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "insufficient_approvals", "message": err.Error()})
+			"error": "insufficient_approvals", "detail": err.Error()})
 	case errors.Is(err, review.ErrOverrideNotAllowed):
 		writeJSON(w, http.StatusForbidden, map[string]any{
-			"error": "override_forbidden", "message": err.Error()})
+			"error": "override_forbidden", "detail": err.Error()})
 	case errors.Is(err, review.ErrConflict):
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "conflict", "message": err.Error()})
+			"error": "conflict", "detail": err.Error()})
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "decision_rejected", "message": err.Error()})
+			"error": "decision_rejected", "detail": err.Error()})
 	}
 }
 

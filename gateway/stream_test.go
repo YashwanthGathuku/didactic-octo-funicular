@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -78,6 +80,58 @@ func publishOutbox(t *testing.T, db *sql.DB, tenantID string, n int, prefix stri
 	}
 }
 
+// syncRecorder is an http.ResponseWriter safe to read while the handler writes.
+//
+// httptest.ResponseRecorder is not. These tests read the accumulating body from
+// the test goroutine to decide when enough frames have arrived, while the
+// handler goroutine is still writing to it -- and the race detector is right to
+// object: bytes.Buffer.String reads the slice header that Buffer.grow rewrites.
+//
+// A streaming handler cannot be tested with a recorder that only becomes
+// readable when the request finishes, because the request finishing is the one
+// thing that never happens on a stream. So the recorder is the thing that has
+// to change.
+type syncRecorder struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	header http.Header
+	code   int
+}
+
+func newSyncRecorder() *syncRecorder {
+	return &syncRecorder{header: make(http.Header), code: http.StatusOK}
+}
+
+func (r *syncRecorder) Header() http.Header { return r.header }
+
+func (r *syncRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf.Write(p)
+}
+
+func (r *syncRecorder) WriteHeader(code int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.code = code
+}
+
+// Flush satisfies http.Flusher. Without it the handler refuses the request
+// outright, so its presence is part of what these tests exercise.
+func (r *syncRecorder) Flush() {}
+
+func (r *syncRecorder) body() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.buf.String()
+}
+
+func (r *syncRecorder) status() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.code
+}
+
 // collectStream runs one stream request until it has seen `want` data frames or
 // the timeout elapses, then cancels.
 func collectStream(t *testing.T, handler http.Handler, cursor string, want int) []sseFrame {
@@ -89,7 +143,7 @@ func collectStream(t *testing.T, handler http.Handler, cursor string, want int) 
 	if cursor != "" {
 		req.Header.Set("Last-Event-ID", cursor)
 	}
-	rec := httptest.NewRecorder()
+	rec := newSyncRecorder()
 
 	done := make(chan struct{})
 	go func() {
@@ -98,20 +152,20 @@ func collectStream(t *testing.T, handler http.Handler, cursor string, want int) 
 	}()
 
 	// The handler polls once a second; give it room to emit, then cancel so
-	// ServeHTTP returns and the recorder's body is complete.
+	// ServeHTTP returns and the body is complete.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(250 * time.Millisecond)
-		if countData(rec.Body.String()) >= want {
+		if countData(rec.body()) >= want {
 			break
 		}
 	}
 	cancel()
 	<-done
 
-	body := rec.Body.String()
-	if rec.Code != http.StatusOK {
-		t.Fatalf("stream: %d %s", rec.Code, body)
+	body := rec.body()
+	if rec.status() != http.StatusOK {
+		t.Fatalf("stream: %d %s", rec.status(), body)
 	}
 	return readSSE(t, strings.NewReader(body), 0)
 }

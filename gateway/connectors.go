@@ -115,8 +115,8 @@ func describeConnector(w http.ResponseWriter, r *http.Request) {
 	d, err := connectorRegistry().Descriptor(chi.URLParam(r, "type"))
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{
-			"error":   "unknown_connector",
-			"message": "that connector is not in the catalog",
+			"error":  "unknown_connector",
+			"detail": "that connector is not in the catalog",
 		})
 		return
 	}
@@ -150,8 +150,8 @@ func parseConnectorURI(w http.ResponseWriter, r *http.Request) {
 	// The body is bounded: a paste box is an unbounded input from a browser.
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error":   "invalid_request",
-			"message": "the request body could not be read",
+			"error":  "invalid_request",
+			"detail": "the request body could not be read",
 		})
 		return
 	}
@@ -161,8 +161,8 @@ func parseConnectorURI(w http.ResponseWriter, r *http.Request) {
 		// The error from ParseConnectionURI never contains the input, which is
 		// why it can be returned verbatim.
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error":   "invalid_connection_string",
-			"message": err.Error(),
+			"error":  "invalid_connection_string",
+			"detail": err.Error(),
 		})
 		return
 	}

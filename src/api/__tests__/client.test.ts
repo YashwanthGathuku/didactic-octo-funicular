@@ -97,8 +97,19 @@ describe('session and permission failures', () => {
   });
 
   it('reports a stale decision as a conflict, not as a generic failure', async () => {
+    // The exact body the gateway sends. Asserted against the real shape rather
+    // than a convenient one: the review handlers used to send this under
+    // "message" while every other route used "detail", so this client showed
+    // the stable code and silently dropped the sentence that says what to do.
+    // The API is unified on "detail" and the Go test
+    // TestAStaleApprovalIsRefusedWithAConflictThatNamesWhatChanged holds the
+    // server to it.
     mockFetch(() =>
-      json(409, { error: 'decision_stale', detail: 'the validation findings changed since it was approved' }),
+      json(409, {
+        error: 'decision_stale',
+        detail:
+          'the decision no longer describes what would be released: the validation findings changed',
+      }),
     );
     const r = await request<unknown>('/decisions/1/release', { method: 'POST', body: {} });
     expect(r.state).toBe('conflict');
@@ -106,6 +117,7 @@ describe('session and permission failures', () => {
       // The server names what changed. "The approval expired" is not
       // actionable; "the findings changed since it was approved" is.
       expect(r.detail).toContain('findings changed');
+      expect(r.error).toBe('decision_stale');
     }
   });
 });

@@ -434,8 +434,14 @@ Container builds NOT RUN: no Docker daemon in this environment
    more tables than the bound gets a truncated list with no way to page past it.
 8. ~~**No UI for saved connections.**~~ **Closed.** `SavedConnectionsPanel`
    lists them with health, last-used, rate limit and a replace-credential
-   action. What remains: the wizard collects the fields and does not yet POST
-   them, so a connection is still created through the API rather than the
-   screen.
+   action. **Closed further by Prompt 12:** the wizard now POSTs. It separates
+   secret fields from the rest by the descriptor's own `sensitive` flag rather
+   than by a list kept in the browser -- a second copy of "which fields are
+   secret" would drift, and the direction it drifts in is a credential written
+   to a column that read paths return -- and it clears every collected value
+   from local state on success, so a password does not outlive its use in a
+   React state variable. A refusal from the conformance gate renders as the
+   gate's own sentence, which is how an operator learns the connector is
+   IMPLEMENTING rather than that the product is broken.
 9. **The 90-day evidence expiry is a judgement, not a measurement.** It is
    stated as one in the code.

@@ -60,7 +60,8 @@ Status meanings are strict:
 | Breach notification delivery | **Planned** | The obligation is durable and attributed; no channel drains the queue, so an operator reads the incident list rather than being paged. |
 | Review resolution for ambiguous arrivals | Partial | `ResolveCandidate` accepts or rejects with a required actor and reason; no HTTP route calls it yet. |
 | Waiving an expectation | Partial | `Waive` requires an actor and reason and resolves the incident; no HTTP route, and no second-signature approval. |
-| Contract and calendar management API | **Planned** | No authenticated route creates or amends a contract, version, calendar or override. Prompt 12. |
+| Contract and calendar version *history* | Implemented | Prompt 12. `GET /contracts/{id}/versions`, rendered with the version in effect marked by the server's clock. |
+| Contract and calendar management API | **Planned** | No authenticated route creates or amends a contract, version, calendar or override. Reading them is done; writing them is not. |
 | Outbound feed delivery | **Planned** | `direction` is stored and validated; nothing sends a file. An OUTBOUND contract materializes occurrences that only an arrival could satisfy. |
 | Predictive breach risk | **Non-goal** | Removed in Prompt 01 and not reintroduced. |
 
@@ -98,7 +99,7 @@ Flow's own system of record and is unaffected by anything in this section.
 | Auditable release with an outbox event | Implemented | Every transition reaches the evidence chain and the outbox in the transaction that produced it. |
 | Manual override, separately reportable | Implemented | Its own table, a mandatory 20-character justification, and it never rewrites validation results. |
 | Releasing a quarantined artifact | **Non-goal** | No path exists, by approval or override. Quarantine would otherwise be advisory. |
-| Review UI | **Planned** | Every route exists; nothing in the browser calls them. Prompt 12. |
+| Review UI | Implemented | Prompt 12. `src/components/ops/ReviewQueue.tsx`: approve, reject, release and override, each behind a confirmation that restates the consequence; a 409 renders as a conflict and the queue re-reads. |
 | Notification that a decision needs review | **Planned** | The outbox event is published and nothing subscribes. |
 | Time-based approval expiry | **Planned** | An approval expires when its subject changes, not because it is old. |
 
@@ -126,19 +127,23 @@ Flow's own system of record and is unaffected by anything in this section.
 |---|---|---|
 | PGP detached-signature verification | Implemented | Fails closed on missing keyring, unknown signer, or mismatch. Test signs real bytes then flips one. |
 | SSH public-key parsing | Implemented | RFC 4253 wire parsing, algorithm-match enforcement, 2048-bit floor. |
-| API authentication | **Partial — unsafe** | Shared bearer token, and **the API runs fully open when `SENTINEL_API_TOKEN` is unset**. Prompt 04 replaces this with OIDC and makes it fail closed. |
-| Authorization / roles | Planned | Prompt 04. |
-| Tenant isolation | **Not implemented** | No business table has a `tenant_id` column. Prompt 04. |
-| Secret management | Planned | Prompt 05. |
+| API authentication | Implemented | Prompt 04. OIDC token verification, fail-closed in every direction; the "unset token means no authentication" branch is gone. The local-demo profile is the single, announced exception. |
+| Browser login (Authorization Code + PKCE) | **Partial** | Implemented in `internal/auth/pkce.go` and **wired to no route**, so outside the demo profile a browser has no way to obtain a session. |
+| Authorization / roles | Implemented | Prompt 04, extended by Prompt 11. Six roles; no role holds both configure and override. `GET /session` reports what a caller actually holds. |
+| Tenant isolation | Implemented | Prompt 04. Every business table carries `tenant_id`; the scope is derived from verified claims and proven end to end over HTTP. PostgreSQL row-level security is verified against a real server and not deployed on one. |
+| Secret management | Implemented | Prompt 05. AES-GCM `secrets.Value`; no method returns a stored value and `MarshalJSON` refuses rather than emitting `{}`. |
+| CSRF on cookie-authenticated mutations | Implemented | Double-submit against the readable CSRF cookie. Prompt 12 corrected this: it had compared the header against the HttpOnly session cookie, which no browser can read. |
 
 ### Operations
 
 | Capability | Status | Notes |
 |---|---|---|
 | Prometheus metrics | Partial | Counters are real. The parse-rate gauge reports `-1` until genuinely measured — keep that pattern. |
-| Server-Sent Events endpoint | **Partial — emits nothing** | `stream.go` is real bounded pub/sub (buffered channels, non-blocking send, unsubscribe on disconnect), but **no code calls `Broadcast`**, so a subscriber receives only the connect heartbeat. Retained deliberately: it is honest infrastructure Prompt 12 wires to real events. |
+| Server-Sent Events endpoint | Implemented | Prompt 12 replaced the in-memory broadcaster — which was untenanted, had no cursor, and had no publisher — with a tenant-scoped reader over `outbox_events`. `Last-Event-ID` replays without duplicates; a cursor older than the retained window produces a `gap` event rather than a silent restart. |
 | Inbox watcher | **Partial — unsafe** | Polls once per second and reads files that may still be uploading. Prompt 17. |
-| Health / readiness | Partial | `/health` returns a static string; it checks no dependency. Prompt 02. |
+| Health / readiness | Implemented | `/health` is liveness only; `/ready` probes the database and reports each dependency's real state. `GET /service-health` adds queue and outbox depth from database state, and a dependency nobody probed reports UNKNOWN, never OK. |
+| Server-backed operations UI | Implemented | Prompt 12. Six screens, one typed transport, explicit unavailable/forbidden/stale/partial states, and no path that renders a value the server did not send. |
+| Server-side pagination on every list | Implemented | Keyset, not OFFSET. The limit ceiling is enforced at the server: `limit=100000` returns 200 rows. |
 | Measured performance figures | **None** | No performance number may appear in README, UI, or API until a reproducible result artifact exists (Prompt 13). |
 
 ---

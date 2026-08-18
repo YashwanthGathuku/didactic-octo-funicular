@@ -6,6 +6,8 @@ import {
   ConnectorDescriptor,
   ConnectorField,
   ConnectorStatus,
+  SourceConnection,
+  createConnection,
   getConnectorCatalog,
   getConnectorDescriptor,
   parseConnectionUri,
@@ -51,6 +53,10 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
   const [pasted, setPasted] = useState<string>('');
   const [parseNotes, setParseNotes] = useState<string[]>([]);
   const [parseError, setParseError] = useState<string>('');
+  const [displayName, setDisplayName] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>('');
+  const [saved, setSaved] = useState<SourceConnection | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +117,67 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
       (f) => !f.appliesToAuth || f.appliesToAuth.length === 0 || f.appliesToAuth.includes(authMode),
     );
   }, [descriptor, authMode]);
+
+  /**
+   * Sends the collected fields to the server.
+   *
+   * This is what the wizard was missing. It gathered every field the descriptor
+   * named and had nowhere to send them, so a connection could only be created
+   * through the API -- and an operator had typed a password into a form for
+   * nothing, leaving it in the browser's memory and possibly its autofill.
+   *
+   * Secrets are separated from the rest by the descriptor's own `sensitive`
+   * flag rather than by a list kept here, for the same reason the field list
+   * is server-owned: a second copy of "which fields are secret" would drift,
+   * and the direction it drifts in is a credential written to a column that
+   * read paths return.
+   *
+   * Local state is cleared on success. Holding a password in a React state
+   * variable after it has been stored serves no purpose and survives until the
+   * component unmounts.
+   */
+  const save = async () => {
+    if (!descriptor) return;
+    setSaving(true);
+    setSaveError('');
+    setSaved(null);
+
+    const sensitiveIds = new Set(
+      descriptor.fields.filter((f) => f.sensitive || f.kind === 'SECRET').map((f) => f.id),
+    );
+    const fields: Record<string, string> = {};
+    const secrets: Record<string, string> = {};
+    for (const field of visibleFields) {
+      const v = values[field.id];
+      if (v === undefined || v === '') continue;
+      if (sensitiveIds.has(field.id)) secrets[field.id] = v;
+      else fields[field.id] = v;
+    }
+
+    const res = await createConnection({
+      connectorType: descriptor.type,
+      displayName: displayName.trim(),
+      authMode,
+      fields,
+      secrets: Object.keys(secrets).length ? secrets : undefined,
+    });
+    setSaving(false);
+
+    if (res.state === 'ok') {
+      setSaved(res.data);
+      // Every collected value, secret or not, leaves local state now.
+      setValues({});
+      setPasted('');
+      return;
+    }
+    setSaveError(
+      res.state === 'unavailable'
+        ? `The gateway could not be reached, so nothing was saved: ${res.error}`
+        : res.state === 'forbidden'
+          ? 'Your account does not hold the permission to create a connection.'
+          : `The gateway refused this connection: ${res.error}${res.state === 'invalid' && res.detail ? ` — ${res.detail}` : ''}`,
+    );
+  };
 
   const handlePaste = async () => {
     if (!descriptor || !pasted.trim()) return;
@@ -266,12 +333,58 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                   />
                 ))}
 
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-300">Name for this connection</span>
+                  <input
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="e.g. payroll-warehouse-prod"
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
+                  />
+                </label>
+
                 <p className="border-t border-slate-800 pt-4 text-[11px] leading-snug text-slate-500">
                   After saving, this screen shows a masked summary and which credentials are
                   configured. Saved passwords, keys, tokens, wallets, service-account files and
                   complete connection strings are never displayed again — replacing one is the
                   only way to change it.
                 </p>
+
+                {saveError && (
+                  <p
+                    role="alert"
+                    className="rounded border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-100"
+                  >
+                    {saveError}
+                  </p>
+                )}
+                {saved && (
+                  <p
+                    role="status"
+                    className="rounded border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200"
+                  >
+                    Saved as connection {saved.id}. It has never been checked — its health reads
+                    NEVER_CHECKED until you test it, which is a different thing from healthy.
+                  </p>
+                )}
+
+                <div className="flex justify-end gap-2 border-t border-slate-800 pt-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void save()}
+                    disabled={saving || !displayName.trim() || !descriptor}
+                    className="rounded border border-sky-600 bg-sky-900/40 px-3 py-1.5 text-xs font-medium text-sky-100 hover:bg-sky-900/60 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {saving ? 'Saving…' : 'Save connection'}
+                  </button>
+                </div>
               </div>
             )}
           </section>

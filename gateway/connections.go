@@ -128,7 +128,7 @@ func listConnections(db *sql.DB, cfg *Config) http.HandlerFunc {
 		store, err := connectionStoreFor(db, cfg)
 		if err != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"error": "connections_unavailable", "message": err.Error(),
+				"error": "connections_unavailable", "detail": err.Error(),
 			})
 			return
 		}
@@ -156,7 +156,7 @@ func createConnection(db *sql.DB, cfg *Config) http.HandlerFunc {
 		store, err := connectionStoreFor(db, cfg)
 		if err != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"error": "connections_unavailable", "message": err.Error(),
+				"error": "connections_unavailable", "detail": err.Error(),
 			})
 			return
 		}
@@ -177,7 +177,7 @@ func createConnection(db *sql.DB, cfg *Config) http.HandlerFunc {
 			// The decode error is not returned. A malformed body containing a
 			// credential would otherwise be echoed in the message.
 			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "invalid_request", "message": "the request body could not be read",
+				"error": "invalid_request", "detail": "the request body could not be read",
 			})
 			return
 		}
@@ -204,8 +204,8 @@ func createConnection(db *sql.DB, cfg *Config) http.HandlerFunc {
 				status = http.StatusConflict
 			}
 			writeJSON(w, status, map[string]any{
-				"error":   "connection_rejected",
-				"message": err.Error(),
+				"error":  "connection_rejected",
+				"detail": err.Error(),
 			})
 			return
 		}
@@ -324,7 +324,7 @@ func replaceConnectionSecret(db *sql.DB, cfg *Config) http.HandlerFunc {
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxConnectionBody)).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{
-				"error": "invalid_request", "message": "the request body could not be read",
+				"error": "invalid_request", "detail": "the request body could not be read",
 			})
 			return
 		}
@@ -345,7 +345,7 @@ func connectionTarget(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg *C
 	store, err := connectionStoreFor(db, cfg)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "connections_unavailable", "message": err.Error(),
+			"error": "connections_unavailable", "detail": err.Error(),
 		})
 		return nil, 0, false
 	}
@@ -362,19 +362,19 @@ func connectionTarget(w http.ResponseWriter, r *http.Request, db *sql.DB, cfg *C
 func writeConnectionError(w http.ResponseWriter, err error) {
 	if errors.Is(err, connectors.ErrConnectionNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]any{
-			"error":   "connection_not_found",
-			"message": "connection not found in this tenant",
+			"error":  "connection_not_found",
+			"detail": "connection not found in this tenant",
 		})
 		return
 	}
 	if errors.Is(err, connectors.ErrNotSelectable) {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": "connector_unavailable", "message": err.Error(),
+			"error": "connector_unavailable", "detail": err.Error(),
 		})
 		return
 	}
 	writeJSON(w, http.StatusBadRequest, map[string]any{
-		"error": "connection_rejected", "message": err.Error(),
+		"error": "connection_rejected", "detail": err.Error(),
 	})
 }
 

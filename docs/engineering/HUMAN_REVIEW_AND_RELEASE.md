@@ -172,15 +172,21 @@ Changing dual control is itself a control change, so it is recorded too.
 ```
 gofmt PASS · vet PASS · go test PASS · go test -race PASS
 internal/review: 17 test functions × SQLite + real PostgreSQL 16
+Prompt 12 added TestAStaleApprovalIsRefusedWithAConflictThatNamesWhatChanged:
+the staleness refusal over HTTP is a 409 whose body names the findings
 migrations 001–011 apply and are idempotent through the real command path
 Container builds NOT RUN: no Docker daemon in this environment
 ```
 
 ## What is not done
 
-1. **No UI.** There is no review queue screen, no approve/reject control, and no
-   override form. Every route exists and nothing in the browser calls them.
-   Prompt 12 is the operations UI.
+1. ~~**No UI.**~~ **Closed by Prompt 12.** `src/components/ops/ReviewQueue.tsx`
+   is the queue, with approve, reject, release and override, each behind a
+   confirmation that restates the consequence in the system's own terms. A 409
+   renders as a conflict and the queue re-reads. The override control is
+   present and disabled for every account that can exist today, because of
+   item 3 below — which is the safe direction and is stated on screen rather
+   than hidden.
 2. **No notification when a decision needs review.** A decision is proposed and
    sits in the queue until somebody looks. The outbox event is published and
    nothing subscribes to it — the same last-mile gap as the breach notifications

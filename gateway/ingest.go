@@ -192,9 +192,12 @@ func ingestUpload(db *sql.DB, store objectstore.ObjectStore) http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":   conflict.Code,
-				"message": conflict.Message,
-				"detail":  conflict.Detail,
+				"error": conflict.Code,
+				// "detail" is the human-readable sentence everywhere in this
+				// API; the structured facts about the colliding artifact move
+				// under "conflict" so the two do not share a key.
+				"detail":   conflict.Message,
+				"conflict": conflict.Detail,
 			})
 			return
 		}
@@ -608,7 +611,7 @@ func artifactIDFromPath(r *http.Request) (int64, error) {
 func writeIngestError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "message": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "detail": message})
 }
 
 // writeStoreError maps a storage failure to a status, keeping each refusal

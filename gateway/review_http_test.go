@@ -190,3 +190,92 @@ func itoa64(n int64) string {
 	}
 	return string(buf[i:])
 }
+
+// A stale decision is refused over HTTP with a conflict that names what changed.
+//
+// The guide's Prompt 12 requirement. The client half is covered in
+// src/api/__tests__; this is the half that decides whether there is anything
+// for the client to render: the status code has to be 409 and distinguishable
+// from a permission denial or a validation error, and the body has to carry
+// the reason in the field the client actually reads.
+//
+// "The approval expired" is not actionable. "The validation findings changed
+// since it was approved" tells a reviewer what to look at.
+func TestAStaleApprovalIsRefusedWithAConflictThatNamesWhatChanged(t *testing.T) {
+	db, handler, _ := newIngestTestEnv(t)
+
+	_, up := doUpload(t, handler, uploadRequest(t, "stale.ach", []byte("stale-probe"), nil))
+	var tenantID string
+	if err := db.QueryRow(`SELECT tenant_id FROM file_instances WHERE id = ?`,
+		up.ArtifactID).Scan(&tenantID); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := reviewStoreFor(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.ProposeTx(ctx, tx, tenantID, "system:validation-worker", review.Subject{
+		ArtifactID: up.ArtifactID, ArtifactSHA256: up.SHA256,
+		PolicyVersion: "release-policy/1.0.0", RulePackVersion: "nacha-rules/1.0.0",
+		Outcome: "VALIDATED", ParserName: "internal/nacha", ParserVersion: "1",
+	}, review.Policy{MinApprovals: 1, SeparationOfDuties: false, OverrideAllowed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A finding appears after the decision was proposed. That is exactly the
+	// class of change the integrity digest exists to detect: the reviewer who
+	// is about to vote would be voting on a different set of findings than the
+	// decision describes.
+	if _, err := db.Exec(`
+		INSERT INTO validation_findings
+			(tenant_id, file_instance_id, code, rule_version, provenance, description, severity)
+		VALUES (?, ?, 'NACHA.BATCH.CONTROL', '1.0.0', 'test', 'batch control mismatch', 'BLOCKING')`,
+		tenantID, up.ArtifactID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/decisions/"+itoa64(id)+"/approve",
+		strings.NewReader(`{"reason":"checked the control totals against the statement"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("voting on a decision whose findings changed returned %d, want 409: %s",
+			rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Error string `json:"error"`
+		// The field the browser client reads. This assertion is the reason the
+		// API was unified on one name: the review handlers used "message" and
+		// everything else used "detail", so the client dropped the actionable
+		// half of every review conflict while showing the stable code.
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error != "decision_stale" {
+		t.Errorf("error code = %q, want decision_stale", body.Error)
+	}
+	if body.Detail == "" {
+		t.Fatal("the conflict carried no detail; the client renders a code with no explanation")
+	}
+	if !strings.Contains(strings.ToLower(body.Detail), "finding") {
+		t.Errorf("detail %q does not name the findings as what changed", body.Detail)
+	}
+	t.Logf("409 decision_stale: %s", body.Detail)
+}
