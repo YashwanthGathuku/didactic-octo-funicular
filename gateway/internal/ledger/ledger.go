@@ -81,7 +81,7 @@ func (l *Ledger) rebind(query string) string {
 // The alternative, beginning every transaction in IMMEDIATE mode, fixes this
 // and breaks the worker pool; see sqliteConnectionSettings in the gateway
 // package for why it was rejected.
-const maxAppendRetries = 40
+const maxAppendRetries = 100
 
 // maxAppendBackoff caps the pause between contention retries.
 const maxAppendBackoff = 40 * time.Millisecond
