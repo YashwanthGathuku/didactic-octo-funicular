@@ -349,7 +349,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		// CSRF applies only to cookie-authenticated mutations; a request bearing
 		// an Authorization header is not forgeable cross-origin by a browser.
 		r.Use(auth.RequireCSRFToken("sentinel_session", "X-CSRF-Token"))
-		RegisterStreamRoutes(r)
+		RegisterStreamRoutes(r, db)
 
 		// Liveness: is this process running? It checks nothing else, and must
 		// not, or a dependency outage would cause an orchestrator to kill a
@@ -421,6 +421,34 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				serr.write(w)
 				return
 			}
+			req, perr := parsePage(r)
+			if perr != nil {
+				writeJSON(w, http.StatusBadRequest,
+					map[string]any{"error": "bad_page", "detail": perr.Error()})
+				return
+			}
+			// Keyset paging over (expected_delivery_end, id). The board is
+			// ordered by when a file is due, which is not unique -- two feeds
+			// can share a deadline -- so the tiebreak is in both the ORDER BY
+			// and the cursor.
+			where := "e.tenant_id = ?"
+			args := []any{scope.TenantID()}
+			if req.Composite {
+				where += " AND (e.expected_delivery_end > ? OR (e.expected_delivery_end = ? AND e.id > ?))"
+				after := time.UnixMilli(req.AfterSort).UTC()
+				args = append(args, after, after, req.After)
+			}
+			if raw := strings.TrimSpace(r.URL.Query().Get("status")); raw != "" {
+				if !expectationStatuses[strings.ToUpper(raw)] {
+					writeJSON(w, http.StatusBadRequest, map[string]any{
+						"error": "unknown_status", "detail": "no such expectation status: " + raw})
+					return
+				}
+				where += " AND e.status = ?"
+				args = append(args, strings.ToUpper(raw))
+			}
+			args = append(args, req.Limit+1)
+
 			// The scheduling terms come from the contract version the
 			// occurrence was materialized under, not from file_contracts. The
 			// contract row carries one mutable set of terms; the version is
@@ -439,9 +467,10 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				JOIN partners p ON c.partner_id = p.id AND p.tenant_id = e.tenant_id
 				LEFT JOIN file_contract_versions v
 				       ON v.id = e.contract_version_id AND v.tenant_id = e.tenant_id
-				WHERE e.tenant_id = ?
-				ORDER BY e.expected_delivery_end ASC
-			`, scope.TenantID())
+				WHERE `+where+`
+				ORDER BY e.expected_delivery_end ASC, e.id ASC
+				LIMIT ?
+			`, args...)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -455,10 +484,17 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 					business sql.NullTime
 					breach   sql.NullTime
 					review   int
+					// Scanned as instants and formatted here rather than let
+					// the driver stringify them. The page cursor is derived
+					// from deliveryEnd, so its format has to be one this
+					// process controls -- a driver-chosen rendering that
+					// time.Parse cannot read back would break paging silently.
+					start sql.NullTime
+					end   sql.NullTime
 				)
 				if err := rows.Scan(&exp.ID, &exp.ContractID, &exp.PartnerName, &exp.PartnerRouting, &exp.ContractName,
 					&exp.FilenamePattern, &exp.ExpectedTime, &exp.GracePeriodMinutes,
-					&exp.DeliveryStart, &exp.DeliveryEnd, &exp.Status,
+					&start, &end, &exp.Status,
 					&business, &exp.DueLocal, &exp.Timezone, &breach,
 					&exp.ScheduleNote, &review, &exp.FeedID); err != nil {
 					// A row that cannot be read is logged rather than dropped
@@ -467,6 +503,12 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 					log.Printf("sla-board: skipping an unreadable expectation for tenant %s: %v",
 						scope.TenantID(), err)
 					continue
+				}
+				if start.Valid {
+					exp.DeliveryStart = start.Time.UTC().Format(time.RFC3339)
+				}
+				if end.Valid {
+					exp.DeliveryEnd = end.Time.UTC().Format(time.RFC3339)
 				}
 				if business.Valid {
 					exp.BusinessDate = business.Time.UTC().Format("2006-01-02")
@@ -478,8 +520,19 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				expectations = append(expectations, exp)
 			}
 
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(expectations)
+			writeJSON(w, http.StatusOK, finishComposite(expectations, req,
+				func(e SlaExpectationResponse) (int64, int64) {
+					// DeliveryEnd is already the string the row carried; the
+					// cursor needs the instant, so it is parsed back. A row
+					// whose timestamp will not parse yields a zero sort key,
+					// which would make the next page restart -- so an
+					// unparseable value stops paging rather than looping.
+					t, err := time.Parse(time.RFC3339, e.DeliveryEnd)
+					if err != nil {
+						return 0, e.ID
+					}
+					return t.UnixMilli(), e.ID
+				}))
 		})
 
 		// The connector platform: catalog, descriptors, URI parsing, and the
@@ -489,6 +542,10 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 
 		// Human review and dual-control release.
 		registerReviewRoutes(r, db)
+
+		// The operations UI's read API: session, artifacts, contract version
+		// history, the paged evidence timeline and measured service health.
+		registerOperationsRoutes(r, db, cfg)
 
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {
@@ -584,19 +641,47 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				serr.write(w)
 				return
 			}
+			req, perr := parsePage(r)
+			if perr != nil {
+				writeJSON(w, http.StatusBadRequest,
+					map[string]any{"error": "bad_page", "detail": perr.Error()})
+				return
+			}
+			where := "i.tenant_id = ?"
+			args := []any{scope.TenantID()}
+			if st := strings.TrimSpace(r.URL.Query().Get("status")); st != "" {
+				if !incidentStatuses[strings.ToUpper(st)] {
+					writeJSON(w, http.StatusBadRequest, map[string]any{
+						"error": "unknown_status", "detail": "no such incident status: " + st})
+					return
+				}
+				where += " AND i.status = ?"
+				args = append(args, strings.ToUpper(st))
+			}
+			if req.After > 0 {
+				where += " AND i.id < ?"
+				args = append(args, req.After)
+			}
+			args = append(args, req.Limit+1)
+
+			// The joins are tenant-qualified on both sides. Joining on id
+			// alone would let another tenant's partner name decorate this
+			// tenant's incident -- a disclosure that renders as a label rather
+			// than as a record, which is exactly the kind nobody notices.
 			rows, err := db.Query(`
 				SELECT i.id, i.expectation_id, i.file_instance_id, i.type, i.severity, i.status, i.created_at,
-				       COALESCE(p.name, 'Central Clearing Network') as partner_name,
+				       COALESCE(p.name, '') as partner_name,
 				       COALESCE(f.filename, '') as filename,
 				       COALESCE(f.sha256_hash, '') as sha256
 				FROM incidents i
-				LEFT JOIN expectations e ON i.expectation_id = e.id
-				LEFT JOIN file_contracts c ON e.contract_id = c.id
-				LEFT JOIN partners p ON c.partner_id = p.id
-				LEFT JOIN file_instances f ON i.file_instance_id = f.id
-				WHERE i.tenant_id = ?
+				LEFT JOIN expectations e ON i.expectation_id = e.id AND e.tenant_id = i.tenant_id
+				LEFT JOIN file_contracts c ON e.contract_id = c.id AND c.tenant_id = i.tenant_id
+				LEFT JOIN partners p ON c.partner_id = p.id AND p.tenant_id = i.tenant_id
+				LEFT JOIN file_instances f ON i.file_instance_id = f.id AND f.tenant_id = i.tenant_id
+				WHERE `+where+`
 				ORDER BY i.id DESC
-			`, scope.TenantID())
+				LIMIT ?
+			`, args...)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -648,8 +733,8 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 				incidents = append(incidents, inc)
 			}
 
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(incidents)
+			writeJSON(w, http.StatusOK, finish(incidents, req,
+				func(i IncidentDetailResponse) int64 { return i.ID }))
 		})
 
 		// GET Audit Ledger

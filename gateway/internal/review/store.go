@@ -317,13 +317,38 @@ func (s *Store) Get(ctx context.Context, tenantID string, id int64) (*Decision, 
 // when they were written by internal/nacha. The queue is a work list, not a
 // place to read file content.
 func (s *Store) Queue(ctx context.Context, tenantID string, limit int) ([]*Decision, error) {
+	return s.QueuePage(ctx, tenantID, 0, limit)
+}
+
+// QueuePage returns one page of decisions awaiting a human, oldest first.
+//
+// Paged rather than capped. The previous form took a limit of 100 and returned
+// the same first 100 forever: a tenant with a longer backlog had decisions no
+// screen could reach and no way to see that they existed.
+//
+// The page key is the row id, not decided_at. id is unique and monotonic, so
+// the cursor needs no tiebreak and cannot skip a row that shares a timestamp
+// with the one before it. Insertion order is proposal order, which is the
+// order the queue wants anyway: the decision that has waited longest is the
+// one that needs attention.
+//
+// afterID is exclusive; zero starts at the head.
+func (s *Store) QueuePage(ctx context.Context, tenantID string, afterID int64, limit int) ([]*Decision, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
+	where := "d.tenant_id = ? AND d.state IN ('PROPOSED','APPROVED')"
+	args := []any{tenantID}
+	if afterID > 0 {
+		where += " AND d.id > ?"
+		args = append(args, afterID)
+	}
+	args = append(args, limit)
+
 	rows, err := s.db.QueryContext(ctx, s.rebind(
 		`SELECT `+decisionColumns+decisionFrom+`
-		 WHERE d.tenant_id = ? AND d.state IN ('PROPOSED','APPROVED')
-		 ORDER BY d.decided_at, d.id LIMIT ?`), tenantID, limit)
+		 WHERE `+where+`
+		 ORDER BY d.id LIMIT ?`), args...)
 	if err != nil {
 		return nil, err
 	}

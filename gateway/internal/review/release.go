@@ -299,14 +299,33 @@ func (s *Store) finalise(
 // auditor asks for the overrides and gets them, without needing to know which
 // flag on which table to look at.
 func (s *Store) Overrides(ctx context.Context, tenantID string, limit int) ([]OverrideRecord, error) {
+	return s.OverridesPage(ctx, tenantID, 0, limit)
+}
+
+// OverridesPage returns one page of override records, newest first.
+//
+// Paged by row id. The override register is the report an auditor asks for, so
+// "the most recent 100" is not an acceptable answer to "show me every override
+// last quarter" -- the reader has to be able to reach the end of the list.
+//
+// beforeID is exclusive; zero starts at the newest.
+func (s *Store) OverridesPage(ctx context.Context, tenantID string, beforeID int64, limit int) ([]OverrideRecord, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
+	where := "tenant_id = ?"
+	args := []any{tenantID}
+	if beforeID > 0 {
+		where += " AND id < ?"
+		args = append(args, beforeID)
+	}
+	args = append(args, limit)
+
 	rows, err := s.db.QueryContext(ctx, s.rebind(`
 		SELECT id, decision_id, file_instance_id, actor_id, role, reason, bypassed,
 		       approvals_held, approvals_required, blocking_rule_ids, created_at
-		FROM release_overrides WHERE tenant_id = ?
-		ORDER BY created_at DESC, id DESC LIMIT ?`), tenantID, limit)
+		FROM release_overrides WHERE `+where+`
+		ORDER BY id DESC LIMIT ?`), args...)
 	if err != nil {
 		return nil, err
 	}

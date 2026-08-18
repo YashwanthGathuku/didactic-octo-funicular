@@ -142,16 +142,21 @@ func listReviewQueue(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		queue, err := store.Queue(r.Context(), scope.TenantID(), 100)
+		req, perr := parsePage(r)
+		if perr != nil {
+			writeJSON(w, http.StatusBadRequest,
+				map[string]any{"error": "bad_page", "detail": perr.Error()})
+			return
+		}
+
+		queue, err := store.QueuePage(r.Context(), scope.TenantID(), req.After, req.Limit+1)
 		if err != nil {
 			log.Printf("review: queue failed for tenant %s: %v", scope.TenantID(), err)
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal_error"})
 			return
 		}
-		if queue == nil {
-			queue = []*review.Decision{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"decisions": queue})
+		writeJSON(w, http.StatusOK,
+			finish(queue, req, func(d *review.Decision) int64 { return d.ID }))
 	}
 }
 
@@ -295,15 +300,19 @@ func listOverrides(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "review_unavailable"})
 			return
 		}
-		records, err := store.Overrides(r.Context(), scope.TenantID(), 200)
+		req, perr := parsePage(r)
+		if perr != nil {
+			writeJSON(w, http.StatusBadRequest,
+				map[string]any{"error": "bad_page", "detail": perr.Error()})
+			return
+		}
+		records, err := store.OverridesPage(r.Context(), scope.TenantID(), req.After, req.Limit+1)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal_error"})
 			return
 		}
-		if records == nil {
-			records = []review.OverrideRecord{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"overrides": records})
+		writeJSON(w, http.StatusOK,
+			finish(records, req, func(o review.OverrideRecord) int64 { return o.ID }))
 	}
 }
 

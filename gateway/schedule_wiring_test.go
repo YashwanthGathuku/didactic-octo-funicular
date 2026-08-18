@@ -124,11 +124,15 @@ func getSlaBoard(t *testing.T, handler http.Handler) []SlaExpectationResponse {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("sla-board: %d %s", rec.Code, rec.Body.String())
 	}
-	var out []SlaExpectationResponse
+	// The board is paged, so the body is an envelope rather than a bare
+	// array. Prompt 12 made every list endpoint paged server-side; a helper
+	// that still expected an array would pass on the first page and hide the
+	// existence of the second.
+	var out page[SlaExpectationResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode sla-board: %v (body %s)", err, rec.Body.String())
 	}
-	return out
+	return out.Items
 }
 
 func TestUploadIsAttributedToAnExpectation(t *testing.T) {
