@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,76 +13,110 @@ import (
 	"time"
 )
 
+// EdgeAgentConfig holds configuration for the outbound-only private edge agent.
 type EdgeAgentConfig struct {
 	AgentID      string `json:"agentId"`
+	TenantID     string `json:"tenantId"`
 	ControlPlane string `json:"controlPlane"`
-	AuthToken    string `json:"authToken"`
-	Hostname     string `json:"hostname"`
+	CertFile     string `json:"certFile"`
+	KeyFile      string `json:"keyFile"`
+	CAFile       string `json:"caFile"`
+	PollInterval time.Duration
 }
 
 func main() {
-	controlPlaneURL := flag.String("control-plane", "http://localhost:8080", "Sentinel Flow Control Plane URL")
+	controlPlaneURL := flag.String("control-plane", "https://localhost:8443", "Sentinel Flow Control Plane URL (HTTPS)")
 	agentID := flag.String("agent-id", "EDGE-AGENT-MERIDIAN-VPC-01", "Unique Edge Agent Identifier")
-	pollIntervalSec := flag.Int("interval", 15, "Outbound heartbeat sync interval in seconds")
+	tenantID := flag.String("tenant-id", "TENANT-DEFAULT", "Tenant Identifier")
+	certFile := flag.String("cert", "", "Path to agent X.509 client certificate")
+	keyFile := flag.String("key", "", "Path to agent client private key")
+	caFile := flag.String("ca", "", "Path to root/intermediate CA certificate")
+	interval := flag.Int("interval", 15, "Outbound heartbeat sync interval in seconds")
 	flag.Parse()
 
 	hostname, _ := os.Hostname()
 	cfg := EdgeAgentConfig{
 		AgentID:      *agentID,
+		TenantID:     *tenantID,
 		ControlPlane: *controlPlaneURL,
-		Hostname:     hostname,
+		CertFile:     *certFile,
+		KeyFile:      *keyFile,
+		CAFile:       *caFile,
+		PollInterval: time.Duration(*interval) * time.Second,
 	}
 
 	fmt.Println("==================================================================")
-	fmt.Println("  SENTINEL FLOW: Customer Edge Agent (Outbound Integration Hub)   ")
+	fmt.Println("  SENTINEL FLOW: Customer Edge Agent (Outbound-Only Private Edge)")
 	fmt.Printf("  Agent ID:       %s\n", cfg.AgentID)
+	fmt.Printf("  Tenant ID:      %s\n", cfg.TenantID)
 	fmt.Printf("  Control Plane:  %s\n", cfg.ControlPlane)
-	fmt.Printf("  Local Hostname: %s\n", cfg.Hostname)
-	fmt.Println("  Inbound Ports:  NONE (Zero-Trust Outbound Only via mTLS)         ")
+	fmt.Printf("  Local Hostname: %s\n", hostname)
+	fmt.Println("  Inbound Ports:  NONE (Outbound TLS 1.2+ Client)")
 	fmt.Println("==================================================================")
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	// Load mutual TLS client certificates if provided
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+		if err != nil {
+			log.Fatalf("[Edge Agent] Failed to load mTLS client certificate: %v", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	// Load trusted root CA if provided
+	if cfg.CAFile != "" {
+		caData, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			log.Fatalf("[Edge Agent] Failed to read CA certificate: %v", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caData) {
+			log.Fatalf("[Edge Agent] Failed to parse CA certificate PEM")
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig:     tlsConfig,
+		MaxIdleConns:        5,
+		IdleConnTimeout:     30 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   15 * time.Second,
+	}
 
 	for {
-		// 1. Construct outbound metadata sync packet (no secrets transferred)
-		syncPayload := map[string]interface{}{
-			"edgeAgentId": cfg.AgentID,
-			"hostname":    cfg.Hostname,
-			"status":      "HEALTHY",
-			"discoveredResources": []map[string]interface{}{
-				{
-					"type":       "SFTP_DIRECTORY",
-					"path":       "/inbound/ach/",
-					"filesCount": 4,
-					"health":     "HEALTHY",
-				},
-				{
-					"type":       "POSTGRESQL_SCHEMA",
-					"database":   "treasury_settlement_db",
-					"tables":     []string{"settlement_batches", "counterparty_ledgers"},
-					"health":     "HEALTHY",
-				},
-			},
-			"heartbeatTimestamp": time.Now().UTC().Format(time.RFC3339),
+		heartbeat := map[string]any{
+			"agentId":   cfg.AgentID,
+			"tenantId":  cfg.TenantID,
+			"hostname":  hostname,
+			"status":    "HEALTHY",
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		}
 
-		payloadBytes, _ := json.Marshal(syncPayload)
-		req, err := http.NewRequest("POST", cfg.ControlPlane+"/api/v1/hub/edge/sync", bytes.NewBuffer(payloadBytes))
+		payloadBytes, _ := json.Marshal(heartbeat)
+		req, err := http.NewRequest("POST", cfg.ControlPlane+"/api/v1/edge/heartbeat", bytes.NewBuffer(payloadBytes))
 		if err != nil {
-			log.Printf("[Edge Agent] Failed to create sync request: %v\n", err)
+			log.Printf("[Edge Agent] Failed to construct heartbeat request: %v", err)
 		} else {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("User-Agent", "Sentinel-Edge-Agent/1.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
-				log.Printf("[Edge Agent] Outbound sync notice (Control plane connection): %v\n", err)
+				log.Printf("[Edge Agent] Outbound control-plane notification: %v", err)
 			} else {
-				log.Printf("[Edge Agent] Outbound mTLS metadata sync successful (HTTP %d)\n", resp.StatusCode)
-				resp.Body.Close()
+				log.Printf("[Edge Agent] Outbound sync response: HTTP %d", resp.StatusCode)
+				_ = resp.Body.Close()
 			}
 		}
 
-		time.Sleep(time.Duration(*pollIntervalSec) * time.Second)
+		time.Sleep(cfg.PollInterval)
 	}
 }

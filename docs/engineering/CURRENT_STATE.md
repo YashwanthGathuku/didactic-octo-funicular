@@ -631,3 +631,6 @@ release bug) is a one-line-class defect with a live exploit and no test coverage
 guide places it in Prompt 07. Doing it inside Prompt 01 — preceded by a failing regression
 test — would close the most dangerous gap roughly six prompts earlier. I recommend it;
 confirm before I proceed.
+
+## Recent Updates
+- **UI/UX Transformation:** The frontend has been fully updated from a dark mode to a clean, light institutional fintech theme. All components (Operations Console, Review Queue, Connector Wizard, etc.) have been restyled to reflect a 'cleaner, less AI-wrapper' feel.

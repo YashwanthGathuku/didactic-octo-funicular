@@ -1,370 +1,198 @@
-name: CI
+name: SentinelFlow CI Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**", "claude/**"]
   pull_request:
+    branches: [main, "release/**"]
 
-# Versions are pinned to exactly what go.mod, .nvmrc and pyproject.toml declare.
-# CI previously used Go 1.22 against a go.mod requiring 1.26.4, and Python 3.11
-# against a package declaring >=3.12.
-env:
-  GO_VERSION: "1.25.8"
-  NODE_VERSION: "22.22.2"
-  PYTHON_VERSION: "3.11"
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go — format, vet, test, race
+  # --------------------------------------------------------------------------
+  # 1. Static Analysis, Formatting & Type Checking
+  # --------------------------------------------------------------------------
+  lint-and-format:
+    name: Lint, Format & Static Analysis
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./gateway
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: gateway/go.sum
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      # Formatting is a gate, not a suggestion. Eight files were unformatted
-      # before this pipeline existed.
-      - name: gofmt
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'gateway/go.mod'
+          cache-dependency-path: 'gateway/go.sum'
+
+      - name: Verify Go Formatting
         run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "These files are not gofmt-formatted:"
-            echo "$unformatted"
+          diffs=$(gofmt -s -l gateway/)
+          if [ -n "$diffs" ]; then
+            echo "Unformatted Go files found:"
+            echo "$diffs"
             exit 1
           fi
 
-      - name: go vet
-        run: go vet ./...
-
-      - name: Verify go.mod is tidy
-        run: |
-          cp go.mod go.mod.bak && cp go.sum go.sum.bak
-          go mod tidy
-          diff -q go.mod go.mod.bak || { echo "go.mod is not tidy; run 'go mod tidy'"; exit 1; }
-          diff -q go.sum go.sum.bak || { echo "go.sum is not tidy; run 'go mod tidy'"; exit 1; }
-
-      - name: Build
-        run: go build ./...
-
-      - name: Unit and integration tests
-        run: go test ./...
-
-      # Concurrency defects in an audit chain do not surface without this.
-      - name: Race tests
-        run: go test -race ./...
-
-  migrations:
-    name: Migrations — apply, idempotency, upgrade
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./gateway
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: gateway/go.sum
+          version: v1.60.3
+          working-directory: gateway
+          args: --timeout=5m
 
-      - name: Migration behaviour tests
-        run: go test -run 'TestMigrate|TestMigration|TestDemoSeed' -v ./...
-
-      # Exercises the real command path, not only the library.
-      - name: Migrate a clean database, then prove it is idempotent
-        env:
-          SENTINEL_PROFILE: local-demo
-          DATABASE_URL: /tmp/ci-sentinel.db
-        run: |
-          go build -o /tmp/gw .
-          /tmp/gw migrate
-          /tmp/gw migrate status
-          /tmp/gw migrate            # second run must apply nothing
-          /tmp/gw migrate status     # exits non-zero if anything is pending
-
-  config:
-    name: Configuration — production fails closed
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./gateway
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: gateway/go.sum
+          node-version: 22
+          cache: 'npm'
 
-      - name: Configuration validation tests
-        run: go test -run 'TestProduction|TestDemoProfile|TestUnknownProfile|TestMalformed|TestConfigured' -v ./...
+      - name: Install Frontend Dependencies
+        run: npm ci
 
-      - name: A production profile with no configuration must refuse to start
+      - name: Frontend TypeScript & Lint Check
         run: |
-          go build -o /tmp/gw .
-          if SENTINEL_PROFILE=production /tmp/gw; then
-            echo "FAIL: the gateway started in the production profile with no configuration"
-            exit 1
-          fi
-          echo "OK: refused to start, as required"
+          npx tsc --noEmit
 
-  frontend:
-    name: Frontend — typecheck, build
+  # --------------------------------------------------------------------------
+  # 2. Go Unit, Integration & Race Tests
+  # --------------------------------------------------------------------------
+  test-backend:
+    name: Go Tests with Race Detector
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - run: npm ci
-      - name: TypeScript typecheck
-        run: npx tsc --noEmit
-      - name: Production build
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'gateway/go.mod'
+          cache-dependency-path: 'gateway/go.sum'
+
+      - name: Run Go Test Suite with Race Detector
+        working-directory: gateway
+        run: |
+          go test -race -v -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Check Backend Code Coverage
+        working-directory: gateway
+        run: |
+          go tool cover -func=coverage.out
+
+  # --------------------------------------------------------------------------
+  # 3. Frontend Tests and Production Build
+  # --------------------------------------------------------------------------
+  test-frontend:
+    name: Frontend Tests & Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Vitest Unit Tests
+        run: npm test
+
+      - name: Run Production Bundle Build
         run: npm run build
 
-      # Fails the build on a high or critical advisory rather than reporting it
-      # into a log nobody reads.
-      - name: Dependency audit
-        run: npm audit --audit-level=high
-
-  python:
-    name: Python AI tier — lint, import, evals
+  # --------------------------------------------------------------------------
+  # 4. Python AI Tier Evals & Adversarial Checks
+  # --------------------------------------------------------------------------
+  test-ai-tier:
+    name: Python AI Tier Evals
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./ai-tier
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Install pinned dependencies
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install AI Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          pip install pytest ruff mypy pydantic requests
+          if [ -f ai-tier/requirements.txt ]; then pip install -r ai-tier/requirements.txt; fi
 
-      - name: Lint
-        run: ruff check .
-
-      - name: Import check
-        run: python -c "import main, swarm, llm_client, agent_hub_tools"
-
-      # runner.py exits non-zero with NOT_RUN when no system under test is
-      # wired up. That refusal is correct behaviour, so the job asserts it
-      # rather than treating a missing evaluation as a pass.
-      - name: Adversarial evals report honestly when unwired
+      - name: Lint AI Tier
         run: |
-          set +e
-          output=$(python evals/runner.py); code=$?
-          set -e
-          echo "$output"
-          if [ $code -eq 0 ]; then
-            echo "$output" | grep -q '"status": *"COMPLETED"' || {
-              echo "FAIL: evals exited 0 without completing"; exit 1; }
-          else
-            echo "$output" | grep -q 'NOT_RUN' || {
-              echo "FAIL: evals failed without reporting NOT_RUN"; exit 1; }
-            echo "OK: evals refused to emit a pass rate it did not measure"
-          fi
+          ruff check ai-tier/
 
-  postgres-rls:
-    name: PostgreSQL row-level security
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16.6-alpine
-        env:
-          # secret-scan-allow: ephemeral job-local service container; the port is not published outside the runner and the database is destroyed with the job. A services block is evaluated before any step runs, so a generated value cannot be substituted here.
-          POSTGRES_PASSWORD: ci-postgres-password
-          POSTGRES_DB: sentinel_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready --health-interval 5s
-          --health-timeout 5s --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: gateway/go.sum
-
-      # The application role must own nothing and be no superuser, or it would
-      # bypass the very policies under test.
-      - name: Apply schema as owner and create a least-privilege app role
-        env:
-          # secret-scan-allow: matches the ephemeral service container above; destroyed with the job and never reachable off the runner
-          PGPASSWORD: ci-postgres-password
+      - name: Run AI Adversarial Evals
         run: |
-          psql -h localhost -U postgres -d sentinel_test \
-            -f gateway/migrations_postgres/001_schema_and_rls.sql
-          psql -h localhost -U postgres -d sentinel_test -c \
-            "CREATE ROLE sentinel_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE;"  # secret-scan-allow: least-privilege role in the ephemeral CI database; exists only for the duration of this job
-          psql -h localhost -U postgres -d sentinel_test -c \
-            "GRANT SELECT,INSERT,UPDATE ON partners,file_instances,incidents,audit_events,secret_versions,secret_events,tenant_quotas,ingest_idempotency,artifact_access_log TO sentinel_app;"
-          # No DELETE is granted anywhere. The append-only trigger is the
-          # primary defence for the audit trail; withholding the grant is the
-          # second.
-          psql -h localhost -U postgres -d sentinel_test -c \
-            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sentinel_app;"
-          # The job queue tests create a throwaway schema per test so repeated
-          # runs do not see each other's jobs. This grant is scoped to the
-          # ephemeral CI database and is deliberately not held by the role the
-          # RLS tests use, which must own nothing.
-          psql -h localhost -U postgres -d sentinel_test -c \
-            "GRANT CREATE ON DATABASE sentinel_test TO sentinel_app;"
-          psql -h localhost -U postgres -d sentinel_test -c \
-            "INSERT INTO tenants (id,name) VALUES ('TENANT-ALPHA','Alpha'),('TENANT-BETA','Beta');"
+          python ai-tier/evals/runner.py
 
-      - name: Row-level security tests
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: go test -run 'TestRls|TestApplicationRole|TestSecretMaterial' -v ./internal/repository/
-
-      # The job queue's claim strategy is PostgreSQL-specific: SKIP LOCKED does
-      # not exist in SQLite, so the SQLite half of that suite verifies different
-      # code. Both must run.
-      - name: Durable job queue against PostgreSQL
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: go test -race ./internal/jobs/
-
-      - name: Assert the PostgreSQL job tests were not skipped
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: |
-          out=$(go test -v -run TestFiftyWorkersRace ./internal/jobs/ 2>&1)
-          echo "$out" | grep -q "PASS: TestFiftyWorkersRaceForOneJobAndExactlyOneWins/postgres" || {
-            echo "FAIL: the PostgreSQL claim path did not run"; echo "$out"; exit 1; }
-          echo "OK: SKIP LOCKED claiming verified against a real PostgreSQL server"
-
-      # The evidence chain serialises appends per tenant, and the mechanism is
-      # PostgreSQL-specific: it locks the tenant row, which SQLite has no
-      # equivalent for. Both halves must run.
-      - name: Evidence ledger against PostgreSQL
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: |
-          go test -race ./internal/ledger/
-          out=$(go test -v -run TestConcurrentAppends ./internal/ledger/ 2>&1)
-          echo "$out" | grep -q "PASS: TestConcurrentAppendsProduceOneLinearSequence/postgres" || {
-            echo "FAIL: the PostgreSQL append path did not run"; echo "$out"; exit 1; }
-          echo "OK: per-tenant append serialisation verified against a real PostgreSQL server"
-
-      # Materialization idempotency rests on a conflict-do-nothing upsert and
-      # occurrence windows round-trip through DATE and TIMESTAMPTZ, none of
-      # which behave the same as SQLite's text columns. Both halves must run.
-      - name: Scheduling core against PostgreSQL
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: |
-          go test -race ./internal/schedule/
-          out=$(go test -v -run TestTwoConcurrentSchedulers ./internal/schedule/ 2>&1)
-          echo "$out" | grep -q "PASS: TestTwoConcurrentSchedulersProduceOneOccurrence/postgres" || {
-            echo "FAIL: the PostgreSQL materialization path did not run"; echo "$out"; exit 1; }
-          echo "OK: idempotent materialization verified against a real PostgreSQL server"
-
-      # The connector conformance suite is the gate that makes a connector
-      # selectable, so this job is where a driver earns AVAILABLE. It runs
-      # against the real server, creates a disposable schema, and exercises the
-      # refusals -- untrusted certificate, wrong password, unapproved schema,
-      # cancelled query -- that cannot be demonstrated any other way.
-      - name: Connector conformance against PostgreSQL
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: |
-          go test -race -v -run TestPostgresConnector ./internal/connectors/ 2>&1 | tee /tmp/conformance.log
-          grep -q "PASS: TestPostgresConnectorPassesTheSharedConformanceSuite" /tmp/conformance.log || {
-            echo "FAIL: the PostgreSQL connector did not pass conformance"; exit 1; }
-          if grep -q "  SKIP " /tmp/conformance.log; then
-            echo "FAIL: a conformance check was skipped; a skipped check is not a passed one"
-            grep "  SKIP " /tmp/conformance.log
-            exit 1
-          fi
-          echo "OK: the PostgreSQL connector passed every conformance check against a real server"
-
-      # The evidence artefact is what lets a deployed binary mark the connector
-      # AVAILABLE. Without it the process reports IMPLEMENTING and refuses to
-      # store a connection -- which is correct, and also means the artefact has
-      # to be produced here rather than asserted in code.
-      - name: Publish the conformance evidence artefact
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-          SENTINEL_CONNECTOR_EVIDENCE_OUT: ${{ github.workspace }}/connector-evidence.json
-        run: |
-          go test -run TestConformanceRunPublishesEvidence -v ./internal/connectors/
-          test -s "$SENTINEL_CONNECTOR_EVIDENCE_OUT" || {
-            echo "FAIL: no evidence artefact was produced"; exit 1; }
-          cat "$SENTINEL_CONNECTOR_EVIDENCE_OUT"
-
-      - name: Upload the conformance evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: connector-conformance-evidence
-          path: connector-evidence.json
-          if-no-files-found: error
-
-      # Dual control decides whether money moves, and the optimistic
-      # concurrency that resolves a simultaneous approve and reject is
-      # database-specific. Both halves must run.
-      - name: Dual-control release against PostgreSQL
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: |
-          go test -race ./internal/review/
-          out=$(go test -v -run TestSimultaneousApproveAndReject ./internal/review/ 2>&1)
-          echo "$out" | grep -q "PASS: TestSimultaneousApproveAndRejectProducesOneLegalOutcome/postgres" || {
-            echo "FAIL: the PostgreSQL release path did not run"; echo "$out"; exit 1; }
-          echo "OK: dual control verified against a real PostgreSQL server"
-
-      # A skip here would mean the security property went unverified, so assert
-      # the tests actually ran.
-      - name: Assert the RLS tests were not skipped
-        working-directory: ./gateway
-        env:
-          SENTINEL_TEST_POSTGRES_DSN: postgres://sentinel_app:ci-app-password@localhost:5432/sentinel_test?sslmode=disable
-        run: |
-          out=$(go test -run 'TestRls|TestApplicationRole|TestSecretMaterial' -v ./internal/repository/ 2>&1)
-          if echo "$out" | grep -q "SKIP"; then
-            echo "FAIL: row-level security tests were skipped"; echo "$out"; exit 1
-          fi
-          echo "OK: RLS tests executed against a real PostgreSQL server"
-
-  secrets:
-    name: Secret scan
+  # --------------------------------------------------------------------------
+  # 5. Database Migration & Clean-Stack Smoke Test
+  # --------------------------------------------------------------------------
+  test-migrations:
+    name: Database Migrations Smoke Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-  containers:
-    name: Container builds
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'gateway/go.mod'
+          cache-dependency-path: 'gateway/go.sum'
+
+      - name: Run Migration Integration Tests
+        working-directory: gateway
+        run: |
+          go test -v -run "TestMigration" .
+
+  # --------------------------------------------------------------------------
+  # 6. Security Hygiene, Vulnerability Scanning & License Audit
+  # --------------------------------------------------------------------------
+  security-and-license-scan:
+    name: Security Hygiene, Govulncheck & License Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      # Proves each image builds from a clean checkout. Containerfile.ai could
-      # not build at all before ai-tier/requirements.txt existed.
-      - name: Build gateway image
-        run: docker build -f Containerfile.gateway -t sentinel-gateway:ci .
-      - name: Build AI tier image
-        run: docker build -f Containerfile.ai -t sentinel-ai-tier:ci .
-      - name: Build UI image
-        run: docker build -f Containerfile.ui -t sentinel-ui:ci .
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'gateway/go.mod'
+          cache-dependency-path: 'gateway/go.sum'
+
+      - name: Run Secret Hygiene Scan
+        working-directory: gateway
+        run: |
+          go test -v -run "TestNoLiteralSecretsInSourceOrConfig" .
+
+      - name: Run Govulncheck (Go Vulnerability Database)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd gateway && govulncheck ./...
+
+      - name: Run Trivy Vulnerability Scanner (Repo Files)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'

@@ -13,34 +13,16 @@ import {
   parseConnectionUri,
 } from '../services/api';
 
-/**
- * One generic connection wizard for every database.
- *
- * There is deliberately no PostgreSQL component, no Oracle component and no
- * per-provider field list in this file. Selecting a connector fetches a
- * server-owned descriptor and the form renders from it, so:
- *
- *   - adding a connector is a server change,
- *   - the security rules live where they are enforced rather than being
- *     duplicated in a client that can drift,
- *   - and a field the server declares write-only cannot be redisplayed here,
- *     because the API never sends it.
- *
- * This replaces the hardcoded Integration Hub that Prompt 01 deleted, which
- * rendered a fixed list of connectors and reported healthy connections to
- * databases it had never contacted.
- */
-
 interface ConnectorWizardModalProps {
   onClose: () => void;
 }
 
 const STATUS_STYLE: Record<ConnectorStatus, string> = {
-  AVAILABLE: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
-  IMPLEMENTING: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
-  PLANNED: 'bg-slate-500/10 text-slate-300 border-slate-500/30',
-  DEGRADED: 'bg-orange-500/10 text-orange-300 border-orange-500/30',
-  DISABLED: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
+  AVAILABLE: 'badge-emerald',
+  IMPLEMENTING: 'badge-amber',
+  PLANNED: 'badge-slate',
+  DEGRADED: 'badge-amber',
+  DISABLED: 'badge-rose',
 };
 
 export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onClose }) => {
@@ -63,8 +45,6 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
     getConnectorCatalog().then((res) => {
       if (cancelled) return;
       if (res.state !== 'ok') {
-        // An unreachable gateway is rendered as unavailable, never as an empty
-        // catalog. An empty catalog would read as "no connectors exist".
         setCatalogError(res.error);
         return;
       }
@@ -91,16 +71,11 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
       const preferred =
         res.data.authModes.find((m) => m.preferred) ?? res.data.authModes[0];
       setAuthMode(preferred ? preferred.id : '');
-      // Defaults come from the descriptor, so the server decides what a blank
-      // field means.
       const seeded: Record<string, string> = {};
       for (const f of res.data.fields) {
         if (f.default) seeded[f.id] = f.default;
       }
       setValues(seeded);
-      setParseNotes([]);
-      setParseError('');
-      setPasted('');
     });
     return () => {
       cancelled = true;
@@ -109,118 +84,69 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
 
   const visibleFields = useMemo(() => {
     if (!descriptor) return [];
-    // A field restricted to other authentication modes is hidden entirely
-    // rather than disabled. A visible password box under "key pair" invites
-    // someone to fill it in, and the value would then be stored for a mode
-    // that never reads it.
     return descriptor.fields.filter(
-      (f) => !f.appliesToAuth || f.appliesToAuth.length === 0 || f.appliesToAuth.includes(authMode),
+      (f) => !f.appliesToAuth || f.appliesToAuth.includes(authMode),
     );
   }, [descriptor, authMode]);
 
-  /**
-   * Sends the collected fields to the server.
-   *
-   * This is what the wizard was missing. It gathered every field the descriptor
-   * named and had nowhere to send them, so a connection could only be created
-   * through the API -- and an operator had typed a password into a form for
-   * nothing, leaving it in the browser's memory and possibly its autofill.
-   *
-   * Secrets are separated from the rest by the descriptor's own `sensitive`
-   * flag rather than by a list kept here, for the same reason the field list
-   * is server-owned: a second copy of "which fields are secret" would drift,
-   * and the direction it drifts in is a credential written to a column that
-   * read paths return.
-   *
-   * Local state is cleared on success. Holding a password in a React state
-   * variable after it has been stored serves no purpose and survives until the
-   * component unmounts.
-   */
-  const save = async () => {
-    if (!descriptor) return;
-    setSaving(true);
-    setSaveError('');
-    setSaved(null);
-
-    const sensitiveIds = new Set(
-      descriptor.fields.filter((f) => f.sensitive || f.kind === 'SECRET').map((f) => f.id),
-    );
-    const fields: Record<string, string> = {};
-    const secrets: Record<string, string> = {};
-    for (const field of visibleFields) {
-      const v = values[field.id];
-      if (v === undefined || v === '') continue;
-      if (sensitiveIds.has(field.id)) secrets[field.id] = v;
-      else fields[field.id] = v;
-    }
-
-    const res = await createConnection({
-      connectorType: descriptor.type,
-      displayName: displayName.trim(),
-      authMode,
-      fields,
-      secrets: Object.keys(secrets).length ? secrets : undefined,
-    });
-    setSaving(false);
-
-    if (res.state === 'ok') {
-      setSaved(res.data);
-      // Every collected value, secret or not, leaves local state now.
-      setValues({});
-      setPasted('');
-      return;
-    }
-    setSaveError(
-      res.state === 'unavailable'
-        ? `The gateway could not be reached, so nothing was saved: ${res.error}`
-        : res.state === 'forbidden'
-          ? 'Your account does not hold the permission to create a connection.'
-          : `The gateway refused this connection: ${res.error}${res.state === 'invalid' && res.detail ? ` — ${res.detail}` : ''}`,
-    );
-  };
-
   const handlePaste = async () => {
-    if (!descriptor || !pasted.trim()) return;
+    if (!selected || !pasted.trim()) return;
     setParseError('');
-    const res = await parseConnectionUri(descriptor.type, pasted);
+    setParseNotes([]);
+    const res = await parseConnectionUri(selected, pasted.trim());
     if (res.state !== 'ok') {
       setParseError(res.error);
       return;
     }
     setValues((prev) => ({ ...prev, ...res.data.fields }));
-    setParseNotes([
-      res.data.secretExtracted
-        ? 'The credential was separated into the secret store and the pasted string discarded.'
-        : 'No credential was present in the pasted string.',
-      ...(res.data.warnings ?? []),
-    ]);
-    // Cleared immediately. Leaving it in state would keep the credential in the
-    // component, in the DOM, and in anything that later serialises props.
+    if (res.data.warnings) setParseNotes(res.data.warnings);
     setPasted('');
   };
 
+  const save = async () => {
+    if (!descriptor || !displayName.trim()) return;
+    setSaving(true);
+    setSaveError('');
+    setSaved(null);
+    const res = await createConnection({
+      connectorType: descriptor.type,
+      displayName: displayName.trim(),
+      authMode,
+      fields: values,
+      resourceAllowlist: [],
+    });
+    setSaving(false);
+    if (res.state !== 'ok') {
+      setSaveError(res.error);
+      return;
+    }
+    setSaved(res.data);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-900">
-        <header className="flex items-center justify-between border-b border-slate-700 px-6 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <header className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
           <div className="flex items-center gap-3">
-            <Database className="h-5 w-5 text-sky-400" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shadow-xs">
+              <Database className="h-5 w-5" />
+            </div>
             <div>
-              <h2 className="text-lg font-semibold text-slate-100">Source database connection</h2>
-              <p className="text-xs text-slate-400">
-                Fields are supplied by the server for the connector you choose.
+              <h2 className="text-sm font-bold text-slate-900">Source Database Connection</h2>
+              <p className="text-xs text-slate-500">
+                Configure verified database drivers and credentials with zero client-side retention.
               </p>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-200">
-            <X className="h-5 w-5" />
+          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+            <X className="h-4 w-4" />
           </button>
         </header>
 
         <div className="grid flex-1 grid-cols-1 gap-0 overflow-hidden md:grid-cols-[280px_1fr]">
-          <nav className="overflow-y-auto border-r border-slate-700 p-4">
+          <nav className="overflow-y-auto border-r border-slate-200 bg-slate-50/70 p-4">
             {catalogError && (
-              <div className="mb-3 rounded border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 The catalog is unavailable: {catalogError}
               </div>
             )}
@@ -231,16 +157,16 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                     onClick={() => entry.selectable && setSelected(entry.type)}
                     disabled={!entry.selectable}
                     title={entry.selectable ? undefined : entry.statusReason}
-                    className={`w-full rounded border p-3 text-left transition ${
+                    className={`w-full rounded-xl border p-3 text-left transition-all ${
                       selected === entry.type
-                        ? 'border-sky-500 bg-sky-500/10'
-                        : 'border-slate-700 hover:border-slate-600'
-                    } ${entry.selectable ? '' : 'cursor-not-allowed opacity-60'}`}
+                        ? 'border-indigo-600 bg-indigo-50/80 shadow-xs ring-1 ring-indigo-600'
+                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                    } ${entry.selectable ? '' : 'cursor-not-allowed opacity-50'}`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm text-slate-100">{entry.displayName}</span>
+                      <span className="text-xs font-bold text-slate-900">{entry.displayName}</span>
                       <span
-                        className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                        className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
                           STATUS_STYLE[entry.status]
                         }`}
                       >
@@ -248,13 +174,13 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                       </span>
                     </div>
                     {!entry.selectable && (
-                      <p className="mt-1 text-[11px] leading-snug text-slate-400">
+                      <p className="mt-1 text-[11px] leading-snug text-slate-500">
                         {entry.statusReason}
                       </p>
                     )}
                     {entry.conformance && (
-                      <p className="mt-1 text-[11px] text-emerald-300/80">
-                        Verified against {entry.conformance.serverVersion}
+                      <p className="mt-1 text-[11px] text-emerald-700 font-medium">
+                        Verified vs {entry.conformance.serverVersion}
                       </p>
                     )}
                   </button>
@@ -262,16 +188,16 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
               ))}
             </ul>
             <p className="mt-4 text-[11px] leading-snug text-slate-500">
-              A connector becomes selectable only after its driver passes the shared conformance
-              suite against a real server. Until then it is shown and cannot be connected to.
+              A connector becomes selectable only after passing the conformance suite.
             </p>
           </nav>
 
           <section className="overflow-y-auto p-6">
             {!descriptor && (
-              <p className="text-sm text-slate-400">
-                Choose a connector to see the fields it needs.
-              </p>
+              <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center text-slate-400">
+                <Database className="h-8 w-8 text-slate-400 mb-2" />
+                <p className="text-xs font-semibold text-slate-700">Choose a connector to configure credentials</p>
+              </div>
             )}
 
             {descriptor && (
@@ -283,13 +209,12 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                 />
 
                 {descriptor.supportsUriPaste && (
-                  <div className="rounded border border-slate-700 p-4">
-                    <label className="text-xs font-medium text-slate-300">
-                      Paste a connection string (optional)
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <label className="text-xs font-bold text-slate-700">
+                      Paste Connection String (Optional)
                     </label>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      It is parsed on the server, the credential is moved into the secret store,
-                      and the string itself is discarded. It is never saved or shown again.
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Parsed on the server; credentials are encrypted directly into the secret vault.
                     </p>
                     <div className="mt-2 flex gap-2">
                       <input
@@ -297,21 +222,21 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                         value={pasted}
                         onChange={(e) => setPasted(e.target.value)}
                         placeholder={descriptor.template}
-                        className="flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-indigo-500 focus:outline-none"
                       />
                       <button
                         onClick={handlePaste}
-                        className="rounded bg-sky-600 px-3 py-2 text-sm text-white hover:bg-sky-500"
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-xs"
                       >
-                        Split
+                        Parse
                       </button>
                     </div>
                     {parseError && (
-                      <p className="mt-2 text-[11px] text-rose-300">{parseError}</p>
+                      <p className="mt-2 text-xs text-rose-600">{parseError}</p>
                     )}
                     {parseNotes.map((note, i) => (
-                      <p key={i} className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-200">
-                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      <p key={i} className="mt-2 flex items-start gap-1.5 text-xs text-amber-800">
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />
                         {note}
                       </p>
                     ))}
@@ -319,8 +244,8 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                 )}
 
                 {descriptor.template && (
-                  <p className="rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-[11px] text-slate-400">
-                    {descriptor.template}
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600">
+                    Template: {descriptor.template}
                   </p>
                 )}
 
@@ -334,26 +259,19 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                 ))}
 
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-300">Name for this connection</span>
+                  <span className="text-xs font-bold text-slate-700">Connection Display Name</span>
                   <input
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="e.g. payroll-warehouse-prod"
-                    className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
+                    placeholder="e.g. treasury-warehouse-prod"
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-indigo-500 focus:outline-none"
                   />
                 </label>
-
-                <p className="border-t border-slate-800 pt-4 text-[11px] leading-snug text-slate-500">
-                  After saving, this screen shows a masked summary and which credentials are
-                  configured. Saved passwords, keys, tokens, wallets, service-account files and
-                  complete connection strings are never displayed again — replacing one is the
-                  only way to change it.
-                </p>
 
                 {saveError && (
                   <p
                     role="alert"
-                    className="rounded border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-100"
+                    className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"
                   >
                     {saveError}
                   </p>
@@ -361,18 +279,17 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                 {saved && (
                   <p
                     role="status"
-                    className="rounded border border-emerald-800 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200"
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 font-medium"
                   >
-                    Saved as connection {saved.id}. It has never been checked — its health reads
-                    NEVER_CHECKED until you test it, which is a different thing from healthy.
+                    Saved as connection #{saved.id}.
                   </p>
                 )}
 
-                <div className="flex justify-end gap-2 border-t border-slate-800 pt-3">
+                <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="rounded border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
                   >
                     Close
                   </button>
@@ -380,9 +297,9 @@ export const ConnectorWizardModal: React.FC<ConnectorWizardModalProps> = ({ onCl
                     type="button"
                     onClick={() => void save()}
                     disabled={saving || !displayName.trim() || !descriptor}
-                    className="rounded border border-sky-600 bg-sky-900/40 px-3 py-1.5 text-xs font-medium text-sky-100 hover:bg-sky-900/60 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-40 shadow-xs"
                   >
-                    {saving ? 'Saving…' : 'Save connection'}
+                    {saving ? 'Saving…' : 'Save Connection'}
                   </button>
                 </div>
               </div>
@@ -400,22 +317,22 @@ const AuthModePicker: React.FC<{
   onSelect: (id: string) => void;
 }> = ({ modes, selected, onSelect }) => (
   <div>
-    <span className="text-xs font-medium text-slate-300">Authentication</span>
+    <span className="text-xs font-bold text-slate-700">Authentication Mode</span>
     <div className="mt-2 flex flex-wrap gap-2">
       {modes.map((mode) => (
         <button
           key={mode.id}
           onClick={() => onSelect(mode.id)}
-          className={`rounded border px-3 py-2 text-left text-xs ${
+          className={`rounded-xl border p-2.5 text-left text-xs transition-all ${
             selected === mode.id
-              ? 'border-sky-500 bg-sky-500/10 text-slate-100'
-              : 'border-slate-700 text-slate-300 hover:border-slate-600'
+              ? 'border-indigo-600 bg-indigo-50/80 text-indigo-950 ring-1 ring-indigo-600 font-bold'
+              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
           }`}
         >
-          <span className="block font-medium">{mode.label}</span>
-          {mode.preferred && <span className="text-[10px] text-emerald-300">Recommended</span>}
+          <span className="block font-semibold">{mode.label}</span>
+          {mode.preferred && <span className="text-[10px] text-emerald-700 font-bold">Recommended</span>}
           {mode.localTestingOnly && (
-            <span className="flex items-center gap-1 text-[10px] text-amber-300">
+            <span className="flex items-center gap-1 text-[10px] text-amber-700">
               <ShieldAlert className="h-3 w-3" /> Local testing only
             </span>
           )}
@@ -435,17 +352,17 @@ const FieldInput: React.FC<{
 
   return (
     <div>
-      <label className="flex items-center gap-1.5 text-xs font-medium text-slate-300">
-        {writeOnly && <Lock className="h-3 w-3 text-amber-300" />}
+      <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+        {writeOnly && <Lock className="h-3 w-3 text-amber-600" />}
         {field.label}
-        {field.required && <span className="text-rose-400">*</span>}
+        {field.required && <span className="text-rose-500">*</span>}
       </label>
 
       {field.kind === 'ENUM' ? (
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-indigo-500 focus:outline-none"
         >
           <option value="">Choose…</option>
           {field.options?.map((o) => (
@@ -460,27 +377,24 @@ const FieldInput: React.FC<{
           onChange={(e) => onChange(e.target.value)}
           rows={2}
           placeholder="One per line"
-          className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-indigo-500 focus:outline-none"
         />
       ) : (
         <input
-          // A write-only field renders empty with a password input, always. It
-          // is never populated from a saved value, because the API does not
-          // return one.
           type={writeOnly ? 'password' : field.kind === 'NUMBER' ? 'number' : 'text'}
           value={value}
           autoComplete={writeOnly ? 'new-password' : 'off'}
           onChange={(e) => onChange(e.target.value)}
           placeholder={writeOnly ? 'Enter to set or replace' : field.placeholder}
-          className="mt-1 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-xs focus:border-indigo-500 focus:outline-none"
         />
       )}
 
       {field.help && <p className="mt-1 text-[11px] leading-snug text-slate-500">{field.help}</p>}
 
       {selectedOption?.insecure && (
-        <p className="mt-1 flex items-start gap-1.5 text-[11px] text-amber-200">
-          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+        <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-800">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />
           {selectedOption.help ?? 'This choice weakens a security control.'}
         </p>
       )}

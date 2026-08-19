@@ -1,19 +1,11 @@
 /**
- * The evidence timeline.
- *
- * Two endpoints back this screen and they answer different questions. The paged
- * timeline says what happened; the whole-chain read says whether the record is
- * intact. They are separate because a page of a hash chain proves nothing about
- * the chain -- verification needs every link -- and a paged view that implied
- * verification would be the most consequential kind of false comfort in the
- * product.
- *
- * The chain status is therefore rendered as its own statement, from its own
- * request, and it is never inferred from a page loading successfully.
+ * The Evidence Timeline (Light Fintech Theme)
+ * 
+ * Verifiable, append-only cryptographic hash chain viewer.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link2, ShieldCheck, ShieldX } from 'lucide-react';
+import { Link2, ShieldCheck, ShieldX, ScrollText } from 'lucide-react';
 import { getEvidence, verifyLedger } from '../../api/endpoints';
 import { usePagedList } from '../../state/usePagedList';
 import type { ApiResult } from '../../api/client';
@@ -41,44 +33,53 @@ export const EvidenceTimeline: React.FC = () => {
   const list = usePagedList<EvidenceEntry>(fetchPage, `evidence:${eventType}`);
 
   return (
-    <section aria-labelledby="evidence-heading" className="space-y-3">
+    <section aria-labelledby="evidence-heading" className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="evidence-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-          Evidence timeline
-        </h2>
-        <label className="flex items-center gap-2 text-xs text-slate-400">
-          <span className="sr-only">Filter by event type</span>
+        <div>
+          <h2 id="evidence-heading" className="text-sm font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <ScrollText className="h-4 w-4 text-indigo-600" />
+            Cryptographic Audit Evidence
+          </h2>
+          <p className="text-xs text-slate-500">
+            Immutable SHA-256 linear hash-chained audit ledger
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-slate-600">
+          <span className="font-semibold">Filter Event:</span>
           <input
             value={eventType}
             onChange={(e) => setEventType(e.target.value)}
-            placeholder="event type (exact)"
-            className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+            placeholder="e.g. ARTIFACT_RECEIVED"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 shadow-xs focus:border-indigo-500 focus:outline-none"
           />
         </label>
       </div>
 
-      {/* Chain integrity, stated separately from the list. */}
-      <div className="rounded border border-slate-800 bg-slate-900/50 px-3 py-2">
+      {/* Chain Integrity Status Card */}
+      <div className="rounded-xl border p-4 shadow-xs transition-all">
         {chain === null ? (
-          <p className="text-[11px] text-slate-400">Verifying the chain…</p>
+          <p className="text-xs font-semibold text-slate-500">Verifying cryptographic hash chain integrity…</p>
         ) : chain.state !== 'ok' ? (
-          <p className="flex items-center gap-1.5 text-[11px] text-amber-300" role="alert">
-            <ShieldX className="h-3.5 w-3.5" aria-hidden />
-            The chain could not be verified ({chain.error}). The entries below may still be
-            listed; whether the record is intact is currently unknown.
-          </p>
+          <div className="flex items-center gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 p-3 rounded-lg" role="alert">
+            <ShieldX className="h-4 w-4 text-amber-600 shrink-0" aria-hidden />
+            <span>The chain could not be verified ({chain.error}). Integrity is currently unconfirmed.</span>
+          </div>
         ) : chain.data.isChainValid ? (
-          <p className="flex items-center gap-1.5 text-[11px] text-emerald-300">
-            <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-            Chain verified over {chain.data.totalEvents.toLocaleString()} events. Head{' '}
-            <span className="font-mono">{chain.data.lastEventHash.slice(0, 16)}…</span>
-          </p>
+          <div className="flex items-center justify-between gap-2 text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden />
+              <span className="font-semibold">Chain 100% Intact & Verified over {chain.data.totalEvents.toLocaleString()} historical events.</span>
+            </div>
+            <span className="font-mono text-[11px] text-emerald-800 bg-emerald-100/60 px-2 py-0.5 rounded border border-emerald-300">
+              Head: {chain.data.lastEventHash.slice(0, 16)}…
+            </span>
+          </div>
         ) : (
-          <p className="flex items-center gap-1.5 text-[11px] text-rose-300" role="alert">
-            <ShieldX className="h-3.5 w-3.5" aria-hidden />
-            The chain does not verify. A link is broken or a record was altered. Treat every
-            entry below as unproven and escalate.
-          </p>
+          <div className="flex items-center gap-2 text-xs text-rose-900 bg-rose-50 border border-rose-200 p-3 rounded-lg" role="alert">
+            <ShieldX className="h-4 w-4 text-rose-600 shrink-0" aria-hidden />
+            <span className="font-bold">Chain Verification Failed: A historical record has been modified or forked!</span>
+          </div>
         )}
       </div>
 
@@ -88,37 +89,36 @@ export const EvidenceTimeline: React.FC = () => {
 
       {list.result?.state === 'ok' && list.items.length === 0 && (
         <EmptyState
-          title="No evidence entries match"
-          detail="The gateway answered. Either nothing has happened yet, or nothing matches this event type."
+          title="No audit records match"
+          detail="The gateway answered. No ledger entries match this event filter."
         />
       )}
 
-      <ol className="space-y-1.5">
+      <ol className="space-y-2">
         {list.items.map((e) => (
-          <li key={e.id} className="rounded border border-slate-800 bg-slate-900/40 px-3 py-2">
+          <li key={e.id} className="fintech-card p-3.5 bg-white border border-slate-200">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="font-mono text-xs text-slate-200">{e.eventType}</span>
-              <span className="text-[10px] text-slate-500">
-                #{e.sequenceNo} · <Timestamp iso={e.createdAt} />
+              <span className="font-mono text-xs font-bold text-slate-900">{e.eventType}</span>
+              <span className="font-mono text-[11px] text-slate-500">
+                Sequence #{e.sequenceNo} · <Timestamp iso={e.createdAt} />
               </span>
             </div>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              by {e.actor}
-              {e.objectType ? ` · ${e.objectType} ${e.objectId ?? ''}` : ''}
-              {e.correlationId ? ` · ${e.correlationId}` : ''}
+            <p className="mt-0.5 text-xs text-slate-600">
+              Actor: <strong className="text-slate-800">{e.actor}</strong>
+              {e.objectType ? ` · Target: ${e.objectType} ${e.objectId ?? ''}` : ''}
+              {e.correlationId ? ` · Ref: ${e.correlationId}` : ''}
             </p>
-            <p className="mt-1 flex items-center gap-1 font-mono text-[10px] text-slate-600">
-              <Link2 className="h-3 w-3" aria-hidden />
-              {e.previousHash.slice(0, 12)}… → {e.currentHash.slice(0, 12)}…
+            <p className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px] text-slate-500 bg-slate-50 p-1.5 rounded border border-slate-100">
+              <Link2 className="h-3.5 w-3.5 text-indigo-600" aria-hidden />
+              <span>{e.previousHash.slice(0, 16)}…</span>
+              <span>→</span>
+              <span className="font-bold text-slate-800">{e.currentHash.slice(0, 16)}…</span>
             </p>
-            <details className="mt-1">
-              <summary className="cursor-pointer text-[10px] text-slate-500 hover:text-slate-300">
-                payload
+            <details className="mt-2">
+              <summary className="cursor-pointer text-[11px] font-semibold text-indigo-600 hover:text-indigo-800">
+                View Canonical Hashed Payload
               </summary>
-              {/* The canonical JSON that was hashed, passed through rather than
-                  re-encoded: re-encoding would change the bytes the hash was
-                  taken over and show a record that differs from the signed one. */}
-              <pre className="mt-1 overflow-x-auto rounded bg-slate-950 p-2 text-[10px] text-slate-400">
+              <pre className="mt-1.5 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 p-3 font-mono text-[11px] text-slate-200">
                 {JSON.stringify(e.payload, null, 2)}
               </pre>
             </details>
@@ -131,7 +131,7 @@ export const EvidenceTimeline: React.FC = () => {
           type="button"
           onClick={list.loadMore}
           disabled={list.loadingMore}
-          className="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
         >
           {list.loadingMore ? 'Loading…' : 'Load more'}
         </button>

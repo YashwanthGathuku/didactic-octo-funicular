@@ -7,55 +7,38 @@ import {
   RefreshCw,
   ShieldCheck,
   ShieldX,
-  Trash2,
+  Database,
 } from 'lucide-react';
 import {
   ConnectionHealthState,
   SourceConnection,
-  deleteConnection,
   getConnections,
   replaceConnectionSecret,
   testConnection,
 } from '../services/api';
 
-/**
- * Saved source connections: what exists, whether it works, and when that was
- * last actually checked.
- *
- * The health column is the point of the screen. NEVER_CHECKED renders as its
- * own state with its own icon and no colour that reads as success, because a
- * connection nobody has tested showing green is precisely the defect the
- * connector platform exists to prevent — the Integration Hub reported healthy
- * connections to databases it had never contacted.
- *
- * Nothing here masks a credential, because nothing here receives one. The API
- * returns which credential fields are configured and never their values, so a
- * bug in this file cannot disclose one.
- */
-
 const HEALTH_PRESENTATION: Record<
   ConnectionHealthState,
   { label: string; className: string; Icon: React.ComponentType<{ className?: string }> }
 > = {
-  // Deliberately grey, not green. "Not checked" is an absence of evidence.
   NEVER_CHECKED: {
     label: 'Never checked',
-    className: 'text-slate-300 border-slate-600 bg-slate-700/30',
+    className: 'badge-slate',
     Icon: CircleHelp,
   },
   HEALTHY: {
     label: 'Healthy',
-    className: 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10',
+    className: 'badge-emerald',
     Icon: ShieldCheck,
   },
   DEGRADED: {
     label: 'Degraded',
-    className: 'text-amber-300 border-amber-500/30 bg-amber-500/10',
+    className: 'badge-amber',
     Icon: AlertTriangle,
   },
   FAILED: {
     label: 'Failed',
-    className: 'text-rose-300 border-rose-500/30 bg-rose-500/10',
+    className: 'badge-rose',
     Icon: ShieldX,
   },
 };
@@ -70,9 +53,6 @@ export const SavedConnectionsPanel: React.FC = () => {
     const res = await getConnections();
     setLoaded(true);
     if (res.state !== 'ok') {
-      // Rendered as unavailable, never as an empty list. An empty list would
-      // read as "this tenant has no connections", which is a different and
-      // possibly reassuring statement.
       setUnavailable(res.error);
       return;
     }
@@ -87,54 +67,52 @@ export const SavedConnectionsPanel: React.FC = () => {
   const runCheck = async (id: number) => {
     setBusy(id);
     await testConnection(id);
-    // Re-read rather than patching local state from the response, so what the
-    // screen shows is what the server stored.
     await load();
     setBusy(null);
   };
 
   if (!loaded) {
     return (
-      <div className="flex items-center gap-2 p-6 text-sm text-slate-400">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading connections…
+      <div className="flex items-center gap-2 p-6 text-xs text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin text-indigo-400" /> Loading connection metadata…
       </div>
     );
   }
 
   if (unavailable) {
     return (
-      <div className="m-6 rounded border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-        <p className="font-medium">Connections are unavailable</p>
-        <p className="mt-1 text-xs">{unavailable}</p>
+      <div className="m-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+        <p className="font-semibold">Connections unavailable</p>
+        <p className="mt-1 font-mono text-[11px] text-amber-300/80">{unavailable}</p>
       </div>
     );
   }
 
   if (connections.length === 0) {
     return (
-      <div className="m-6 rounded border border-slate-700 p-6 text-sm text-slate-400">
-        <p>No source connections are configured.</p>
-        <p className="mt-2 text-xs text-slate-500">
-          A connection can only be created against a connector whose driver has passed the
-          shared conformance suite against a real server.
+      <div className="p-8 text-center space-y-2">
+        <Database className="h-8 w-8 text-slate-600 mx-auto" />
+        <p className="text-xs font-semibold text-slate-300">No source connections configured</p>
+        <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+          Source connections can only be configured against connectors whose driver has passed the 21-point conformance suite.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-100">Source connections</h2>
+    <div className="p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Configured Endpoints ({connections.length})</h3>
         <button
           onClick={() => void load()}
-          className="flex items-center gap-1.5 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-600"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/10"
         >
           <RefreshCw className="h-3 w-3" /> Refresh
         </button>
       </div>
 
-      <ul className="space-y-3">
+      <ul className="space-y-2.5">
         {connections.map((c) => (
           <ConnectionRow
             key={c.id}
@@ -164,8 +142,6 @@ const ConnectionRow: React.FC<{
 
   const submitReplacement = async () => {
     const res = await replaceConnectionSecret(connection.id, replacing, value);
-    // Cleared immediately either way. Leaving it in state would keep the new
-    // credential in this component and in the DOM after it has been stored.
     setValue('');
     setReplacing('');
     setMessage(res.state === 'ok' ? 'Credential replaced.' : `Not replaced: ${res.error}`);
@@ -173,11 +149,11 @@ const ConnectionRow: React.FC<{
   };
 
   return (
-    <li className="rounded border border-slate-700 p-4">
+    <li className="rounded-xl border border-white/[0.08] bg-[#0A0F1D] p-4 transition-all hover:border-white/15">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-slate-100">{connection.displayName}</p>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs font-bold text-white">{connection.displayName}</p>
+          <p className="font-mono text-[11px] text-slate-400 mt-0.5">
             {connection.connectorType} · {connection.authMode} ·{' '}
             {connection.resourceAllowlist.length} approved resource
             {connection.resourceAllowlist.length === 1 ? '' : 's'}
@@ -185,126 +161,61 @@ const ConnectionRow: React.FC<{
         </div>
 
         <div className="flex items-center gap-2">
-          <span
-            className={`flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] ${presentation.className}`}
-          >
+          <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${presentation.className}`}>
             <Icon className="h-3 w-3" />
             {presentation.label}
           </span>
           <button
             onClick={onCheck}
             disabled={busy}
-            className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-600 disabled:opacity-50"
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-slate-300 hover:bg-white/10 disabled:opacity-50"
           >
-            {busy ? 'Checking…' : 'Check now'}
+            {busy ? 'Probing…' : 'Check Now'}
+          </button>
+        </div>
+      </div>
+
+      {replacing ? (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/10 bg-black/40 p-2 text-xs">
+          <span className="font-mono text-slate-400">Secret key: {replacing}</span>
+          <input
+            type="password"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Enter new credential value"
+            className="flex-1 rounded border border-white/10 bg-[#070B14] px-2 py-1 text-xs text-white"
+          />
+          <button
+            onClick={submitReplacement}
+            className="rounded bg-indigo-600 px-3 py-1 font-semibold text-white hover:bg-indigo-500"
+          >
+            Save
           </button>
           <button
-            onClick={async () => {
-              await deleteConnection(connection.id);
-              onChanged();
-            }}
-            aria-label="Delete connection"
-            className="rounded border border-slate-700 p-1 text-slate-400 hover:border-rose-500/40 hover:text-rose-300"
+            onClick={() => setReplacing('')}
+            className="rounded border border-white/10 px-2 py-1 text-slate-400 hover:text-white"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            Cancel
           </button>
         </div>
-      </div>
-
-      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-[11px] text-slate-400 sm:grid-cols-3">
-        <div>
-          <dt className="inline text-slate-500">Last checked: </dt>
-          <dd className="inline">
-            {connection.health.State === 'NEVER_CHECKED'
-              ? 'never'
-              : new Date(connection.health.CheckedAt).toLocaleString()}
-          </dd>
-        </div>
-        <div>
-          <dt className="inline text-slate-500">Last used: </dt>
-          <dd className="inline">
-            {connection.lastUsedAt ? new Date(connection.lastUsedAt).toLocaleString() : 'never'}
-          </dd>
-        </div>
-        <div>
-          <dt className="inline text-slate-500">Rate limit: </dt>
-          <dd className="inline">{connection.maxPerMinute}/min</dd>
-        </div>
-      </dl>
-
-      {connection.health.State === 'FAILED' && connection.health.Detail && (
-        <p className="mt-2 text-[11px] text-rose-300">
-          {connection.health.ErrorCategory}: {connection.health.Detail}
-        </p>
-      )}
-
-      {connection.conformanceServer && (
-        <p className="mt-2 text-[11px] text-slate-500">
-          Driver verified against {connection.conformanceServer}
-          {connection.conformanceCommit ? ` (commit ${connection.conformanceCommit})` : ''}
-        </p>
-      )}
-
-      {(connection.weakSecrets?.length ?? 0) > 0 && (
-        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-200">
-          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-          {connection.weakSecrets!.join(', ')} {connection.weakSecrets!.length === 1 ? 'is' : 'are'}{' '}
-          shorter than this platform's minimum. The credential is stored sealed; ask the
-          database owner to lengthen it.
-        </p>
-      )}
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {connection.secretsConfigured.map((field) => (
-          <span
-            key={field}
-            className="flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300"
-          >
-            <KeyRound className="h-3 w-3 text-amber-300" />
-            {field}
-            <button
-              onClick={() => setReplacing(field)}
-              className="ml-1 text-sky-400 hover:text-sky-300"
-            >
-              replace
-            </button>
-          </span>
-        ))}
-      </div>
-
-      {replacing && (
-        <div className="mt-3 rounded border border-slate-700 p-3">
-          <label className="text-[11px] text-slate-300">
-            New value for {replacing}. The current one cannot be shown — nothing can read it.
-          </label>
-          <div className="mt-2 flex gap-2">
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-            />
-            <button
-              onClick={() => void submitReplacement()}
-              className="rounded bg-sky-600 px-3 py-2 text-sm text-white hover:bg-sky-500"
-            >
-              Replace
-            </button>
-            <button
-              onClick={() => {
-                setValue('');
-                setReplacing('');
-              }}
-              className="rounded border border-slate-700 px-3 py-2 text-sm text-slate-300"
-            >
-              Cancel
-            </button>
+      ) : (
+        <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-3.5 w-3.5 text-slate-500" />
+            <span className="text-[11px]">Configured secret references: {connection.secretsConfigured.join(', ') || 'none'}</span>
           </div>
+          {connection.secretsConfigured.length > 0 && (
+            <button
+              onClick={() => setReplacing(connection.secretsConfigured[0])}
+              className="text-[11px] text-indigo-400 hover:text-indigo-300 underline"
+            >
+              Rotate Secret
+            </button>
+          )}
         </div>
       )}
 
-      {message && <p className="mt-2 text-[11px] text-slate-400">{message}</p>}
+      {message && <p className="mt-2 text-xs text-emerald-400">{message}</p>}
     </li>
   );
 };

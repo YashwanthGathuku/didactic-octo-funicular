@@ -122,8 +122,9 @@ type Capabilities struct {
 
 	// Bounds. Zero means the connector declares no limit of its own and the
 	// platform's limit applies.
-	MaxRows  int64
-	MaxBytes int64
+	MaxRows     int64
+	MaxBytes    int64
+	MaxPageSize int64
 
 	// What may be asked of it.
 	MetadataQueries  bool

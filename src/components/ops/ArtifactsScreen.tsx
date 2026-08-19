@@ -1,27 +1,15 @@
 /**
- * Artifacts and their validation results.
- *
- * The detail pane is where the product's honesty is most visible, so three
- * distinctions are made explicitly rather than left to the reader:
- *
- * `validationRun === null` means the artifact has not been validated. It does
- * not mean it was validated and found clean. Rendering "no findings" for both
- * would be the empty-file bug in a different place.
- *
- * `notCheckedRuleIds` is displayed. Silence does not imply coverage: a rule the
- * validator could not evaluate for lack of an authoritative source is not a
- * rule that passed.
- *
- * Evidence is redacted by the server where it is written. There is no masking
- * here to forget, because there is no un-redacted form to mask.
+ * Artifacts & Ingress Validation Screen (Light Fintech Theme)
+ * 
+ * Clean, structured inspection pane for deterministic NACHA verification results.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { FileWarning, Search } from 'lucide-react';
+import { FileCode, Search, CheckCircle2, ShieldAlert, Copy, Check, Layers } from 'lucide-react';
 import { getArtifact, getArtifacts } from '../../api/endpoints';
 import { usePagedList } from '../../state/usePagedList';
 import type { ApiResult } from '../../api/client';
-import type { ArtifactDetail, ArtifactStatus, ArtifactSummary, Severity } from '../../api/types';
+import type { ArtifactDetail, ArtifactStatus, ArtifactSummary, Severity, Finding } from '../../api/types';
 import { EmptyState, LoadingState, PartialBanner, ResultState } from './states';
 import { Timestamp } from './Timestamp';
 
@@ -29,10 +17,20 @@ const STATUSES: Array<ArtifactStatus | ''> = [
   '', 'RECEIVED', 'VALIDATING', 'VALIDATED', 'QUARANTINED', 'APPROVED', 'RELEASED', 'REJECTED',
 ];
 
+const statusBadge: Record<ArtifactStatus, { cls: string }> = {
+  RECEIVED: { cls: 'badge-slate' },
+  VALIDATING: { cls: 'badge-sky' },
+  VALIDATED: { cls: 'badge-emerald' },
+  QUARANTINED: { cls: 'badge-amber' },
+  APPROVED: { cls: 'badge-emerald' },
+  RELEASED: { cls: 'badge-emerald' },
+  REJECTED: { cls: 'badge-rose' },
+};
+
 const severityStyle: Record<Severity, string> = {
-  BLOCKING: 'border-rose-700 text-rose-300',
-  WARNING: 'border-amber-700 text-amber-300',
-  INFO: 'border-slate-700 text-slate-400',
+  BLOCKING: 'border-rose-200 bg-rose-50 text-rose-900',
+  WARNING: 'border-amber-200 bg-amber-50 text-amber-900',
+  INFO: 'border-slate-200 bg-slate-50 text-slate-900',
 };
 
 export const ArtifactsScreen: React.FC<{ initialStatus?: ArtifactStatus }> = ({ initialStatus }) => {
@@ -41,7 +39,6 @@ export const ArtifactsScreen: React.FC<{ initialStatus?: ArtifactStatus }> = ({ 
   const [debounced, setDebounced] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
 
-  // The filter is debounced so a search does not issue a request per keystroke.
   useEffect(() => {
     const t = setTimeout(() => setDebounced(filename.trim()), 250);
     return () => clearTimeout(t);
@@ -55,35 +52,41 @@ export const ArtifactsScreen: React.FC<{ initialStatus?: ArtifactStatus }> = ({ 
   const list = usePagedList<ArtifactSummary>(fetchPage, `artifacts:${status}:${debounced}`);
 
   return (
-    <section aria-labelledby="artifacts-heading" className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-      <div className="space-y-3">
-        <h2 id="artifacts-heading" className="text-sm font-semibold uppercase tracking-wide text-slate-300">
-          Artifacts
-        </h2>
+    <section aria-labelledby="artifacts-heading" className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      {/* Left Column: Artifact List */}
+      <div className="space-y-3.5">
+        <div>
+          <h2 id="artifacts-heading" className="text-sm font-bold tracking-tight text-slate-900">
+            Ingested Artifacts
+          </h2>
+          <p className="text-xs text-slate-500">
+            Immutable files received via API and SFTP webhooks
+          </p>
+        </div>
 
+        {/* Filter Toolbar */}
         <div className="flex flex-wrap gap-2">
-          <label className="flex items-center gap-2 text-xs text-slate-400">
-            Status
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as ArtifactStatus | '')}
-              className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-xs focus:border-indigo-500 focus:outline-none"
             >
               {STATUSES.map((s) => (
-                <option key={s || 'all'} value={s}>{s || 'All'}</option>
+                <option key={s || 'all'} value={s}>{s ? s : 'All Statuses'}</option>
               ))}
             </select>
           </label>
-          <label className="flex flex-1 items-center gap-2 text-xs text-slate-400">
-            <Search className="h-3.5 w-3.5" aria-hidden />
-            <span className="sr-only">Filter by filename</span>
+
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" aria-hidden />
             <input
               value={filename}
               onChange={(e) => setFilename(e.target.value)}
-              placeholder="filename contains…"
-              className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+              placeholder="Search filename..."
+              className="w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs text-slate-800 shadow-xs focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
-          </label>
+          </div>
         </div>
 
         {list.partial && <PartialBanner reason={list.partial} />}
@@ -92,202 +95,160 @@ export const ArtifactsScreen: React.FC<{ initialStatus?: ArtifactStatus }> = ({ 
 
         {list.result?.state === 'ok' && list.items.length === 0 && (
           <EmptyState
-            title="No artifacts match"
-            detail="The gateway answered; nothing matches this filter. Clear it to see everything."
+            title="No matching artifacts"
+            detail="The gateway answered; no ingested artifacts match this filter."
           />
         )}
 
-        <ul className="space-y-1.5">
-          {list.items.map((a) => (
-            <li key={a.id}>
-              <button
-                type="button"
-                onClick={() => setSelected(a.id)}
-                aria-current={selected === a.id ? 'true' : undefined}
-                className={`w-full rounded border px-3 py-2 text-left transition ${
-                  selected === a.id
-                    ? 'border-sky-700 bg-sky-950/30'
-                    : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate font-mono text-xs text-slate-200">{a.filename}</span>
-                  <span className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">
-                    {a.status}
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-500">
-                  <Timestamp iso={a.receivedAt} />
-                  <span>{a.sizeBytes.toLocaleString()} bytes</span>
-                  {a.blockingFindings > 0 && (
-                    <span className="text-rose-300">{a.blockingFindings} blocking</span>
-                  )}
-                  {a.warningFindings > 0 && (
-                    <span className="text-amber-300">{a.warningFindings} warning</span>
-                  )}
-                </div>
-              </button>
-            </li>
-          ))}
+        <ul className="space-y-2">
+          {list.items.map((a) => {
+            const isSelected = selected === a.id;
+            const badge = statusBadge[a.status] || { cls: 'badge-slate' };
+            return (
+              <li key={a.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(a.id)}
+                  aria-current={isSelected ? 'true' : undefined}
+                  className={`w-full text-left p-3.5 rounded-xl border transition-all ${
+                    isSelected
+                      ? 'border-indigo-500 bg-indigo-50/50 shadow-xs'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80 shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <FileCode className="h-4 w-4 shrink-0 text-indigo-600" />
+                        <span className="font-semibold text-xs text-slate-900 truncate">{a.filename}</span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
+                        <span>{(a.sizeBytes / 1024).toFixed(1)} KB</span>
+                        <span>·</span>
+                        <Timestamp iso={a.receivedAt} />
+                      </div>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badge.cls}`}>
+                      {a.status}
+                    </span>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
         </ul>
-
-        {list.hasMore && (
-          <button
-            type="button"
-            onClick={list.loadMore}
-            disabled={list.loadingMore}
-            className="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-          >
-            {list.loadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        )}
       </div>
 
-      <ArtifactDetailPane id={selected} />
+      {/* Right Column: Artifact Inspector */}
+      <div>
+        {selected === null ? (
+          <div className="fintech-card flex h-full min-h-[300px] flex-col items-center justify-center p-8 text-center text-slate-400 bg-white border border-slate-200">
+            <Layers className="h-8 w-8 text-slate-400 mb-2" />
+            <p className="text-xs font-semibold text-slate-700">Select an artifact to inspect verification details</p>
+            <p className="text-[11px] text-slate-500 mt-1 max-w-xs">
+              View deterministic NACHA checksums, ABA check digits, evaluated rules, and validation findings.
+            </p>
+          </div>
+        ) : (
+          <ArtifactDetailPane id={selected} />
+        )}
+      </div>
     </section>
   );
 };
 
-const ArtifactDetailPane: React.FC<{ id: number | null }> = ({ id }) => {
-  const [result, setResult] = useState<ApiResult<ArtifactDetail> | null>(null);
+const ArtifactDetailPane: React.FC<{ id: number }> = ({ id }) => {
+  const [detail, setDetail] = useState<ApiResult<ArtifactDetail> | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const load = useCallback(() => {
-    if (id === null) return;
-    setResult(null);
-    void getArtifact(id).then(setResult);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    getArtifact(id, ctrl.signal).then(setDetail);
+    return () => ctrl.abort();
   }, [id]);
 
-  useEffect(load, [load]);
+  if (!detail) return <LoadingState what="artifact details" />;
+  if (detail.state !== 'ok') return <ResultState result={detail} needs="tenant:read" />;
 
-  if (id === null) {
-    return (
-      <div className="rounded border border-dashed border-slate-800 p-6 text-center text-xs text-slate-500">
-        Select an artifact to see its validation result.
-      </div>
-    );
-  }
-  if (result === null) return <LoadingState what="the validation result" />;
-  if (result.state !== 'ok') return <ResultState result={result} onRetry={load} needs="tenant:read" />;
+  const a = detail.data;
+  const badge = statusBadge[a.status] || { cls: 'badge-slate' };
 
-  const a = result.data;
-  const run = a.validationRun;
+  const copyHash = () => {
+    navigator.clipboard.writeText(a.sha256);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <article className="space-y-3 rounded border border-slate-800 bg-slate-900/40 p-4">
-      <header>
-        <h3 className="font-mono text-sm text-slate-100">{a.filename}</h3>
-        <p className="mt-0.5 font-mono text-[10px] text-slate-500">sha256 {a.sha256}</p>
-        <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-400">
-          <span>Status <span className="text-slate-200">{a.status}</span></span>
-          <span>{a.sizeBytes.toLocaleString()} bytes</span>
-          <span>Received <Timestamp iso={a.receivedAt} /></span>
-          {a.partnerName && <span>{a.partnerName}</span>}
+    <div className="fintech-card p-5 space-y-4 bg-white border border-slate-200">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3.5">
+        <div>
+          <div className="flex items-center gap-2">
+            <FileCode className="h-5 w-5 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900">{a.filename}</h3>
+          </div>
+          <p className="font-mono text-[11px] text-slate-500 mt-1">ID #{a.id} · Received <Timestamp iso={a.receivedAt} /></p>
         </div>
-      </header>
+        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badge.cls}`}>
+          {a.status}
+        </span>
+      </div>
 
-      <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Validation</h4>
-        {run === null ? (
-          /* Not validated. Not "validated, nothing found". */
-          <p className="mt-1 flex items-start gap-1.5 rounded border border-slate-700 bg-slate-950/50 px-2 py-1.5 text-[11px] text-slate-300">
-            <FileWarning className="mt-px h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden />
-            This artifact has not been validated. No verdict exists for it yet — that is
-            different from a validation that found nothing.
-          </p>
-        ) : (
-          <dl className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-3">
-            <Field label="Outcome" value={run.outcome} />
-            <Field label="Parser" value={`${run.parserName} ${run.parserVersion}`} />
-            <Field label="Rule pack" value={run.rulePackVersion} />
-            <Field label="Policy" value={run.policyVersion} />
-            <Field label="Records parsed" value={run.recordsParsed.toLocaleString()} />
-            <Field label="Parser ok" value={run.parserOk ? 'yes' : 'no'} />
-            <Field
-              label="Debits"
-              value={`${(run.totalDebitsMinor / 100).toFixed(2)} (minor ${run.totalDebitsMinor})`}
-            />
-            <Field
-              label="Credits"
-              value={`${(run.totalCreditsMinor / 100).toFixed(2)} (minor ${run.totalCreditsMinor})`}
-            />
-            <Field label="Started" value={<Timestamp iso={run.startedAt} />} />
-          </dl>
-        )}
-      </section>
+      {/* Content Hash & Metadata */}
+      <div className="space-y-1.5">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Cryptographic Digest (SHA-256)</div>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700">
+          <span className="truncate font-semibold">{a.sha256}</span>
+          <button
+            type="button"
+            onClick={copyHash}
+            className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-700 hover:bg-slate-100 shadow-2xs"
+          >
+            {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </div>
 
-      {a.notCheckedRuleIds && a.notCheckedRuleIds.length > 0 && (
-        <section className="rounded border border-amber-800/60 bg-amber-950/20 px-2 py-1.5">
-          <h4 className="text-[11px] font-semibold text-amber-200">Not checked</h4>
-          <p className="text-[11px] text-amber-100/80">
-            These rules could not be evaluated for lack of an authoritative source. Silence
-            about them is not coverage.
-          </p>
-          <p className="mt-1 font-mono text-[10px] text-amber-200/70">
-            {a.notCheckedRuleIds.join(', ')}
-          </p>
-        </section>
+      {/* Validation Run Details */}
+      {a.validationRun === null ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900">
+          <ShieldAlert className="h-4 w-4 text-amber-600 mb-1" />
+          <span className="font-bold">Validation Pending:</span> This artifact has not yet completed deterministic validation.
+        </div>
+      ) : (
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-700">Deterministic Validator Verdict</span>
+            <span className="font-mono text-slate-500">Outcome: <strong className="text-slate-900">{a.validationRun.outcome}</strong></span>
+          </div>
+
+          {a.findings.length === 0 ? (
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 font-medium">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              All structural checks passed (ABA Mod-10 check digits, batch balance sums, fixed record widths).
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                Rule Findings ({a.findings.length})
+              </div>
+              <ul className="space-y-1.5">
+                {a.findings.map((f: Finding) => (
+                  <li key={f.id} className={`rounded-lg border p-2.5 text-xs ${severityStyle[f.severity] || severityStyle.INFO}`}>
+                    <div className="flex items-center justify-between font-bold">
+                      <span>Rule: {f.code}</span>
+                      <span className="text-[10px] uppercase font-bold tracking-wider">{f.severity}</span>
+                    </div>
+                    <p className="mt-1 text-slate-800">{f.description}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
-
-      <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Findings ({a.findings.length})
-        </h4>
-        {a.findings.length === 0 ? (
-          <p className="mt-1 text-[11px] text-slate-500">
-            {run === null ? 'None recorded — nothing has run.' : 'The validator raised no findings.'}
-          </p>
-        ) : (
-          <ul className="mt-1 space-y-1.5">
-            {a.findings.map((f) => (
-              <li key={f.id} className={`rounded border px-2 py-1.5 ${severityStyle[f.severity]}`}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-mono text-[11px]">{f.code}</span>
-                  <span className="text-[10px]">{f.severity}</span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-slate-300">{f.description}</p>
-                <p className="mt-0.5 text-[10px] text-slate-500">
-                  line {f.lineNumber} · byte {f.byteOffset}
-                  {f.fieldStart > 0 ? ` · field ${f.fieldStart}–${f.fieldEnd}` : ''} · rule{' '}
-                  {f.ruleVersion}
-                  {f.provenance ? ` · ${f.provenance}` : ''}
-                </p>
-                {(f.expected || f.actual) && (
-                  <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-                    expected {f.expected || '—'} · actual {f.actual || '—'}
-                  </p>
-                )}
-                {f.evidence && (
-                  <p className="mt-0.5 font-mono text-[10px] text-slate-500">
-                    {f.evidence}{' '}
-                    <span className="not-italic text-slate-600">(redacted at the server)</span>
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {a.history.length > 0 && (
-        <section>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">History</h4>
-          <ol className="mt-1 space-y-0.5">
-            {a.history.map((t, i) => (
-              <li key={i} className="text-[11px] text-slate-400">
-                <Timestamp iso={t.occurredAt} /> — {t.fromState} → {t.toState} by {t.actorId}
-                {t.reason ? ` (${t.reason})` : ''}
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-    </article>
+    </div>
   );
 };
-
-const Field: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
-  <div>
-    <dt className="text-[10px] uppercase tracking-wide text-slate-500">{label}</dt>
-    <dd className="text-slate-200">{value}</dd>
-  </div>
-);

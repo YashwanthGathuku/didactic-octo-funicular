@@ -1,15 +1,7 @@
 /**
- * The application shell.
- *
- * Almost nothing lives here now, which is the change. What it held before was
- * the state of the whole product: a partner list, a contract list, a set of
- * expectation occurrences, an in-memory file list, an incident list, and a hash
- * chain -- none of which came from a server, and all of which rendered
- * perfectly with the gateway switched off.
- *
- * Every screen underneath reads from the gateway and renders an explicit state
- * when it cannot. There is no path through this tree that produces a value the
- * server did not send.
+ * Main Application Shell
+ * 
+ * Clean light fintech theme with top navigation header and primary operations console.
  */
 
 import React, { useState } from 'react';
@@ -19,6 +11,7 @@ import { ConnectorWizardModal } from './components/ConnectorWizardModal';
 import { SavedConnectionsPanel } from './components/SavedConnectionsPanel';
 import { OperationsConsole } from './components/ops/OperationsConsole';
 import { SessionProvider } from './state/SessionContext';
+import { Database, Plus } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [showUpload, setShowUpload] = useState(false);
@@ -27,32 +20,38 @@ export const App: React.FC = () => {
 
   return (
     <SessionProvider>
-      <div className="flex min-h-screen flex-col bg-slate-950 text-slate-200">
+      <div className="flex min-h-screen flex-col bg-[#F8FAFC] text-slate-900 antialiased selection:bg-indigo-100 selection:text-indigo-900">
         <Header
           onOpenUpload={() => setShowUpload(true)}
           onOpenConnectors={() => setShowConnections((v) => !v)}
         />
 
-        <main className="flex-1 space-y-4 p-6">
+        <main className="flex-1 space-y-6 px-6 py-6 sm:px-8">
           {showConnections && (
-            <section
-              aria-label="Saved source connections"
-              className="rounded border border-slate-800 bg-slate-900/40"
-            >
-              <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
-                <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Source connections
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setShowWizard(true)}
-                  className="rounded border border-sky-700 px-2 py-1 text-[11px] text-sky-300 hover:bg-sky-950/40"
-                >
-                  Add a connection
-                </button>
-              </div>
-              <SavedConnectionsPanel />
-            </section>
+            <div className="mx-auto max-w-7xl">
+              <section
+                aria-label="Saved source connections"
+                className="fintech-card overflow-hidden"
+              >
+                <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4 text-indigo-600" />
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Managed Source Connections
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowWizard(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Add Connection</span>
+                  </button>
+                </div>
+                <SavedConnectionsPanel />
+              </section>
+            </div>
           )}
 
           <OperationsConsole />
@@ -62,10 +61,6 @@ export const App: React.FC = () => {
         {showUpload && (
           <UploadModal
             onClose={() => setShowUpload(false)}
-            // The ingest response is not held in local state and rendered.
-            // It used to be assembled into a FileInstance with invented
-            // fields; now the artifact screen reads the artifact back from
-            // the server, which is the record either way.
             onFileIngested={() => setShowUpload(false)}
           />
         )}

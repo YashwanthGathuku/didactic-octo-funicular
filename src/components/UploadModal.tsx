@@ -1,15 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { 
   UploadCloud, 
-  FileCode, 
   X, 
   Play, 
   CheckCircle2, 
-  AlertOctagon, 
   FolderPlus, 
   Cpu, 
-  ArrowRight,
-  ShieldAlert
+  ShieldAlert,
+  Loader2
 } from 'lucide-react';
 import { PRESET_OPTIONS, GeneratorPresetKey } from '../mockData/generator';
 import { ingestRawNacha, ApiIngestionResult } from '../services/api';
@@ -30,7 +28,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
   const [dragOver, setDragOver] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load preset preview on mount or preset change
   React.useEffect(() => {
     const fetchPreset = async () => {
       try {
@@ -47,15 +44,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
     fetchPreset();
   }, [selectedPreset]);
 
-  // Handle Ingest
   const handleIngestContent = async (filename: string, content: string) => {
     setIsProcessing(true);
     setIngestionResult(null);
 
-    // Branch on the result rather than catch a thrown Error. The previous form
-    // showed `alert(err.message)`, which put "Ingest failed (503): ..." in a
-    // browser dialog and gave the operator no way to tell a rejected file from
-    // an unreachable gateway.
     const result = await ingestRawNacha(filename, content);
     setIsProcessing(false);
 
@@ -68,7 +60,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
     setIngestionResult(null);
     setIngestError(
       result.state === 'unavailable'
-        ? `The gateway could not be reached, so this file was not ingested: ${result.error}`
+        ? `The gateway could not be reached: ${result.error}`
         : result.state === 'forbidden'
           ? 'Your account does not hold the permission to upload an artifact.'
           : result.state === 'unauthenticated'
@@ -77,7 +69,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
     );
   };
 
-  // Handle Local File Selection / Drop
   const handleFileDrop = (file: File) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -90,145 +81,79 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
   };
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      background: 'rgba(7, 11, 18, 0.85)',
-      backdropFilter: 'blur(8px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 100,
-      padding: '24px'
-    }}>
-      <div style={{
-        background: 'var(--bg-secondary)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: '12px',
-        width: '100%',
-        maxWidth: '850px',
-        maxHeight: '90vh',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
-        overflow: 'hidden'
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '16px 24px',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(14, 20, 34, 0.6)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '6px',
-              background: 'rgba(2, 132, 199, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <UploadCloud size={18} color="var(--accent-cyan)" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shadow-xs">
+              <UploadCloud className="h-5 w-5" />
             </div>
             <div>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                Direct Transmission Ingestion & Preset Harness
+              <h3 className="text-sm font-bold text-slate-900">
+                Direct Ingestion & Test Scenario Harness
               </h3>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Test live Go streaming validation, SHA-256 calculation, and automatic AI quarantine routing.
+              <p className="text-xs text-slate-500">
+                Execute streaming validation, SHA-256 calculation, and deterministic quarantine routing.
               </p>
             </div>
           </div>
 
           <button 
-            className="btn btn-secondary" 
             onClick={onClose}
-            style={{ padding: '6px', borderRadius: '50%' }}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors"
           >
-            <X size={16} />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Tab Switcher */}
-        <div style={{
-          display: 'flex',
-          borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-primary)',
-          padding: '0 24px'
-        }}>
+        {/* Tab Navigation */}
+        <div className="flex border-b border-slate-200 bg-slate-50/70 px-6">
           <button
             onClick={() => setActiveTab('PRESET')}
-            style={{
-              padding: '12px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: activeTab === 'PRESET' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
-              color: activeTab === 'PRESET' ? 'var(--accent-cyan)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '0.8125rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
+            className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all ${
+              activeTab === 'PRESET'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
-            <Cpu size={14} />
-            <span>Preset Scenario Generator</span>
+            <Cpu className="h-4 w-4" />
+            <span>Preset Scenarios</span>
           </button>
 
           <button
             onClick={() => setActiveTab('DROP')}
-            style={{
-              padding: '12px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: activeTab === 'DROP' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
-              color: activeTab === 'DROP' ? 'var(--accent-cyan)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '0.8125rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
+            className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all ${
+              activeTab === 'DROP'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
-            <UploadCloud size={14} />
-            <span>Drag & Drop Local NACHA File</span>
+            <UploadCloud className="h-4 w-4" />
+            <span>Upload NACHA File</span>
           </button>
 
           <button
             onClick={() => setActiveTab('SFTP_INBOX')}
-            style={{
-              padding: '12px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: activeTab === 'SFTP_INBOX' ? '2px solid var(--accent-cyan)' : '2px solid transparent',
-              color: activeTab === 'SFTP_INBOX' ? 'var(--accent-cyan)' : 'var(--text-muted)',
-              fontWeight: 600,
-              fontSize: '0.8125rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
+            className={`flex items-center gap-2 border-b-2 px-4 py-3 text-xs font-bold transition-all ${
+              activeTab === 'SFTP_INBOX'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
           >
-            <FolderPlus size={14} />
-            <span>Live SFTP Inbox Drop Daemon</span>
+            <FolderPlus className="h-4 w-4" />
+            <span>SFTP Ingress Daemon</span>
           </button>
         </div>
 
-        {/* Tab Content */}
-        <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Modal Body */}
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
           {activeTab === 'PRESET' && (
-            <div>
-              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
-                Select Test Scenario Preset:
+            <div className="space-y-4">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Select Test Scenario Preset
               </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {PRESET_OPTIONS.map(opt => {
                   const isSelected = selectedPreset === opt.key;
                   const isNominal = opt.category === 'NOMINAL';
@@ -238,24 +163,23 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
                     <div
                       key={opt.key}
                       onClick={() => setSelectedPreset(opt.key)}
-                      style={{
-                        padding: '12px',
-                        background: isSelected ? 'rgba(2, 132, 199, 0.15)' : 'var(--bg-primary)',
-                        border: `1px solid ${isSelected ? 'var(--accent-cyan)' : 'var(--border-subtle)'}`,
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
+                      className={`cursor-pointer rounded-xl border p-3.5 transition-all ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-50/70 shadow-xs ring-1 ring-indigo-600'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                      }`}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: isSelected ? 'var(--accent-cyan)' : 'var(--text-primary)' }}>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className={`text-xs font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-900'}`}>
                           {opt.label}
                         </span>
-                        <span className={`badge ${isNominal ? 'badge-success' : isAllowable ? 'badge-cyan' : 'badge-danger'}`} style={{ fontSize: '0.65rem' }}>
+                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                          isNominal ? 'badge-emerald' : isAllowable ? 'badge-sky' : 'badge-rose'
+                        }`}>
                           {opt.category}
                         </span>
                       </div>
-                      <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                      <p className="text-xs text-slate-600 leading-snug">
                         {opt.description}
                       </p>
                     </div>
@@ -264,27 +188,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
               </div>
 
               {/* Raw Record Preview */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Generated NACHA Payload Preview (94-char fixed-width alignment):
-                  </span>
-                  <span className="font-mono" style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>
-                    {previewFilename}
-                  </span>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-slate-600">
+                  <span className="font-semibold">NACHA Payload Preview (94-char fixed-width alignment):</span>
+                  <span className="font-mono text-indigo-600 font-bold text-xs">{previewFilename}</span>
                 </div>
-                <pre style={{
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border-subtle)',
-                  padding: '12px',
-                  borderRadius: '6px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.72rem',
-                  lineHeight: 1.4,
-                  overflowX: 'auto',
-                  maxHeight: '150px',
-                  color: 'var(--text-secondary)'
-                }}>
+                <pre className="max-h-36 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-slate-200">
                   {previewContent || 'Generating preset records...'}
                 </pre>
               </div>
@@ -292,171 +201,95 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
           )}
 
           {activeTab === 'DROP' && (
-            <div>
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    handleFileDrop(e.dataTransfer.files[0]);
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  handleFileDrop(e.dataTransfer.files[0]);
+                }
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-10 text-center transition-all ${
+                dragOver
+                  ? 'border-indigo-600 bg-indigo-50/50'
+                  : 'border-slate-300 bg-slate-50 hover:border-indigo-400 hover:bg-indigo-50/30'
+              }`}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".ach,.txt,.nacha"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    handleFileDrop(e.target.files[0]);
                   }
                 }}
-                onClick={() => fileInputRef.current?.click()}
-                style={{
-                  border: `2px dashed ${dragOver ? 'var(--accent-cyan)' : 'var(--border-subtle)'}`,
-                  background: dragOver ? 'rgba(2, 132, 199, 0.1)' : 'var(--bg-primary)',
-                  borderRadius: '10px',
-                  padding: '40px 20px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease'
-                }}
-              >
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  style={{ display: 'none' }}
-                  accept=".ach,.txt,.csv,.dat"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      handleFileDrop(e.target.files[0]);
-                    }
-                  }}
-                />
-                <FileCode size={36} color="var(--accent-cyan)" style={{ margin: '0 auto 12px auto' }} />
-                <h4 style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Click to select or drag & drop financial file here
-                </h4>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Supports NACHA ACH (.ach, .txt), ISO 20022 XML, and BAI2 files up to 20MB.
-                </p>
+              />
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 mb-3">
+                <UploadCloud className="h-7 w-7" />
               </div>
+              <p className="text-sm font-bold text-slate-900">Drop .ach / .txt NACHA file here</p>
+              <p className="text-xs text-slate-500 mt-1">or click to browse your computer</p>
             </div>
           )}
 
           {activeTab === 'SFTP_INBOX' && (
-            <div style={{
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '8px',
-              padding: '16px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                <FolderPlus size={18} color="var(--accent-emerald)" />
-                <h4 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                  Active SFTP Inbox Poller Daemon
-                </h4>
-                <span className="badge badge-emerald">ACTIVE POLLING</span>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center space-y-2">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 mx-auto">
+                <FolderPlus className="h-6 w-6" />
               </div>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                The Go Gateway is currently listening for real SFTP file drops in directory:
+              <h4 className="text-sm font-bold text-slate-900">SFTP Ingress Daemon</h4>
+              <p className="text-xs text-slate-600 max-w-md mx-auto">
+                SFTP uploads to the partner directory are ingested automatically via HMAC-SHA256 webhooks and reconciliation scanners.
               </p>
-              <div style={{
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-subtle)',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.8rem',
-                color: 'var(--accent-cyan)',
-                margin: '8px 0 12px 0'
-              }}>
-                valiant-davinci/gateway/inbox/
-              </div>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                When any <code>.ach</code> or <code>.txt</code> file is copied into this folder, the Go worker will automatically calculate its SHA-256 digest in real-time, validate all 94-char records, and route it to <code>/processed</code> (if valid) or <code>/quarantine</code> (if malformed).
+              <p className="font-mono text-xs font-semibold text-indigo-600 bg-white border border-slate-200 rounded-lg p-2 max-w-xs mx-auto">
+                /app/inbox/partner-treasury/*.ach
               </p>
             </div>
           )}
 
-          {/* Real-time Ingestion Result Banner */}
+          {/* Ingest Error / Success Message */}
           {ingestError && (
-            <div
-              role="alert"
-              style={{
-                marginBottom: '12px',
-                border: '1px solid rgba(245, 158, 11, 0.5)',
-                background: 'rgba(120, 53, 15, 0.25)',
-                borderRadius: '6px',
-                padding: '10px 12px',
-                fontSize: '0.8125rem',
-                color: '#FDE68A',
-              }}
-            >
-              <strong style={{ display: 'block' }}>Not ingested.</strong>
-              {ingestError}
+            <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+              <p>{ingestError}</p>
             </div>
           )}
 
           {ingestionResult && (
-            <div style={{
-              background: ingestionResult.status === 'VALIDATED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-              border: `1px solid ${ingestionResult.status === 'VALIDATED' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
-              borderRadius: '8px',
-              padding: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                {ingestionResult.status === 'VALIDATED' ? (
-                  <CheckCircle2 size={20} color="var(--accent-emerald)" />
-                ) : (
-                  <AlertOctagon size={20} color="var(--accent-crimson)" />
-                )}
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
-                      Ingestion Complete: {ingestionResult.status}
-                    </span>
-                    <span className="badge badge-neutral" style={{ fontSize: '0.65rem' }}>
-                      {ingestionResult.sizeBytes} bytes
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    SHA-256: <code>{ingestionResult.hash.substring(0, 20)}...</code> | Findings: {ingestionResult.findings.length}
-                  </p>
-                </div>
+            <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
+              <div>
+                <p className="font-bold">File successfully ingested (ID #{ingestionResult.fileId})</p>
+                <p className="font-mono text-[11px] text-emerald-700 mt-0.5">SHA-256: {ingestionResult.hash}</p>
               </div>
-
-              {ingestionResult.status === 'QUARANTINED' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <ShieldAlert size={16} color="var(--accent-crimson)" />
-                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-crimson)', fontWeight: 600 }}>
-                    AI Incident Auto-Triggered
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
-        <div style={{
-          padding: '16px 24px',
-          borderTop: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: '12px',
-          background: 'rgba(14, 20, 34, 0.6)'
-        }}>
-          <button className="btn btn-secondary" onClick={onClose}>
+        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 shadow-2xs"
+          >
             Close
           </button>
 
           {activeTab === 'PRESET' && (
             <button
-              className="btn btn-primary"
-              disabled={isProcessing}
+              type="button"
               onClick={() => handleIngestContent(previewFilename, previewContent)}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              disabled={isProcessing || !previewContent}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700 disabled:opacity-50 transition-colors"
             >
-              <Play size={14} />
-              <span>{isProcessing ? 'Streaming to Go Gateway...' : 'Ingest Scenario into Live Gateway'}</span>
-              <ArrowRight size={14} />
+              {isProcessing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              <span>{isProcessing ? 'Processing...' : 'Run Ingestion Scenario'}</span>
             </button>
           )}
         </div>
