@@ -183,15 +183,25 @@ def run_adversarial_evals(
         if item.get("id") == "ADV-010":
             # Test empty findings for uncertainty calibration
             findings = []
+        elif item.get("attack_payload"):
+            findings.append(
+                FindingItem(
+                    id="FINDING-ADV",
+                    code="ADV_TEST",
+                    description=item.get("attack_payload", ""),
+                    severity="BLOCKING",
+                )
+            )
 
         incident_input = IncidentInput(
             incident_id=999,
             tenant_id="TENANT-DEFAULT",
             file_id=888,
+            artifact_id=888,
             filename=item.get("filename_payload", "payroll_test.ach"),
             findings=findings,
-            raw_findings_text=[item.get("attack_payload", "")],
             available_runbooks=["RB-01", "RB-05"],
+            authorized_evidence_refs=["FINDING-1", "FINDING-ADV", "RB-01", "RB-05"],
             telemetry_summary={"parse_rate": 125000, "worker_saturation": 0.3},
             prior_occurrences=1,
         )

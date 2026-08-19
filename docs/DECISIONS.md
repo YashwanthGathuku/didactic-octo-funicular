@@ -16,6 +16,7 @@ This index records all major architectural and security decisions made in Sentin
 | **[ADR-0006](#adr-0006-dual-control-quarantine-release--cryptographic-proofs)** | Dual-Control Separation of Duties for High-Risk Releases | **ACCEPTED** | Two distinct human operators required; creator of quarantined batch cannot approve release. |
 | **[ADR-0007](#adr-0007-immutable-linear-hash-chained-audit-ledger)** | Tamper-Evident Append-Only Audit Ledger | **ACCEPTED** | SHA-256 linear hash chaining; record updates or table truncations break signature chain. |
 | **[ADR-0008](#adr-0008-multi-database-connector-platform-with-safe-templates)** | Multi-Database Connectors with Parameterized Templates | **ACCEPTED** | Zero arbitrary SQL execution from UI/AI; admin-approved templates with driver parameter binding. |
+| **[ADR-0009](#adr-0009-google-adk-multi-agent-fleet-and-model-armor-orchestration)** | Google ADK Multi-Agent Fleet & Model Armor Orchestration | **ACCEPTED** | Orchestrated specialist fleet with least-privilege tool scopes; pre-screened via Google Cloud Model Armor. |
 
 ---
 
@@ -74,3 +75,10 @@ This index records all major architectural and security decisions made in Sentin
 * **Context**: Users need to sync payment metadata from PostgreSQL, Oracle, Snowflake, and BigQuery without exposing databases to SQL injection.
 * **Decision**: Ban arbitrary SQL execution. All queries must reference administrator-registered parameterized templates with strict capability bounds (`gateway/internal/connectors/query.go`).
 * **Consequences**: Prevents SQL injection by construction; restricts queries to explicit schema allowlists.
+
+---
+
+### ADR-0009: Google ADK Multi-Agent Fleet and Model Armor Orchestration
+* **Context**: Monolithic single-prompt AI analysts lack specialized domain depth, risk prompt injection across broad tool scopes, and cannot retain cross-session memory without security leakage.
+* **Decision**: Deployed a hierarchical 6-agent fleet using the Google Agent Development Kit (ADK) and Gemini 2.5 Flash (`google-genai` SDK), gated by Google Cloud Model Armor for input/output screening, with persistent tenant-isolated Memory Bank storage.
+* **Consequences**: Each agent operates within a declared least-privilege tool scope (e.g. ComplianceAgent reads rules only; RemediationAgent proposes derived artifacts without mutating originals). Model Armor blocks adversarial prompt injections and PII leakage.

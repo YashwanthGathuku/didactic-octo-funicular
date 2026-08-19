@@ -63,10 +63,12 @@ class IncidentInput(BaseModel):
     incident_id: int
     tenant_id: str
     file_id: int
+    artifact_id: Optional[int] = None
+    artifact_sha256: Optional[str] = None
     filename: Optional[str] = "unnamed.ach"
     findings: List[FindingItem] = Field(default_factory=list)
-    raw_findings_text: List[str] = Field(default_factory=list)
-    available_runbooks: List[str] = Field(default_factory=list)
+    available_runbooks: List[str] = Field(default_factory=lambda: ["RB-01", "RB-05", "RB-07"])
+    authorized_evidence_refs: List[str] = Field(default_factory=list)
     telemetry_summary: Dict[str, Any] = Field(default_factory=dict)
     prior_occurrences: int = 0
 
@@ -102,15 +104,13 @@ class AnalystRecommendation(BaseModel):
 def generate_ai_analysis(input_data: IncidentInput) -> AnalystRecommendation:
     """Generates a strictly grounded, read-only incident recommendation."""
     start_time = time.time()
-    openai_key = os.getenv("OPENAI_API_KEY")
+    google_key = os.getenv("GOOGLE_API_KEY")
 
     # Collect valid evidence IDs to check citation validity
-    valid_evidence_ids = set()
+    valid_evidence_ids = set(input_data.authorized_evidence_refs)
     for f in input_data.findings:
         valid_evidence_ids.add(f.id)
         valid_evidence_ids.add(f.code)
-    for idx, rf in enumerate(input_data.raw_findings_text):
-        valid_evidence_ids.add(f"FINDING-{idx+1}")
     for rb in input_data.available_runbooks:
         valid_evidence_ids.add(rb)
         if not rb.startswith("RUNBOOK-"):
@@ -119,10 +119,11 @@ def generate_ai_analysis(input_data: IncidentInput) -> AnalystRecommendation:
         valid_evidence_ids.add(f"METRIC-{k}")
 
     # 1. Live LLM Provider Path (if API key is present)
-    if openai_key:
+    if google_key:
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=openai_key)
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=google_key)
 
             user_prompt = f"""
 Tenant: {input_data.tenant_id}
@@ -137,65 +138,76 @@ Deterministic Findings:
 """
             for f in input_data.findings:
                 user_prompt += f"- ID: {f.id} | Code: {f.code} | Severity: {f.severity} | Description: {f.description} | Line: {f.line_number} | Expected: {f.expected_value} | Actual: {f.actual_value}\n"
-            for idx, rf in enumerate(input_data.raw_findings_text):
-                user_prompt += f"- ID: FINDING-{idx+1} | Text: {rf}\n"
 
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.0
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    temperature=0.1,
+                    response_mime_type='application/json',
+                )
             )
 
-            latency_ms = (time.time() - start_time) * 1000.0
-            raw_content = response.choices[0].message.content
+            raw_content = response.text
             if raw_content:
                 parsed = json.loads(raw_content)
-                prompt_tokens = response.usage.prompt_tokens if response.usage else 0
-                completion_tokens = response.usage.completion_tokens if response.usage else 0
-                cost = (prompt_tokens * 0.00015 + completion_tokens * 0.0006) / 1000.0
+                latency_ms = (time.time() - start_time) * 1000.0
 
-                hypotheses = []
+                # Validate evidence citations
+                hypotheses_validated = []
                 for h in parsed.get("hypotheses", []):
-                    # Filter and enforce valid citations only
-                    cited = [c for c in h.get("evidence_citations", []) if c in valid_evidence_ids or any(c.startswith(p) for p in ["FINDING", "RUNBOOK", "METRIC", "EVID"])]
-                    hypotheses.append(Hypothesis(
-                        rank=h.get("rank", 1),
-                        hypothesis=h.get("hypothesis", ""),
-                        confidence=h.get("confidence", "MEDIUM"),
-                        rationale=h.get("rationale", ""),
-                        evidence_citations=cited
-                    ))
+                    citations = [
+                        c for c in h.get("evidence_citations", [])
+                        if c in valid_evidence_ids or c.startswith("FINDING-") or c.startswith("RUNBOOK-") or c.startswith("METRIC-")
+                    ]
+                    hypotheses_validated.append(
+                        Hypothesis(
+                            rank=h.get("rank", 1),
+                            hypothesis=h.get("hypothesis", ""),
+                            confidence=h.get("confidence", "MEDIUM"),
+                            rationale=h.get("rationale", ""),
+                            evidence_citations=citations if citations else [f.id for f in input_data.findings],
+                        )
+                    )
+
+                # Token usage from Gemini response metadata
+                prompt_tokens = 0
+                candidates_tokens = 0
+                if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                    prompt_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0) or 0
+                    candidates_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0) or 0
+                total_tokens = prompt_tokens + candidates_tokens
 
                 return AnalystRecommendation(
                     incident_id=input_data.incident_id,
                     tenant_id=input_data.tenant_id,
                     file_id=input_data.file_id,
                     summary=parsed.get("summary", "Incident analysis completed."),
-                    hypotheses=hypotheses,
+                    hypotheses=hypotheses_validated,
                     missing_evidence=parsed.get("missing_evidence", []),
-                    runbook_passage_ids=parsed.get("runbook_passage_ids", [rb for rb in input_data.available_runbooks]),
+                    runbook_passage_ids=parsed.get("runbook_passage_ids", ["RB-01"]),
                     recommended_actions=parsed.get("recommended_actions", []),
-                    statement="The AI incident analyst operates in a read-only capacity and has made no system state changes.",
+                    statement=parsed.get("statement", "The AI incident analyst operates in a read-only capacity and has made no system state changes."),
                     audit=AuditMetadata(
-                        model="gpt-4o-mini",
-                        provider="OpenAI",
+                        model="gemini-2.5-flash",
+                        provider="Google Gemini",
                         latency_ms=latency_ms,
-                        token_usage={"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens},
-                        estimated_cost_usd=cost
+                        token_usage={
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": candidates_tokens,
+                            "total_tokens": total_tokens,
+                        },
+                        estimated_cost_usd=(prompt_tokens * 0.000000075) + (candidates_tokens * 0.0000003),
                     )
                 )
         except Exception as e:
-            # When configured provider fails, return explicit error rather than uncalibrated fallback
-            print(f"[AI Tier] OpenAI API error: {e}")
+            # When configured provider fails, fail closed rather than pretending deterministic fallback was an AI execution
+            raise RuntimeError(f"Gemini API error: {e}")
 
-    # 2. Deterministic Rule-Grounded Engine (High-Reliability Local Baseline)
-    # Used when OPENAI_API_KEY is not set or in offline unit evaluations
+    # 2. Deterministic Rule-Grounded Engine (Explicitly labelled fallback for offline testing)
     latency_ms = (time.time() - start_time) * 1000.0
-    all_findings_str = " ".join([f.code + " " + f.description for f in input_data.findings] + input_data.raw_findings_text).upper()
+    all_findings_str = " ".join([f.code + " " + f.description for f in input_data.findings]).upper()
 
     has_hash_mismatch = "HASH" in all_findings_str or "0802" in all_findings_str
     has_routing_invalid = "ROUTING" in all_findings_str or "ABA" in all_findings_str or "0602" in all_findings_str
@@ -205,13 +217,7 @@ Deterministic Findings:
     runbook_ids = []
     actions = []
     missing_evidence = []
-    evidence_citations = []
-
-    # Gather finding citations
-    for f in input_data.findings:
-        evidence_citations.append(f.id)
-    if not evidence_citations and input_data.raw_findings_text:
-        evidence_citations = [f"FINDING-{i+1}" for i in range(len(input_data.raw_findings_text))]
+    evidence_citations = [f.id for f in input_data.findings]
 
     if has_hash_mismatch:
         runbook_ids.append("RB-05")

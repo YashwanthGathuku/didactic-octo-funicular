@@ -53,8 +53,8 @@ func TestAiAnalyst_ReturnsTypedRecommendationWhenConfigured(t *testing.T) {
 			RecommendedActions: []string{"Contact counterparty to request retransmission."},
 			Statement:          "The AI incident analyst operates in a read-only capacity and has made no system state changes.",
 			Audit: AuditMetadata{
-				Model:            "gpt-4o-mini",
-				Provider:         "OpenAI",
+				Model:            "gemini-2.5-flash",
+				Provider:         "Google Gemini",
 				PromptVersion:    "1.0.0",
 				SchemaVersion:    "1.0.0",
 				LatencyMs:        45.2,

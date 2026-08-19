@@ -67,7 +67,7 @@ services:
       - "8000"
     environment:
       PYTHONUNBUFFERED: "1"
-      # OPENAI_API_KEY intentionally unset. Absent, the tier reports UNAVAILABLE
+      # GOOGLE_API_KEY intentionally unset. Absent, the tier reports UNAVAILABLE
       # rather than generating an answer.
     restart: unless-stopped
     networks: [sentinel-net]

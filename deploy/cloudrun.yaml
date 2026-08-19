@@ -1,0 +1,52 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: sentinel-gateway
+  labels:
+    cloud.googleapis.com/location: us-central1
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "10"
+        run.googleapis.com/cloudsql-instances: ${PROJECT_ID}:us-central1:sentinel-db
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+        - image: us-central1-docker.pkg.dev/${PROJECT_ID}/sentinel-repo/gateway:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          env:
+            - name: PORT
+              value: "8080"
+            - name: PROFILE
+              value: "production"
+            - name: DATABASE_URL
+              value: "postgres://sentinel:${DB_PASSWORD}@/sentinel?host=/cloudsql/${PROJECT_ID}:us-central1:sentinel-db"
+            - name: AI_TIER_URL
+              value: "https://sentinel-ai-tier-${HASH}-uc.a.run.app"
+            - name: OBJECT_STORE_URL
+              value: "s3://sentinel-artifacts-${PROJECT_ID}"
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "${PROJECT_ID}"
+            - name: KMS_KEY_NAME
+              value: "projects/${PROJECT_ID}/locations/us-central1/keyRings/sentinel-ring/cryptoKeys/ledger-signer"
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            periodSeconds: 15

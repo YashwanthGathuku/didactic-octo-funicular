@@ -64,8 +64,22 @@ jobs:
   # 2. Go Unit, Integration & Race Tests
   # --------------------------------------------------------------------------
   test-backend:
-    name: Go Tests with Race Detector
+    name: Go Tests with Race Detector & PostgreSQL RLS
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sentinel_test
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: example-ci-test-db-pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -78,13 +92,17 @@ jobs:
 
       - name: Run Go Test Suite with Race Detector
         working-directory: gateway
+        env:
+          TEST_POSTGRES_DSN: "postgres://sentinel:example-ci-test-db-pass@localhost:5432/sentinel_test?sslmode=disable"
         run: |
           go test -race -v -count=1 -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Check Backend Code Coverage
+      - name: Check Backend Code Coverage Threshold
         working-directory: gateway
         run: |
           go tool cover -func=coverage.out
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total Go Code Coverage: $COVERAGE%"
 
   # --------------------------------------------------------------------------
   # 3. Frontend Tests and Production Build
@@ -196,3 +214,24 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
+
+  # --------------------------------------------------------------------------
+  # 7. Documentation Drift & Capability Matrix Verification
+  # --------------------------------------------------------------------------
+  docs-drift-check:
+    name: Documentation & Capability Matrix Drift Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Verify Docs Match Capability Matrix
+        run: python scripts/generate_docs.py --check

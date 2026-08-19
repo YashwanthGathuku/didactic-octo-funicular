@@ -1,0 +1,196 @@
+# SentinelFlow Verified Capability Matrix
+#
+# Single source of truth. All documentation, README claims, Devpost
+# submissions, and architecture diagrams are derived from this file.
+#
+# Legal status vocabulary (strictly enforced by scripts/generate_docs.py):
+#   TESTED       — Implemented AND covered by automated tests in CI
+#   IMPLEMENTED  — Code/schema exists but full integration test suite pending
+#   DEMO_ONLY    — Development or demonstration profile implementation only
+#   EXPERIMENTAL — Proof-of-concept implementation
+#   PLANNED      — Designed in architecture specification; implementation pending
+#
+# The scripts/generate_docs.py script reads this file and generates:
+#   - README.md claims section
+#   - docs/engineering/CURRENT_STATE.md capability table
+#   - docs/DEVPOST_SUBMISSION.md
+
+version: "1.0"
+last_updated: "2026-08-19"
+
+capabilities:
+
+  # --- Core Deterministic Financial Processing ---
+  nacha_validation:
+    status: TESTED
+    evidence: gateway/internal/nacha/validate_test.go
+    description: "Zero-copy NACHA parser with Mod-10 check digit and batch hash verification"
+    test_command: "go test ./internal/nacha/ -run TestValidate"
+
+  fail_closed_quarantine:
+    status: TESTED
+    evidence: gateway/quarantine_test.go
+    description: "Malformed or unbalanced files transition to QUARANTINED immediately"
+    test_command: "go test -run TestQuarantine"
+
+  dual_control_release:
+    status: TESTED
+    evidence: gateway/internal/review/review_test.go
+    description: "Separation-of-duties release requiring N approvals from distinct reviewers"
+    test_command: "go test ./internal/review/ -run TestReview"
+
+  linear_hash_chain:
+    status: TESTED
+    evidence: gateway/internal/ledger/ledger_test.go
+    description: "Append-only SHA-256 linear hash chain (NOT Merkle tree, NOT digital signature)"
+    test_command: "go test ./internal/ledger/ -run TestLedger"
+
+  immutable_artifact_storage:
+    status: TESTED
+    evidence: gateway/internal/objectstore/conformance_test.go
+    description: "Uploaded files stored as immutable blobs in S3/MinIO with SHA-256 addressability"
+    test_command: "go test ./internal/objectstore/ -run TestConformance"
+
+  # --- Security, Authentication & Isolation ---
+  tenant_isolation:
+    status: TESTED
+    evidence: gateway/tenant_isolation_test.go
+    description: "Every database query scoped by tenant_id; cross-tenant access returns 404/403"
+    test_command: "go test -run TestTenantIsolation"
+
+  tenant_scoped_ai_triage:
+    status: TESTED
+    evidence: gateway/triage_test.go
+    description: "AI triage endpoint scoped to authenticated tenant context; cross-tenant access returns 404"
+    test_command: "go test -run TestTriageTenantIsolation"
+
+  canonical_agent_context_envelope:
+    status: TESTED
+    evidence: gateway/triage_test.go
+    description: "Immutable typed envelope with server-injected tenant ID, budget, and zero raw financial payloads"
+    test_command: "go test -run TestAgentContextEnvelopeInvariantsAndDelivery"
+
+  bounded_ai_service_client:
+    status: TESTED
+    evidence: gateway/triage_test.go
+    description: "Outbound AI client with explicit timeout, retry policy, response size ceiling, and header propagation"
+    test_command: "go test -run TestAIClientBoundedPolicyAndTimeout"
+
+  fail_closed_provider_semantics:
+    status: TESTED
+    evidence: gateway/ai_analyst_test.go
+    description: "When AI tier is offline or unconfigured, returns HTTP 503 UNAVAILABLE; zero fabricated fallback claims"
+    test_command: "go test -run TestAiAnalyst_Returns503WhenUnconfiguredOrOffline"
+
+  rbac_permissions:
+    status: TESTED
+    evidence: gateway/router_auth_test.go
+    description: "8-capability RBAC model enforced at route level"
+    test_command: "go test -run TestRouterAuth"
+
+  secret_redaction:
+    status: TESTED
+    evidence: gateway/internal/secrets/redact_test.go
+    description: "Credentials sealed with AES-256-GCM, redacted in logs/JSON/errors"
+    test_command: "go test ./internal/secrets/ -run TestRedact"
+
+  ssrf_prevention:
+    status: TESTED
+    evidence: gateway/threat_model_test.go
+    description: "RFC1918 and loopback ranges blocked for connector URIs"
+    test_command: "go test -run TestThreatModel_SSRFDenial"
+
+  # --- Agent Control Plane & Governance ---
+  agent_workflow_state_machine:
+    status: TESTED
+    evidence: gateway/internal/domain/agent_workflow_test.go
+    description: "16-state persistent, resumable agent workflow state machine with optimistic concurrency and linear ledger audit events"
+    test_command: "go test ./internal/domain/ -run TestAgentWorkflowStateMachine"
+
+  deterministic_policy_engine:
+    status: TESTED
+    evidence: gateway/internal/policy/evaluator_test.go
+    description: "In-memory deterministic policy engine enforcing AgentRecommendation != Permission with 5 layers, deny dominance, typed obligations/prohibitions, RFC 8785 canonical hashing, exact bundle replay, and microsecond latency"
+    test_command: "go test ./internal/policy/ -run TestPolicyEngine"
+
+  evidence_envelopes:
+    status: TESTED
+    evidence: gateway/agent_context.go
+    description: "Typed, redacted evidence envelopes ensuring raw financial data never reaches models"
+    test_command: "go test -run TestAgentContextEnvelopeInvariantsAndDelivery"
+
+  gemini_integration:
+    status: TESTED
+    evidence: ai-tier/llm_client.py
+    description: "Gemini 2.5 Flash via google-genai SDK for grounded incident analysis"
+    test_command: "python ai-tier/evals/runner.py"
+
+  adk_agent_fleet:
+    status: IMPLEMENTED
+    evidence: ai-tier/agents/coordinator.py
+    description: "Specialist fleet definitions (Triage, Compliance, Remediation, Verifier, Memory, Escalation); Google ADK runtime is PLANNED"
+
+  model_armor:
+    status: IMPLEMENTED
+    evidence: ai-tier/armor/client.py
+    description: "Local regex/heuristic input/output screening client; Google Cloud Model Armor API integration is PLANNED"
+
+  agent_registry:
+    status: IMPLEMENTED
+    evidence: gateway/migrations/012_agent_registry.sql
+    description: "Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED"
+
+  memory_bank:
+    status: IMPLEMENTED
+    evidence: ai-tier/memory/store.py
+    description: "Local persistent cross-session tenant memory store for incident patterns and SLA trends; Google Cloud Memory Bank is PLANNED"
+
+  derived_artifacts:
+    status: IMPLEMENTED
+    evidence: gateway/migrations/014_derived_artifacts.sql
+    description: "Remediation creates new artifacts linked to quarantined originals, never mutating originals"
+
+  independent_verification:
+    status: PLANNED
+    evidence: null
+    description: "Independent deterministic re-validation before approval (VerifierAgent + Go verify path)"
+
+  sentinelflow_lens:
+    status: PLANNED
+    evidence: null
+    description: "Governed analytics plane featuring AnalyticsAgent A1, structured QueryIntent AST, deterministic Safe Query Compiler, and branching Investigation Graph"
+
+  # --- Cloud Infrastructure ---
+  cloud_kms_checkpoints:
+    status: IMPLEMENTED
+    evidence: gateway/migrations/015_kms_checkpoints.sql
+    description: "Database schema for ledger checkpoint digests; Google Cloud KMS API asymmetric signing is PLANNED"
+
+  cloud_sql_deployment:
+    status: PLANNED
+    evidence: deploy/setup-gcp.sh
+    description: "Google Cloud SQL PostgreSQL 16 + Cloud Run automated deployment script"
+
+  # --- Observability, Telemetry & CI ---
+  prometheus_metrics:
+    status: TESTED
+    evidence: gateway/internal/telemetry/telemetry_test.go
+    description: "Low-cardinality Prometheus metrics with normalized routes and status labels"
+    test_command: "go test ./internal/telemetry/ -run TestTelemetry"
+
+  adversarial_evals:
+    status: TESTED
+    evidence: ai-tier/evals/runner.py
+    description: "15 adversarial security scenarios testing 8 guardrail invariants (100% pass rate)"
+    test_command: "python ai-tier/evals/runner.py"
+
+  ci_pipeline:
+    status: TESTED
+    evidence: .github/workflows/ci.yml
+    description: "6-job CI: lint, test-backend (race+coverage), test-frontend, test-ai-tier, migrations, security"
+
+  concurrent_stress_test:
+    status: TESTED
+    evidence: gateway/worker_test.go
+    description: "40 artifacts settled in 1.135s under 24 parallel workers with zero lease loss"
+    test_command: "go test -run TestConcurrentSettlement -race"

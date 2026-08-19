@@ -114,4 +114,4 @@ With over **$50 Trillion** in Assets Under Custody/Administration, BNY is the gl
 1. **Astra Multi-Agent Swarm**: Deploys a collaborative 4-agent team (`LeadSupervisorAgent`, `FormatValidationAgent`, `LineageReconAgent`, `AuditComplianceAgent`) mirroring the Maker-Checker architecture.
 2. **Authority Tier Boundaries**: Enforces strict separation between semantic reasoning (Tier 2) and execution (Tier 3), guaranteeing that zero financial funds move without human supervisor dual-control sign-off.
 3. **Deterministic Math & Invariant Checks**: LLMs are used for classification and explanation; all Mod10 checksums, hash chains, and balance totals are verified by SIMD-accelerated Go and Python engines.
-4. **SEC 17a-4 Cryptographic Audit Trail**: Every inter-agent message, tool execution, and supervisor sign-off is committed to an immutable SHA-256 Merkle chain.
+4. **Cryptographic Audit Trail**: Every inter-agent message, tool execution, and supervisor sign-off is committed to an immutable SHA-256 linear application hash chain.

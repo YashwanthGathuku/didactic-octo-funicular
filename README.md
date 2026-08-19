@@ -53,8 +53,9 @@ graph TD
         Storage[(S3 / MinIO Blob Store)]
     end
 
-    subgraph Boundary 5: AI Analyst Tier
-        AI[Isolated Python AI Analyst]
+    subgraph Boundary 5: AI Agent Fleet
+        AI[Gemini ADK Agent Orchestrator]
+        ModelArmor[Model Armor Screening]
     end
 
     subgraph Boundary 6: Connector Targets

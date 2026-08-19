@@ -1,12 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -93,6 +92,7 @@ type RawIngestRequest struct {
 // external party, and a raw record sent to one has left this system.
 type TriageRequest struct {
 	FileID   int64    `json:"file_id"`
+	TenantID string   `json:"tenant_id"`
 	Findings []string `json:"findings"`
 }
 
@@ -623,6 +623,9 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		// history, the paged evidence timeline and measured service health.
 		registerOperationsRoutes(r, db, cfg)
 
+		// The AI agent fleet registry and execution invocation telemetry.
+		registerAgentRoutes(r, db)
+
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {
 			scope, serr := resolveScope(r, auth.PermReadTenant)
@@ -900,85 +903,173 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			incIDStr := chi.URLParam(r, "id")
 			incID, _ := strconv.ParseInt(incIDStr, 10, 64)
 
-			// Fetch incident findings
-			var fileID *int64
-			_ = db.QueryRow("SELECT file_instance_id FROM incidents WHERE id = ?", incID).Scan(&fileID)
+			// Fetch incident and associated artifact — scoped strictly to the authenticated tenant
+			// so a caller cannot exfiltrate another tenant's findings via the AI tier.
+			var (
+				artifactID     sql.NullInt64
+				artifactSHA256 sql.NullString
+				valRunID       sql.NullInt64
+				policyVersion  sql.NullString
+			)
+			err := db.QueryRow(`
+				SELECT i.file_instance_id, f.sha256_hash, r.id, p.policy_version
+				FROM incidents i
+				LEFT JOIN file_instances f ON f.id = i.file_instance_id AND f.tenant_id = i.tenant_id
+				LEFT JOIN validation_runs r ON r.file_instance_id = f.id AND r.tenant_id = f.tenant_id
+				LEFT JOIN policy_decisions p ON p.validation_run_id = r.id AND p.tenant_id = r.tenant_id
+				WHERE i.id = ? AND i.tenant_id = ?
+				ORDER BY r.started_at DESC LIMIT 1
+			`, incID, triageScope.TenantID()).Scan(&artifactID, &artifactSHA256, &valRunID, &policyVersion)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{
+					"error":  "not_found",
+					"detail": "incident not found",
+				})
+				return
+			}
 
-			findingsList := []string{}
-			if fileID != nil {
-				fRows, _ := db.Query("SELECT code || ': ' || description FROM validation_findings WHERE file_instance_id = ?", *fileID)
-				if fRows != nil {
+			redactedFindings := make([]RedactedFindingItem, 0)
+			evidenceRefs := make([]string, 0)
+			if artifactID.Valid {
+				fRows, qErr := db.Query(`
+					SELECT id, code, rule_version, provenance, description, severity,
+					       line_number, byte_offset, field_start, field_end, evidence_redacted,
+					       expected_value, actual_value
+					FROM validation_findings
+					WHERE file_instance_id = ? AND tenant_id = ?
+					ORDER BY id ASC
+				`, artifactID.Int64, triageScope.TenantID())
+				if qErr == nil && fRows != nil {
 					for fRows.Next() {
-						var s string
-						if fRows.Scan(&s) == nil {
-							findingsList = append(findingsList, s)
+						var (
+							rf           RedactedFindingItem
+							fID          int64
+							prov         sql.NullString
+							lineNum      sql.NullInt64
+							byteOff      sql.NullInt64
+							fieldSt      sql.NullInt64
+							fieldEn      sql.NullInt64
+							evidRedacted sql.NullString
+							expectedVal  sql.NullString
+							actualVal    sql.NullString
+						)
+						if err := fRows.Scan(&fID, &rf.Code, &rf.RuleVersion, &prov, &rf.Description,
+							&rf.Severity, &lineNum, &byteOff, &fieldSt, &fieldEn, &evidRedacted,
+							&expectedVal, &actualVal); err == nil {
+							rf.ID = fmt.Sprintf("FINDING-%d", fID)
+							if prov.Valid {
+								rf.Provenance = prov.String
+							}
+							if lineNum.Valid {
+								ln := int(lineNum.Int64)
+								rf.LineNumber = &ln
+							}
+							if byteOff.Valid {
+								bo := byteOff.Int64
+								rf.ByteOffset = &bo
+							}
+							if fieldSt.Valid {
+								fs := int(fieldSt.Int64)
+								rf.FieldStart = &fs
+							}
+							if fieldEn.Valid {
+								fe := int(fieldEn.Int64)
+								rf.FieldEnd = &fe
+							}
+							if evidRedacted.Valid {
+								rf.EvidenceRedacted = evidRedacted.String
+							}
+							if expectedVal.Valid {
+								rf.ExpectedValue = expectedVal.String
+							}
+							if actualVal.Valid {
+								rf.ActualValue = actualVal.String
+							}
+							redactedFindings = append(redactedFindings, rf)
+							evidenceRefs = append(evidenceRefs, rf.ID)
 						}
 					}
 					fRows.Close()
 				}
 			}
 
-			// Call Python AI Tier.
-			//
-			// There is no fallback. The previous offline branch invented a
-			// summary, two Nacha citations, two proposed actions, a confidence
-			// of 0.94 and a fixed token/cost block whenever this call failed.
-			// Because AI_TIER_URL is not honoured and the address below is
-			// hardcoded, that fabrication was the default behaviour in
-			// containers rather than an edge case. A missing dependency now
-			// produces UNAVAILABLE.
-			aiReq := TriageRequest{
-				FileID:   incID,
-				Findings: findingsList,
-			}
-			aiReqBytes, _ := json.Marshal(aiReq)
+			// Add approved runbook references to authorized evidence allowlist
+			evidenceRefs = append(evidenceRefs, "RB-01", "RB-05", "RB-07")
 
-			// Honour the configured address. This was hardcoded to 127.0.0.1
-			// while AI_TIER_URL was set and ignored, so in containers the call
-			// always failed and the fabricated fallback was the default path.
-			if cfg.AITierURL == "" {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"status":     "NOT_CONFIGURED",
-					"detail":     "No AI tier is configured (AI_TIER_URL unset). Deterministic processing is unaffected.",
-					"incidentId": incID,
-				})
-				return
+			corrID := r.Header.Get("X-Correlation-ID")
+			if corrID == "" {
+				corrID = fmt.Sprintf("corr-%s-%d", triageScope.TenantID(), time.Now().UnixNano())
 			}
 
-			resp, err := http.Post(cfg.AITierURL+"/analyze", "application/json", bytes.NewReader(aiReqBytes))
-			if err != nil || resp.StatusCode != http.StatusOK {
-				if resp != nil {
-					resp.Body.Close()
+			sha := "0000000000000000000000000000000000000000000000000000000000000000"
+			if artifactSHA256.Valid && len(artifactSHA256.String) == 64 {
+				sha = artifactSHA256.String
+			}
+
+			polVer := "default/1"
+			if policyVersion.Valid && policyVersion.String != "" {
+				polVer = policyVersion.String
+			}
+
+			artID := int64(0)
+			if artifactID.Valid {
+				artID = artifactID.Int64
+			}
+
+			// Construct canonical immutable AgentContextEnvelope
+			env := AgentContextEnvelope{
+				SchemaVersion:          "1.0",
+				WorkflowID:             fmt.Sprintf("wf-triage-%s-%d", triageScope.TenantID(), incID),
+				TenantID:               triageScope.TenantID(), // Server-injected from verified authentication context
+				TriggerEventID:         fmt.Sprintf("evt-incident-%d", incID),
+				IncidentID:             incID,
+				ArtifactID:             artID,
+				ArtifactSHA256:         sha,
+				ValidationRunID:        fmt.Sprintf("%d", valRunID.Int64),
+				PolicyVersion:          polVer,
+				CorrelationID:          corrID,
+				TraceID:                r.Header.Get("X-Trace-ID"),
+				AgentName:              "SentinelCoordinator",
+				AgentVersion:           "1.0.0",
+				AuthorizedEvidenceRefs: evidenceRefs,
+				AllowedTools:           []string{"lookup_finding", "check_sla_status"},
+				Budget: AgentBudget{
+					MaxTokens:  4096,
+					MaxSeconds: 15,
+					MaxCostUSD: 0.05,
+				},
+				Findings:          redactedFindings,
+				AvailableRunbooks: []string{"RB-01", "RB-05", "RB-07"},
+			}
+
+			// Dispatch via dedicated bounded AI service client
+			aiClient := NewAIClient(DefaultAIClientConfig(cfg.AITierURL))
+			aiRes, err := aiClient.TriageIncident(r.Context(), &env)
+			if err != nil {
+				if errors.Is(err, ErrAITierNotConfigured) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"status":     "NOT_CONFIGURED",
+						"detail":     "No AI tier is configured (AI_TIER_URL unset). Deterministic processing is unaffected.",
+						"incidentId": incID,
+					})
+					return
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"status":     "UNAVAILABLE",
-					"detail":     "AI analysis tier is not reachable. No analysis was produced.",
+					"detail":     fmt.Sprintf("AI analysis tier unavailable: %v. No analysis was produced.", err),
 					"incidentId": incID,
 				})
 				return
 			}
 
-			var aiRes AnalystResponse
-			decodeErr := json.NewDecoder(resp.Body).Decode(&aiRes)
-			resp.Body.Close()
-			if decodeErr != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadGateway)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{
-					"status":     "INVALID_RESPONSE",
-					"detail":     "AI analysis tier returned a response that could not be decoded.",
-					"incidentId": incID,
-				})
-				return
-			}
-
-			// Record AI run in audit ledger
+			// Record AI run in immutable audit ledger
 			_, _ = AppendAuditEvent(db, triageScope.TenantID(), "AI_ANALYSIS_EXECUTED", "AI_ANALYSIS_TIER", map[string]interface{}{
 				"incidentId":      incID,
+				"artifactId":      artID,
 				"summary":         aiRes.Summary,
 				"hypothesesCount": len(aiRes.Hypotheses),
 				"runbooks":        aiRes.RunbookPassageIDs,
@@ -987,7 +1078,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			})
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(aiRes)
+			_ = json.NewEncoder(w).Encode(aiRes)
 		})
 
 		// POST Incident Approval
@@ -1066,32 +1157,28 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		// fabricated assurance result. An evaluation that cannot run reports
 		// that it did not run.
 		r.Get("/evals/run", func(w http.ResponseWriter, r *http.Request) {
-			if cfg.AITierURL == "" {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"status": "NOT_CONFIGURED",
-					"detail": "No AI tier is configured (AI_TIER_URL unset). No pass rate was produced.",
-				})
-				return
-			}
-
-			resp, err := http.Get(cfg.AITierURL + "/evals/run")
-			if err != nil || resp.StatusCode != http.StatusOK {
-				if resp != nil {
-					resp.Body.Close()
+			aiClient := NewAIClient(DefaultAIClientConfig(cfg.AITierURL))
+			evalsBytes, err := aiClient.RunEvals(r.Context())
+			if err != nil {
+				if errors.Is(err, ErrAITierNotConfigured) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"status": "NOT_CONFIGURED",
+						"detail": "No AI tier is configured (AI_TIER_URL unset). No pass rate was produced.",
+					})
+					return
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"status": "NOT_RUN",
-					"detail": "Adversarial evaluation tier is not reachable. No pass rate was produced.",
+					"detail": fmt.Sprintf("Adversarial evaluation tier unavailable: %v. No pass rate was produced.", err),
 				})
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.Copy(w, resp.Body)
-			resp.Body.Close()
+			_, _ = w.Write(evalsBytes)
 		})
 
 		// GET evidence export of the application hash chain (carries no regulatory claim)

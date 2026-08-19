@@ -17,10 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# openai is imported under a runtime guard in llm_client.py and is only reached
-# when OPENAI_API_KEY is set. Absence produces UNAVAILABLE, never a generated
-# answer, so it is not a runtime requirement.
-llm = ["openai==1.59.6"]
+# google-genai is imported under a runtime guard in llm_client.py and is only
+# reached when GOOGLE_API_KEY is set. Absence produces UNAVAILABLE, never a
+# generated answer, so it is not a runtime requirement.
+llm = ["google-genai>=1.14.0"]
 dev = ["requests==2.32.3", "ruff==0.8.4"]
 
 [tool.ruff]

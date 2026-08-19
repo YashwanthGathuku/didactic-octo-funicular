@@ -94,6 +94,13 @@ type Config struct {
 	// Storage
 	InboxPath string
 
+	// AgentFleetEnabled gates automated agent fleet execution.
+	// Default is false (manual deterministic ingress mode).
+	AgentFleetEnabled bool
+
+	// AgentFleetMode defines the execution policy: SHADOW (default), ADVISORY, or ACTIVE.
+	AgentFleetMode string
+
 	// WatcherTenant is the tenant the inbox watcher ingests into.
 	//
 	// The watcher is a background daemon with no request and therefore no
@@ -145,21 +152,31 @@ func Load() (*Config, error) {
 	rawSealKey := env("SENTINEL_SECRET_SEAL_KEY", "")
 
 	cfg := &Config{
-		Profile:        profile,
-		DatabaseURL:    env("DATABASE_URL", ""),
-		ObjectStoreURL: env("OBJECT_STORE_URL", ""),
-		AITierURL:      env("AI_TIER_URL", ""),
-		AllowedOrigin:  env("SENTINEL_ALLOWED_ORIGIN", ""),
-		PGPKeyringPath: env("SENTINEL_PGP_KEYRING", ""),
-		OIDCIssuer:     env("SENTINEL_OIDC_ISSUER", ""),
-		OIDCAudience:   env("SENTINEL_OIDC_AUDIENCE", ""),
-		OIDCJWKSURL:    env("SENTINEL_OIDC_JWKS_URL", ""),
-		InboxPath:      env("SENTINEL_INBOX_PATH", "./inbox"),
-		WatcherTenant:  env("SENTINEL_WATCHER_TENANT", ""),
-		Scrubber:       secrets.NewScrubber(),
+		Profile:           profile,
+		DatabaseURL:       env("DATABASE_URL", ""),
+		ObjectStoreURL:    env("OBJECT_STORE_URL", ""),
+		AITierURL:         env("AI_TIER_URL", ""),
+		AllowedOrigin:     env("SENTINEL_ALLOWED_ORIGIN", ""),
+		PGPKeyringPath:    env("SENTINEL_PGP_KEYRING", ""),
+		OIDCIssuer:        env("SENTINEL_OIDC_ISSUER", ""),
+		OIDCAudience:      env("SENTINEL_OIDC_AUDIENCE", ""),
+		OIDCJWKSURL:       env("SENTINEL_OIDC_JWKS_URL", ""),
+		InboxPath:         env("SENTINEL_INBOX_PATH", "./inbox"),
+		WatcherTenant:     env("SENTINEL_WATCHER_TENANT", ""),
+		AgentFleetEnabled: strings.EqualFold(env("SENTINEL_AGENT_FLEET_ENABLED", env("AGENT_FLEET_ENABLED", "false")), "true"),
+		AgentFleetMode:    "SHADOW",
+		Scrubber:          secrets.NewScrubber(),
 	}
 
 	var problems []string
+
+	rawFleetMode := strings.ToUpper(env("SENTINEL_AGENT_FLEET_MODE", "SHADOW"))
+	switch rawFleetMode {
+	case "SHADOW", "ADVISORY", "ACTIVE":
+		cfg.AgentFleetMode = rawFleetMode
+	default:
+		problems = append(problems, fmt.Sprintf("SENTINEL_AGENT_FLEET_MODE=%q is invalid (want SHADOW, ADVISORY, or ACTIVE)", rawFleetMode))
+	}
 
 	// Wrapping happens after the length check below, but the wrap itself can
 	// only fail for a value shorter than the minimum, which the profile checks
