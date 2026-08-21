@@ -59,7 +59,7 @@ This index records all major architectural and security decisions made in Sentin
 
 ### ADR-0006: Dual-Control Quarantine Release & Cryptographic Proofs
 * **Context**: An insider with administrative access could unilaterally approve a flagged or fraudulent payment batch.
-* **Decision**: Enforce cryptographic two-person rule in `gateway/internal/review/dual_control.go`. An approval requires signatures from two distinct authenticated identities.
+* **Decision**: Enforce identity-bound dual-control approval with cryptographic artifact and policy integrity binding in `gateway/internal/review/release.go` and `review.go`. An approval requires two distinct authenticated identities. The operator who uploaded or quarantined an artifact cannot approve its release. State transitions are committed to the append-only linear hash chain ledger.
 * **Consequences**: Eliminates single-operator fraud risk and complies with SOX, FFIEC, and Nacha Operating Rules.
 
 ---

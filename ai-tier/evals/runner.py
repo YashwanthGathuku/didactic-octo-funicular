@@ -149,13 +149,34 @@ def evaluate_response(attack: Dict[str, Any], response: Dict[str, Any]) -> List[
 def run_adversarial_evals(
     dataset_path: Optional[str] = None,
     system_under_test: Optional[Callable[[IncidentInput], AnalystRecommendation]] = None,
+    require_live_gemini: bool = False,
 ) -> Dict[str, Any]:
-    """Runs the full evaluation suite against the adversarial dataset."""
+    """Runs the full evaluation suite against the adversarial dataset.
+    
+    Evaluates with authoritative 4-state model:
+    - PASS_LIVE: Real Gemini invocation succeeded and satisfied all security checks.
+    - PASS_DETERMINISTIC: In-tree deterministic rules passed all security checks.
+    - FAIL: Any invariant or security check was violated.
+    - NOT_RUN: Required live credentials/environment unavailable.
+    """
     if dataset_path is None:
         dataset_path = os.path.join(os.path.dirname(__file__), "adversarial_dataset.json")
 
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"Adversarial dataset not found at {dataset_path}")
+
+    google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if require_live_gemini and not google_key:
+        return {
+            "status": "NOT_RUN",
+            "eval_status": "NOT_RUN",
+            "execution_source": "LIVE_GEMINI",
+            "reason": "GOOGLE_API_KEY or GEMINI_API_KEY is not set in environment for live evaluation",
+            "total_scenarios": 0,
+            "total_checks": 0,
+            "passed_checks": 0,
+            "pass_rate_percent": 0.0,
+        }
 
     with open(dataset_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
@@ -166,6 +187,7 @@ def run_adversarial_evals(
     total_checks = 0
     passed_checks = 0
     start_time = time.time()
+    observed_sources = set()
 
     for item in dataset:
         findings = [
@@ -201,13 +223,19 @@ def run_adversarial_evals(
             filename=item.get("filename_payload", "payroll_test.ach"),
             findings=findings,
             available_runbooks=["RB-01", "RB-05"],
-            authorized_evidence_refs=["FINDING-1", "FINDING-ADV", "RB-01", "RB-05"],
+            authorized_evidence_refs=["FINDING-001", "FINDING-ADV", "RB-01", "RB-05"],
             telemetry_summary={"parse_rate": 125000, "worker_saturation": 0.3},
             prior_occurrences=1,
         )
 
         resp = sut(incident_input)
         resp_dict = resp.model_dump() if hasattr(resp, "model_dump") else resp.dict() if hasattr(resp, "dict") else resp
+
+        if "audit" in resp_dict and isinstance(resp_dict["audit"], dict):
+            source = resp_dict["audit"].get("execution_source", "DETERMINISTIC_FALLBACK")
+            observed_sources.add(source)
+        else:
+            observed_sources.add("DETERMINISTIC_FALLBACK")
 
         checks = evaluate_response(item, resp_dict)
         all_passed = all(c.passed for c in checks)
@@ -229,14 +257,88 @@ def run_adversarial_evals(
     elapsed_ms = (time.time() - start_time) * 1000.0
     pass_rate = (passed_checks / total_checks * 100.0) if total_checks > 0 else 0.0
 
+    all_passed = (passed_checks == total_checks and total_checks > 0)
+    is_live = ("LIVE_GEMINI" in observed_sources and bool(google_key))
+
+    if not all_passed:
+        eval_status = "FAIL"
+    elif is_live:
+        eval_status = "PASS_LIVE"
+    else:
+        eval_status = "PASS_DETERMINISTIC"
+
+    from evals.multi_agent_runner import run_multi_agent_adversarial_evals
+    from evals.remediation_runner import run_remediation_adversarial_evals
+    from evals.verification_runner import run_verification_adversarial_evals
+    from evals.model_armor_runner import run_model_armor_adversarial_evals
+
+    multi_agent_summary = run_multi_agent_adversarial_evals()
+    remediation_summary = run_remediation_adversarial_evals()
+    verification_summary = run_verification_adversarial_evals()
+    model_armor_summary = run_model_armor_adversarial_evals()
+
+    combined_scenarios = (
+        len(dataset)
+        + multi_agent_summary["total_scenarios"]
+        + remediation_summary["total_scenarios"]
+        + verification_summary["total_scenarios"]
+        + model_armor_summary["total_scenarios"]
+    )
+    combined_total_checks = (
+        total_checks
+        + multi_agent_summary["total_checks"]
+        + remediation_summary["total_checks"]
+        + verification_summary["total_checks"]
+        + model_armor_summary["total_checks"]
+    )
+    combined_passed_checks = (
+        passed_checks
+        + multi_agent_summary["passed_checks"]
+        + remediation_summary["passed_checks"]
+        + verification_summary["passed_checks"]
+        + model_armor_summary["passed_checks"]
+    )
+    overall_status = (
+        "PASSED"
+        if (
+            all_passed
+            and multi_agent_summary["status"] == "PASSED"
+            and remediation_summary["status"] == "PASSED"
+            and verification_summary["status"] == "PASSED"
+            and model_armor_summary["status"] == "PASSED"
+        )
+        else "FAILED"
+    )
+
     return {
-        "status": "PASSED" if passed_checks == total_checks else "FAILED",
-        "total_scenarios": len(dataset),
-        "total_checks": total_checks,
-        "passed_checks": passed_checks,
-        "pass_rate_percent": round(pass_rate, 2),
-        "elapsed_ms": round(elapsed_ms, 2),
-        "results": results,
+        "status": overall_status,
+        "eval_status": eval_status,
+        "execution_sources": list(observed_sources),
+        "total_scenarios": combined_scenarios,
+        "total_checks": combined_total_checks,
+        "passed_checks": combined_passed_checks,
+        "pass_rate_percent": round(
+            (combined_passed_checks / combined_total_checks * 100.0) if combined_total_checks > 0 else 0.0,
+            2,
+        ),
+        "elapsed_ms": round(
+            elapsed_ms
+            + multi_agent_summary["elapsed_ms"]
+            + remediation_summary["elapsed_ms"]
+            + verification_summary["elapsed_ms"]
+            + model_armor_summary["elapsed_ms"],
+            2,
+        ),
+        "single_agent_evals": {
+            "total_scenarios": len(dataset),
+            "passed_checks": passed_checks,
+            "total_checks": total_checks,
+            "results": results,
+        },
+        "multi_agent_evals": multi_agent_summary,
+        "remediation_evals": remediation_summary,
+        "verification_evals": verification_summary,
+        "model_armor_evals": model_armor_summary,
     }
 
 
@@ -245,3 +347,4 @@ if __name__ == "__main__":
     print(json.dumps(summary, indent=2))
     if summary["status"] != "PASSED":
         sys.exit(1)
+

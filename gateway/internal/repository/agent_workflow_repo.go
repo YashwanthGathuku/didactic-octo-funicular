@@ -51,13 +51,15 @@ func (r *Repository) CreateWorkflow(ctx context.Context, s Scope, wf *domain.Age
 		INSERT INTO agent_workflows (
 			id, tenant_id, incident_id, artifact_id, artifact_sha256,
 			state, agent_name, agent_version, workflow_type,
+			trigger_event_id, policy_bundle_hash, authorized_evidence_set_hash,
 			correlation_id, trace_id, row_version, error_detail,
 			created_at, updated_at, started_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(ctx, query,
 		wf.ID, wf.TenantID, wf.IncidentID, wf.ArtifactID, wf.ArtifactSHA256,
 		string(wf.State), wf.AgentName, wf.AgentVersion, wf.WorkflowType,
+		wf.TriggerEventID, wf.PolicyBundleHash, wf.AuthorizedEvidenceSetHash,
 		wf.CorrelationID, wf.TraceID, wf.RowVersion, wf.ErrorDetail,
 		wf.CreatedAt, wf.UpdatedAt, wf.StartedAt, wf.CompletedAt,
 	)
@@ -76,6 +78,7 @@ func (r *Repository) GetWorkflow(ctx context.Context, s Scope, workflowID string
 	query := `
 		SELECT id, tenant_id, incident_id, artifact_id, artifact_sha256,
 		       state, agent_name, agent_version, workflow_type,
+		       COALESCE(trigger_event_id, ''), COALESCE(policy_bundle_hash, ''), COALESCE(authorized_evidence_set_hash, ''),
 		       correlation_id, COALESCE(trace_id, ''), row_version, COALESCE(error_detail, ''),
 		       created_at, updated_at, started_at, completed_at
 		FROM agent_workflows
@@ -84,6 +87,9 @@ func (r *Repository) GetWorkflow(ctx context.Context, s Scope, workflowID string
 	var (
 		wf          domain.AgentWorkflow
 		stStr       string
+		trigID      string
+		pbHash      string
+		evHash      string
 		traceID     string
 		errDetail   string
 		startedAt   sql.NullTime
@@ -93,6 +99,7 @@ func (r *Repository) GetWorkflow(ctx context.Context, s Scope, workflowID string
 	err := r.db.QueryRowContext(ctx, query, workflowID, s.tenantID).Scan(
 		&wf.ID, &wf.TenantID, &wf.IncidentID, &wf.ArtifactID, &wf.ArtifactSHA256,
 		&stStr, &wf.AgentName, &wf.AgentVersion, &wf.WorkflowType,
+		&trigID, &pbHash, &evHash,
 		&wf.CorrelationID, &traceID, &wf.RowVersion, &errDetail,
 		&wf.CreatedAt, &wf.UpdatedAt, &startedAt, &completedAt,
 	)
@@ -104,6 +111,72 @@ func (r *Repository) GetWorkflow(ctx context.Context, s Scope, workflowID string
 	}
 
 	wf.State = domain.AgentWorkflowState(stStr)
+	wf.TriggerEventID = trigID
+	wf.PolicyBundleHash = pbHash
+	wf.AuthorizedEvidenceSetHash = evHash
+	wf.TraceID = traceID
+	wf.ErrorDetail = errDetail
+	if startedAt.Valid {
+		wf.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		wf.CompletedAt = &completedAt.Time
+	}
+
+	return &wf, nil
+}
+
+// GetWorkflowByTrigger fetches a workflow by tenant, trigger_event_id, and workflow_type.
+func (r *Repository) GetWorkflowByTrigger(ctx context.Context, s Scope, triggerEventID, workflowType string) (*domain.AgentWorkflow, error) {
+	if err := s.valid(); err != nil {
+		return nil, err
+	}
+	if triggerEventID == "" {
+		return nil, errors.New("trigger_event_id is required")
+	}
+	if workflowType == "" {
+		workflowType = "TRIAGE_AND_REMEDIATION"
+	}
+
+	query := `
+		SELECT id, tenant_id, incident_id, artifact_id, artifact_sha256,
+		       state, agent_name, agent_version, workflow_type,
+		       COALESCE(trigger_event_id, ''), COALESCE(policy_bundle_hash, ''), COALESCE(authorized_evidence_set_hash, ''),
+		       correlation_id, COALESCE(trace_id, ''), row_version, COALESCE(error_detail, ''),
+		       created_at, updated_at, started_at, completed_at
+		FROM agent_workflows
+		WHERE tenant_id = ? AND trigger_event_id = ? AND workflow_type = ?`
+
+	var (
+		wf          domain.AgentWorkflow
+		stStr       string
+		trigID      string
+		pbHash      string
+		evHash      string
+		traceID     string
+		errDetail   string
+		startedAt   sql.NullTime
+		completedAt sql.NullTime
+	)
+
+	err := r.db.QueryRowContext(ctx, query, s.tenantID, triggerEventID, workflowType).Scan(
+		&wf.ID, &wf.TenantID, &wf.IncidentID, &wf.ArtifactID, &wf.ArtifactSHA256,
+		&stStr, &wf.AgentName, &wf.AgentVersion, &wf.WorkflowType,
+		&trigID, &pbHash, &evHash,
+		&wf.CorrelationID, &traceID, &wf.RowVersion, &errDetail,
+		&wf.CreatedAt, &wf.UpdatedAt, &startedAt, &completedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("query agent_workflow by trigger: %w", err)
+	}
+
+	wf.State = domain.AgentWorkflowState(stStr)
+	wf.TriggerEventID = trigID
+	wf.PolicyBundleHash = pbHash
+	wf.AuthorizedEvidenceSetHash = evHash
 	wf.TraceID = traceID
 	wf.ErrorDetail = errDetail
 	if startedAt.Valid {
@@ -161,6 +234,7 @@ func (r *Repository) TransitionWorkflowTx(
 	query := `
 		SELECT id, tenant_id, incident_id, artifact_id, artifact_sha256,
 		       state, agent_name, agent_version, workflow_type,
+		       COALESCE(trigger_event_id, ''), COALESCE(policy_bundle_hash, ''), COALESCE(authorized_evidence_set_hash, ''),
 		       correlation_id, COALESCE(trace_id, ''), row_version, COALESCE(error_detail, ''),
 		       created_at, updated_at, started_at, completed_at
 		FROM agent_workflows
@@ -169,6 +243,9 @@ func (r *Repository) TransitionWorkflowTx(
 	var (
 		wf          domain.AgentWorkflow
 		stStr       string
+		trigID      string
+		pbHash      string
+		evHash      string
 		traceID     string
 		curErrDet   string
 		startedAt   sql.NullTime
@@ -178,6 +255,7 @@ func (r *Repository) TransitionWorkflowTx(
 	err = tx.QueryRowContext(ctx, query, workflowID, s.tenantID).Scan(
 		&wf.ID, &wf.TenantID, &wf.IncidentID, &wf.ArtifactID, &wf.ArtifactSHA256,
 		&stStr, &wf.AgentName, &wf.AgentVersion, &wf.WorkflowType,
+		&trigID, &pbHash, &evHash,
 		&wf.CorrelationID, &traceID, &wf.RowVersion, &curErrDet,
 		&wf.CreatedAt, &wf.UpdatedAt, &startedAt, &completedAt,
 	)
@@ -189,6 +267,9 @@ func (r *Repository) TransitionWorkflowTx(
 	}
 
 	wf.State = domain.AgentWorkflowState(stStr)
+	wf.TriggerEventID = trigID
+	wf.PolicyBundleHash = pbHash
+	wf.AuthorizedEvidenceSetHash = evHash
 	wf.TraceID = traceID
 	wf.ErrorDetail = curErrDet
 	if startedAt.Valid {
@@ -416,4 +497,268 @@ func (r *Repository) RecordAttestation(ctx context.Context, s Scope, att *domain
 		return fmt.Errorf("insert verification_attestation: %w", err)
 	}
 	return nil
+}
+
+// GetSteps fetches all steps for a workflow in step_number order.
+func (r *Repository) GetSteps(ctx context.Context, s Scope, workflowID string) ([]domain.AgentStep, error) {
+	if err := s.valid(); err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT id, run_id, workflow_id, tenant_id, step_number,
+		       step_type, state_from, state_to, COALESCE(decision_payload, ''),
+		       COALESCE(authorized_evidence_refs, ''), step_status, COALESCE(step_hash, ''),
+		       latency_ms, created_at
+		FROM agent_steps
+		WHERE workflow_id = ? AND tenant_id = ?
+		ORDER BY step_number ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, workflowID, s.tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query agent_steps: %w", err)
+	}
+	defer rows.Close()
+
+	var steps []domain.AgentStep
+	for rows.Next() {
+		var (
+			st             domain.AgentStep
+			stType         string
+			fromStr        string
+			toStr          string
+			decPayload     string
+			evJoined       string
+			stepHash       string
+		)
+		err := rows.Scan(
+			&st.ID, &st.RunID, &st.WorkflowID, &st.TenantID, &st.StepNumber,
+			&stType, &fromStr, &toStr, &decPayload,
+			&evJoined, &st.StepStatus, &stepHash,
+			&st.LatencyMs, &st.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent_step: %w", err)
+		}
+		st.StepType = domain.StepType(stType)
+		st.StateFrom = domain.AgentWorkflowState(fromStr)
+		st.StateTo = domain.AgentWorkflowState(toStr)
+		st.DecisionPayload = decPayload
+		st.StepHash = stepHash
+		if evJoined != "" {
+			st.AuthorizedEvidenceRefs = strings.Split(evJoined, ",")
+		}
+		steps = append(steps, st)
+	}
+	return steps, rows.Err()
+}
+
+// GetEvents fetches all events for a workflow in creation order.
+func (r *Repository) GetEvents(ctx context.Context, s Scope, workflowID string) ([]domain.AgentWorkflowEvent, error) {
+	if err := s.valid(); err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT id, workflow_id, tenant_id, idempotency_key, event_type,
+		       state_from, state_to, row_version, payload, created_at
+		FROM agent_workflow_events
+		WHERE workflow_id = ? AND tenant_id = ?
+		ORDER BY row_version ASC, created_at ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, workflowID, s.tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query agent_workflow_events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []domain.AgentWorkflowEvent
+	for rows.Next() {
+		var (
+			ev      domain.AgentWorkflowEvent
+			fromStr string
+			toStr   string
+		)
+		err := rows.Scan(
+			&ev.ID, &ev.WorkflowID, &ev.TenantID, &ev.IdempotencyKey, &ev.EventType,
+			&fromStr, &toStr, &ev.RowVersion, &ev.Payload, &ev.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent_workflow_event: %w", err)
+		}
+		ev.StateFrom = domain.AgentWorkflowState(fromStr)
+		ev.StateTo = domain.AgentWorkflowState(toStr)
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
+// RecordWorkflowEvent appends an event to agent_workflow_events without state transition.
+func (r *Repository) RecordWorkflowEvent(ctx context.Context, s Scope, event *domain.AgentWorkflowEvent) error {
+	if err := s.valid(); err != nil {
+		return err
+	}
+	if event.ID == "" || event.WorkflowID == "" || event.IdempotencyKey == "" {
+		return errors.New("event id, workflow id and idempotency key are required")
+	}
+
+	event.TenantID = s.tenantID
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+
+	query := `
+		INSERT INTO agent_workflow_events (
+			id, workflow_id, tenant_id, idempotency_key, event_type,
+			state_from, state_to, row_version, payload, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	_, err := r.db.ExecContext(ctx, query,
+		event.ID, event.WorkflowID, event.TenantID, event.IdempotencyKey, event.EventType,
+		string(event.StateFrom), string(event.StateTo), event.RowVersion, event.Payload, event.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert agent_workflow_event: %w", err)
+	}
+	return nil
+}
+
+// RecordRemediationPlan persists a structured remediation plan.
+func (r *Repository) RecordRemediationPlan(ctx context.Context, s Scope, plan *domain.RemediationPlanRecord) error {
+	if err := s.valid(); err != nil {
+		return err
+	}
+	if plan.ID == "" || plan.WorkflowID == "" {
+		return errors.New("plan id and workflow id are required")
+	}
+
+	plan.TenantID = s.tenantID
+	if plan.CreatedAt.IsZero() {
+		plan.CreatedAt = time.Now().UTC()
+	}
+
+	query := `
+		INSERT INTO remediation_plans (
+			id, workflow_id, tenant_id, incident_id, artifact_id,
+			expected_parent_sha256, attempt_number, plan_hash,
+			operations_json, finding_refs_json, confidence, status, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	_, err := r.db.ExecContext(ctx, query,
+		plan.ID, plan.WorkflowID, plan.TenantID, plan.IncidentID, plan.ArtifactID,
+		plan.ExpectedParentSHA256, plan.AttemptNumber, plan.PlanHash,
+		plan.OperationsJSON, plan.FindingRefsJSON, plan.Confidence, plan.Status, plan.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert remediation_plan: %w", err)
+	}
+	return nil
+}
+
+// GetRemediationPlan fetches a remediation plan by ID.
+func (r *Repository) GetRemediationPlan(ctx context.Context, s Scope, planID string) (*domain.RemediationPlanRecord, error) {
+	if err := s.valid(); err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT id, workflow_id, tenant_id, incident_id, artifact_id,
+		       expected_parent_sha256, attempt_number, plan_hash,
+		       operations_json, finding_refs_json, confidence, status, created_at
+		FROM remediation_plans
+		WHERE id = ? AND tenant_id = ?`
+
+	var p domain.RemediationPlanRecord
+	err := r.db.QueryRowContext(ctx, query, planID, s.tenantID).Scan(
+		&p.ID, &p.WorkflowID, &p.TenantID, &p.IncidentID, &p.ArtifactID,
+		&p.ExpectedParentSHA256, &p.AttemptNumber, &p.PlanHash,
+		&p.OperationsJSON, &p.FindingRefsJSON, &p.Confidence, &p.Status, &p.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("query remediation_plan: %w", err)
+	}
+	return &p, nil
+}
+
+// RecordArtifactDerivation persists an immutable candidate derivation manifest.
+func (r *Repository) RecordArtifactDerivation(ctx context.Context, s Scope, d *domain.ArtifactDerivationRecord) error {
+	if err := s.valid(); err != nil {
+		return err
+	}
+	if d.ID == "" || d.WorkflowID == "" || d.RemediationPlanID == "" {
+		return errors.New("derivation id, workflow id and remediation plan id are required")
+	}
+
+	d.TenantID = s.tenantID
+	if d.CreatedAt.IsZero() {
+		d.CreatedAt = time.Now().UTC()
+	}
+
+	query := `
+		INSERT INTO artifact_derivations (
+			id, tenant_id, workflow_id, remediation_plan_id, attempt_number,
+			parent_artifact_id, parent_sha256, candidate_artifact_id, candidate_sha256,
+			remediation_plan_hash, operation_types_json, agent_name, agent_version,
+			policy_decision_id, policy_decision_hash, tool_manifest_hash,
+			validator_version, validation_run_id, validation_outcome,
+			findings_count, blocking_findings_count, derivation_hash, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+	_, err := r.db.ExecContext(ctx, query,
+		d.ID, d.TenantID, d.WorkflowID, d.RemediationPlanID, d.AttemptNumber,
+		d.ParentArtifactID, d.ParentSHA256, d.CandidateArtifactID, d.CandidateSHA256,
+		d.RemediationPlanHash, d.OperationTypesJSON, d.AgentName, d.AgentVersion,
+		d.PolicyDecisionID, d.PolicyDecisionHash, d.ToolManifestHash,
+		d.ValidatorVersion, d.ValidationRunID, d.ValidationOutcome,
+		d.FindingsCount, d.BlockingFindingsCount, d.DerivationHash, d.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert artifact_derivation: %w", err)
+	}
+	return nil
+}
+
+// GetArtifactDerivations fetches all derivation attempts for a workflow.
+func (r *Repository) GetArtifactDerivations(ctx context.Context, s Scope, workflowID string) ([]domain.ArtifactDerivationRecord, error) {
+	if err := s.valid(); err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT id, tenant_id, workflow_id, remediation_plan_id, attempt_number,
+		       parent_artifact_id, parent_sha256, candidate_artifact_id, candidate_sha256,
+		       remediation_plan_hash, operation_types_json, agent_name, agent_version,
+		       COALESCE(policy_decision_id, ''), COALESCE(policy_decision_hash, ''), COALESCE(tool_manifest_hash, ''),
+		       validator_version, validation_run_id, validation_outcome,
+		       findings_count, blocking_findings_count, derivation_hash, created_at
+		FROM artifact_derivations
+		WHERE workflow_id = ? AND tenant_id = ?
+		ORDER BY attempt_number ASC`
+
+	rows, err := r.db.QueryContext(ctx, query, workflowID, s.tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query artifact_derivations: %w", err)
+	}
+	defer rows.Close()
+
+	var records []domain.ArtifactDerivationRecord
+	for rows.Next() {
+		var d domain.ArtifactDerivationRecord
+		err := rows.Scan(
+			&d.ID, &d.TenantID, &d.WorkflowID, &d.RemediationPlanID, &d.AttemptNumber,
+			&d.ParentArtifactID, &d.ParentSHA256, &d.CandidateArtifactID, &d.CandidateSHA256,
+			&d.RemediationPlanHash, &d.OperationTypesJSON, &d.AgentName, &d.AgentVersion,
+			&d.PolicyDecisionID, &d.PolicyDecisionHash, &d.ToolManifestHash,
+			&d.ValidatorVersion, &d.ValidationRunID, &d.ValidationOutcome,
+			&d.FindingsCount, &d.BlockingFindingsCount, &d.DerivationHash, &d.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan artifact_derivation: %w", err)
+		}
+		records = append(records, d)
+	}
+	return records, rows.Err()
 }

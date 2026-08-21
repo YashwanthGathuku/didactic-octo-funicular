@@ -1,15 +1,84 @@
 package policy
 
 import (
-	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
 
+// TestCanonicalJSON_RFC8785_OfficialPropertySorting verifies RFC 8785 Section 3.2.3 UTF-16 code-unit property sorting.
+// Specifically: astral / non-BMP characters like \ud83d\ude00 (U+1F600 emoji 😀) encode to surrogate pair D83D DE00,
+// and MUST sort BEFORE high BMP characters like \uffff (FFFF).
+func TestCanonicalJSON_RFC8785_OfficialPropertySorting(t *testing.T) {
+	input := map[string]interface{}{
+		"\uffff":         "high_bmp",
+		"\U0001f600":     "astral_plane_emoji", // U+1F600 -> UTF-16: 0xD83D, 0xDE00
+		"\u20ac":         "euro_sign",          // U+20AC -> UTF-16: 0x20AC
+		"\r":             "carriage_return",    // U+000D -> UTF-16: 0x000D
+		"\n":             "newline",            // U+000A -> UTF-16: 0x000A
+		"1":              "digit_one",          // U+0031 -> UTF-16: 0x0031
+		"\u00e9":         "e_acute",            // U+00E9 -> UTF-16: 0x00E9
+		"a":              "letter_a",           // U+0061 -> UTF-16: 0x0061
+	}
+
+	b, err := CanonicalJSON(input)
+	if err != nil {
+		t.Fatalf("canonical JSON failed: %v", err)
+	}
+
+	// Expected order based on UTF-16 code units:
+	// \n (000A) < \r (000D) < 1 (0031) < a (0061) < \u00e9 (00E9) < \u20ac (20AC) < \U0001f600 (D83D) < \uffff (FFFF)
+	expectedStr := "{\"\\n\":\"newline\",\"\\r\":\"carriage_return\",\"1\":\"digit_one\",\"a\":\"letter_a\",\"\u00e9\":\"e_acute\",\"\u20ac\":\"euro_sign\",\"\U0001f600\":\"astral_plane_emoji\",\"\uffff\":\"high_bmp\"}"
+
+	if string(b) != expectedStr {
+		t.Errorf("RFC 8785 UTF-16 sorting mismatch:\nGot:      %s\nExpected: %s", string(b), expectedStr)
+	}
+}
+
+func TestCanonicalJSON_RejectsDuplicateKeysInRawJSON(t *testing.T) {
+	duplicateJSON := []byte(`{"key1": "val1", "key1": "val2"}`)
+	_, err := CanonicalJSON(duplicateJSON)
+	if err == nil {
+		t.Error("expected error for duplicate object keys in JSON input")
+	}
+	if !errors.Is(err, ErrDuplicateObjectKey) {
+		t.Errorf("expected ErrDuplicateObjectKey, got: %v", err)
+	}
+
+	// Nested duplicate key
+	nestedDuplicateJSON := []byte(`{"outer": {"nested": 1, "nested": 2}}`)
+	_, err = CanonicalJSON(nestedDuplicateJSON)
+	if err == nil {
+		t.Error("expected error for duplicate nested object keys in JSON input")
+	}
+}
+
+func TestCanonicalJSON_RejectsNonFiniteNumbers(t *testing.T) {
+	inputNaN := []byte(`{"val": NaN}`)
+	_, err := CanonicalJSON(inputNaN)
+	if err == nil {
+		t.Error("expected error for NaN in JSON")
+	}
+
+	inputInf := []byte(`{"val": Infinity}`)
+	_, err = CanonicalJSON(inputInf)
+	if err == nil {
+		t.Error("expected error for Infinity in JSON")
+	}
+}
+
+func TestCanonicalJSON_RejectsLoneSurrogatesAndInvalidUTF8(t *testing.T) {
+	// Invalid UTF-8 bytes
+	invalidUTF8 := []byte{'{', '"', 'k', '"', ':', '"', 0xff, 0xfe, '"', '}'}
+	_, err := CanonicalJSON(invalidUTF8)
+	if err == nil {
+		t.Error("expected error for invalid UTF-8 bytes")
+	}
+}
+
 func TestCanonicalHashing_RFC8785_AdversarialDelimitersAndUnicode(t *testing.T) {
 	evalTime := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 
-	// Object with adversarial delimiters and unicode
 	req := &PolicyEvaluationRequest{
 		RequestID: "req:with=delimiters\nand\tnewlines\r\n",
 		TenantID:  "TENANT_Unicode_€_漢字_🔒",
@@ -55,7 +124,6 @@ func TestCanonicalHashing_RFC8785_AdversarialDelimitersAndUnicode(t *testing.T) 
 		t.Fatalf("hashes must be identical: %s vs %s", hash1, hash2)
 	}
 
-	// Verify that key order variations inside AuthoritativeAttributes produce identical canonical JSON bytes
 	reqReordered := *req
 	reqReordered.AuthoritativeAttributes = map[string]interface{}{
 		"nested": map[string]interface{}{
@@ -100,7 +168,6 @@ func TestCanonicalHashing_TypedObligationsDeterminism(t *testing.T) {
 
 	h1 := ComputePolicyContentHash(p)
 
-	// Reorder obligations and inner parameters
 	pReordered := *p
 	pReordered.Obligations = []Obligation{
 		{
@@ -121,31 +188,47 @@ func TestCanonicalHashing_TypedObligationsDeterminism(t *testing.T) {
 	}
 }
 
-func TestCanonicalJSON_ConformsToJCS(t *testing.T) {
-	input := map[string]interface{}{
-		"b": 1,
-		"a": "hello\nworld",
-		"c": []interface{}{3, 2, 1},
-		"d": map[string]interface{}{
-			"z": true,
-			"y": false,
-			"x": nil,
-		},
+func TestCanonicalJSON_RFC8785_NumericGoldenVectors(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{"positive zero", 0.0, "0"},
+		{"negative zero", -0.0, "0"},
+		{"integer zero", 0, "0"},
+		{"positive int", 100, "100"},
+		{"negative int", -100, "-100"},
+		{"safe integer max", int64(9007199254740991), "9007199254740991"},
+		{"safe integer min", int64(-9007199254740991), "-9007199254740991"},
+		{"int64 max", int64(9223372036854775807), "9223372036854775807"},
+		{"int64 min", int64(-9223372036854775808), "-9223372036854775808"},
+		{"fractional 0.125", 0.125, "0.125"},
+		{"fractional 1.5", 1.5, "1.5"},
+		{"small fractional 1e-5", 0.00001, "0.00001"},
+		{"small fractional 1e-6", 0.000001, "0.000001"},
+		{"negative 1e-5", -0.00001, "-0.00001"},
+		{"negative 1e-6", -0.000001, "-0.000001"},
+		{"fractional with mantissa 1.23456789e-5", 1.23456789e-5, "0.0000123456789"},
+		{"fractional with mantissa 1.23456789e-6", 1.23456789e-6, "0.00000123456789"},
+		{"exponential small 1e-7", 0.0000001, "1e-7"},
+		{"negative exponential small -1e-7", -0.0000001, "-1e-7"},
+		{"exponential large 1e21", 1e21, "1e+21"},
+		{"negative exponential large -1e21", -1e21, "-1e+21"},
+		{"exponential large 1e20", 1e20, "100000000000000000000"},
+		{"negative exponential large -1e20", -1e20, "-100000000000000000000"},
 	}
 
-	b, err := CanonicalJSON(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify strict JSON validity
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(b, &decoded); err != nil {
-		t.Fatalf("canonical bytes must be valid JSON: %v", err)
-	}
-
-	expectedStr := `{"a":"hello\nworld","b":1,"c":[3,2,1],"d":{"x":null,"y":false,"z":true}}`
-	if string(b) != expectedStr {
-		t.Errorf("canonical JSON mismatch:\nGot:      %s\nExpected: %s", string(b), expectedStr)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := CanonicalJSON(tc.input)
+			if err != nil {
+				t.Fatalf("canonical JSON error: %v", err)
+			}
+			if string(b) != tc.expected {
+				t.Errorf("numeric formatting mismatch for %v: got %s, want %s", tc.input, string(b), tc.expected)
+			}
+		})
 	}
 }
+

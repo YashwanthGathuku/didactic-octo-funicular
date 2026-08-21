@@ -185,11 +185,31 @@ func TestMigrateEmptyDatabase(t *testing.T) {
 	for _, table := range []string{
 		"partners", "file_contracts", "expectations", "file_instances",
 		"incidents", "validation_findings", "audit_events", "schema_migrations",
+		"candidate_verifications", "verification_checks", "critic_assessments",
 	} {
 		var name string
 		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
 			t.Errorf("table %q missing after migration: %v", table, err)
+		}
+	}
+}
+
+func TestMigrateCandidateVerificationsSchema(t *testing.T) {
+	db := memDB(t)
+
+	if _, err := Migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	for _, table := range []string{
+		"candidate_verifications",
+		"verification_checks",
+		"critic_assessments",
+	} {
+		var count int
+		if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count); err != nil {
+			t.Fatalf("query %s failed: %v", table, err)
 		}
 	}
 }

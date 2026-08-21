@@ -90,9 +90,10 @@ func NewEngineWithBundle(bundleID, version string, policies []*PolicyDefinition)
 	return engine, nil
 }
 
-// NewEngineWithDefaults constructs a PolicyEngine pre-seeded with foundational Sentinel safety policies.
+// NewEngineWithDefaults constructs a PolicyEngine pre-seeded with foundational Sentinel safety policies and default enterprise policies.
 func NewEngineWithDefaults() *PolicyEngine {
-	engine, _ := NewEngine(SeedSafetyPolicies())
+	policies := append(SeedSafetyPolicies(), SeedDefaultEnterprisePolicies()...)
+	engine, _ := NewEngine(policies)
 	return engine
 }
 

@@ -146,6 +146,34 @@ func DerivedKey(tenantID string, now time.Time) (string, error) {
 	return NewKey(tenantID, now)
 }
 
+// DeterministicKey generates a stable, idempotent object key from a tenant
+// and logical identifier. Unlike NewKey which uses crypto/rand, this produces
+// the same key every time the same (tenantID, logicalID) pair is provided.
+// This enables crash-safe retry: restarting the same logical operation will
+// target the same storage key rather than creating an orphan at a new path.
+//
+// The logicalID must be a hex-encoded SHA-256 hash or similar stable identifier.
+// Path traversal is impossible because both components are validated.
+func DeterministicKey(tenantID, logicalID string) (string, error) {
+	if tenantID == "" {
+		return "", errors.New("an object key requires a tenant")
+	}
+	if strings.ContainsAny(tenantID, "/\\.") {
+		return "", fmt.Errorf("tenant id %q is not usable in an object key", tenantID)
+	}
+	if logicalID == "" {
+		return "", errors.New("a deterministic object key requires a logical identifier")
+	}
+	if strings.ContainsAny(logicalID, "/\\.") {
+		return "", fmt.Errorf("logical id %q is not usable in an object key", logicalID)
+	}
+	return path.Join(
+		"tenant", tenantID,
+		"candidates",
+		logicalID,
+	), nil
+}
+
 // maxFilenameLength bounds the stored display name. It is not a filesystem
 // limit -- the name never becomes a path -- but an unbounded string from a
 // client ends up in logs, in a UI and in an export.

@@ -88,7 +88,7 @@ Where:
 5. **Policy Determines Allowed Actions Pre-Reasoning**: Policy boundaries are evaluated before prompt construction and model inference.
 6. **Tenant Identity Comes from Infrastructure**: Tenancy is established from cryptographic claims in the verified JWT context (`X-Sentinel-Tenant`), never from agent inference or user prompt text.
 7. **Zero Direct Secret Access**: Agents never hold database credentials, API secrets, KMS private keys, or signing tokens.
-8. **Independent Verification (Maker-Checker Invariant)**: The `RemediationAgent` that drafts a fix cannot verify or approve its own proposal. A separate `VerifierAgent` and deterministic parser must validate it.
+8. **Independent Verification (Maker-Checker Invariant)**: The `RemediationAgent` that drafts a fix cannot verify or approve its own proposal. A separate `VerifierAgent` (Critic) and the Go Verification Service execute 12 deterministic checks under **Deterministic Dominance** ($\text{CriticOpinion} \neq \text{VerificationAuthority}$). See [`docs/architecture/INDEPENDENT_VERIFICATION.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/INDEPENDENT_VERIFICATION.md).
 9. **Memory is Advisory, Never Authoritative**: Cross-session Memory Bank contents provide pattern context only; they can never waive a validation rule or grant an approval.
 10. **Zero Retention of Private Chain-of-Thought**: Model scratchpads and ungrounded intermediate thoughts are discarded; only structured `AgentStep` execution records are retained.
 11. **Zero Autonomous Release Authority**: Agents have no ability to execute file release, bank transmission, or funds settlement.
@@ -211,12 +211,47 @@ $$\text{Permission} = \text{DeterministicPolicyEngine}(\text{PolicyBundle}, \tex
 
 ---
 
-## 9. SentinelFlow Lens: Governed Analytics Plane (PLANNED)
+## 9. Governed Tool & Action Gateway (Phase P04)
+
+The Governed Tool & Action Gateway is the exclusive enforcement boundary between callers/agents and system capabilities:
+
+$$\text{EffectiveToolAccess} = \text{RegisteredTool} \cap \text{CallerCapability} \cap \text{ContextToolAllowlist} \cap \text{TenantAuthorization} \cap \text{PolicyPermission} \cap \text{ResourceScope} \cap \text{ObligationSatisfaction}$$
+
+- **12-Step Conjunction Lifecycle**: Identity/tenant verification $\rightarrow$ versioned registry lookup $\rightarrow$ caller capability/context allowlist check $\rightarrow$ shadow mode check $\rightarrow$ input hashing & idempotency lock $\rightarrow$ TOCTOU resource preconditions $\rightarrow$ strict JSON/size validation $\rightarrow$ policy engine evaluation $\rightarrow$ capability prohibition check $\rightarrow$ pre-execution obligations $\rightarrow$ bounded isolated handler execution $\rightarrow$ output validation, redaction filter, post-obligations, and atomic outbox journaling.
+- **Server-Injected Trusted Context**: `TrustedExecutionContext` carries verified `TenantID`, `CallerID`, `Roles`, and `AutonomyLevel`. Model-supplied arguments cannot override authority.
+- **Side-Effect Blast Radius Hierarchy**: Explicit classes (`READ_ONLY`, `INTERNAL_STATE_WRITE`, `CANDIDATE_SANDBOX_WRITE`, `REVERSIBLE_EXTERNAL`, `IRREVERSIBLE_EXTERNAL`, `IRREVERSIBLE_FINANCIAL`). No agent tool may ever possess `IRREVERSIBLE_FINANCIAL`.
+- **Singleflight Idempotency**: Durable tenant-scoped singleflight execution ensuring concurrent duplicate requests execute exactly once and identical requests replay cached results safely.
+- **Initial Safe Registered Tools**: `incident.get`, `validation.findings.list_redacted`, `artifact.metadata.get`, `workflow.get`.
+- **Universal Persistence & Outbox Journaling**: Migration `018_tool_gateway.sql` records `tool_invocations` and emits `TOOL_INVOCATION_SUCCEEDED`, `TOOL_INVOCATION_DENIED`, and `TOOL_INVOCATION_FAILED` to generic `outbox_events`.
+- **Performance**: Registry lookup at 37.5 ns/op, idempotency lookup at 367.6 ns/op, and complete governed execution at 104 µs/op with 0 data races.
+- **Full Architecture Specification**: See [`docs/architecture/TOOL_GATEWAY.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/TOOL_GATEWAY.md).
+
+---
+
+## 10. SentinelFlow Lens: Governed Analytics Plane (PLANNED)
 
 The planned **SentinelFlow Lens** subsystem introduces a zero-trust, read-only analytics and investigation workbench for deep anomaly diagnosis and ACH return trend analysis without compromising production data isolation.
 
 - **Status**: `PLANNED` (Documentation & Architecture Blueprint; see [`docs/architecture/SENTINELFLOW_LENS.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/SENTINELFLOW_LENS.md) and [`docs/third_party/DATA_FORMULATOR_REFERENCE.md`](file:///c:/Users/Gathu/Projects/fintech/docs/third_party/DATA_FORMULATOR_REFERENCE.md)).
 - **Core Invariant**: The `AnalyticsAgent` operates at Autonomy Level A1 (Advisory Only) and never receives database credentials. Natural language is translated into a declarative `QueryIntent` AST, compiled by SentinelFlow's deterministic Safe Query Compiler, and executed strictly against curated read-only views or ephemeral in-memory DuckDB sandboxes.
 - **8-Stage Governance Gate**: All analytics requests must pass through Identity $\rightarrow$ Tenant Scope $\rightarrow$ Tool Gateway $\rightarrow$ Policy Engine $\rightarrow$ Dataset Registry $\rightarrow$ Schema Validation $\rightarrow$ Query Limits $\rightarrow$ Safe Compiler.
+
+---
+
+## 11. Independent Verification & Critic Architecture (Phase P08)
+
+Phase P08 establishes the **Maker-Checker Independent Verification Plane** governing all remediated candidate payment files before human operations sign-off:
+
+$$\mathbf{CriticOpinion \neq VerificationAuthority \implies VerificationAuthority = GoControlPlane}$$
+$$\mathbf{DeterministicVerification \succ CriticOpinion}$$
+$$\mathbf{Verified \neq HumanApproved \neq Released}$$
+
+- **12 Typed Deterministic Integrity Checks**: The Go Verification Service (`gateway/internal/verification/`) evaluates an immutable checklist covering parent immutability, candidate 94-byte NACHA structural alignment, derivation ledger hash integrity, policy freshness (TOCTOU), and resource version locks.
+- **Physical Byte Re-Read & Dual-Run Validation**: Verification discards in-memory candidate buffers and re-reads raw bytes by SHA-256 address from ObjectStore, executing an independent second pass of the zero-copy NACHA streaming validator ($Run_1 \equiv Run_2$).
+- **ADK VerifierAgent (Critic) Guardrails**: Autonomy Level A1 read-only critic reviewing structured evidence envelopes under 3-zone prompt trust partitioning and input minimization (zero raw PII or credentials).
+- **Deterministic Dominance & Conflict Resolution**: Deterministic failures unconditionally reject or retry candidates regardless of critic approval (preventing LLM hallucinated passes); critic disputes on deterministically valid files escalate safely to human review.
+- **Dual-Control Human Release**: Candidate verification produces state `VERIFIED`, but never autonomous transmission. Release requires $N \ge 2$ distinct human approvers with TOCTOU policy re-check and append-only linear hash chain ledger commitment.
+- **Full Architecture Specification**: See [`docs/architecture/INDEPENDENT_VERIFICATION.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/INDEPENDENT_VERIFICATION.md).
+
 
 

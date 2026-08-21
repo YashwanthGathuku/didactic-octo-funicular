@@ -82,7 +82,7 @@ export const ReviewQueue: React.FC = () => {
           Quarantine Review Queue
         </h2>
         <p className="text-xs text-slate-500">
-          Enforce cryptographic dual-control release policies on quarantined payment batches
+          Enforce identity-bound dual-control approval with cryptographic artifact and policy integrity binding on quarantined payment batches
         </p>
       </div>
 

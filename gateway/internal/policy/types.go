@@ -136,6 +136,10 @@ const (
 	// secret-scan-allow: standard policy action identifier
 	ActionAccessSecret           = "ACCESS_SECRET"
 	ActionCrossTenantQuery       = "CROSS_TENANT_QUERY"
+	ActionGetIncident            = "GET_INCIDENT"
+	ActionListFindings           = "LIST_FINDINGS"
+	ActionGetArtifactMetadata    = "GET_ARTIFACT_METADATA"
+	ActionGetWorkflow            = "GET_WORKFLOW"
 )
 
 // CapabilityProhibitions maps tool capabilities to the prohibition types that block them.

@@ -19,6 +19,8 @@ const (
 	WorkflowPlanning            AgentWorkflowState = "PLANNING"
 	WorkflowRemediating         AgentWorkflowState = "REMEDIATING"
 	WorkflowValidatingCandidate AgentWorkflowState = "VALIDATING_CANDIDATE"
+	WorkflowAwaitingVerification AgentWorkflowState = "AWAITING_VERIFICATION"
+	WorkflowVerifying           AgentWorkflowState = "VERIFYING"
 	WorkflowRetrying            AgentWorkflowState = "RETRYING"
 	WorkflowVerified            AgentWorkflowState = "VERIFIED"
 	WorkflowUnresolved          AgentWorkflowState = "UNRESOLVED"
@@ -56,6 +58,7 @@ var agentWorkflowTransitions = map[AgentWorkflowState][]AgentWorkflowState{
 		WorkflowCancelled,
 	},
 	WorkflowPlanning: {
+		WorkflowCompleted,
 		WorkflowRemediating,
 		WorkflowHumanReview,
 		WorkflowUnresolved,
@@ -68,11 +71,13 @@ var agentWorkflowTransitions = map[AgentWorkflowState][]AgentWorkflowState{
 		WorkflowValidatingCandidate,
 		WorkflowRetrying,
 		WorkflowHumanReview,
+		WorkflowUnresolved,
 		WorkflowFailed,
 		WorkflowCancelled,
 		WorkflowBudgetExhausted,
 	},
 	WorkflowValidatingCandidate: {
+		WorkflowAwaitingVerification,
 		WorkflowVerified,
 		WorkflowRetrying,
 		WorkflowHumanReview,
@@ -80,9 +85,28 @@ var agentWorkflowTransitions = map[AgentWorkflowState][]AgentWorkflowState{
 		WorkflowFailed,
 		WorkflowCancelled,
 	},
+	WorkflowAwaitingVerification: {
+		WorkflowVerifying,
+		WorkflowVerified,
+		WorkflowHumanReview,
+		WorkflowUnresolved,
+		WorkflowCompleted,
+		WorkflowFailed,
+		WorkflowCancelled,
+	},
+	WorkflowVerifying: {
+		WorkflowVerified,
+		WorkflowRetrying,
+		WorkflowHumanReview,
+		WorkflowUnresolved,
+		WorkflowAgentUnavailable,
+		WorkflowFailed,
+		WorkflowCancelled,
+	},
 	WorkflowRetrying: {
 		WorkflowContextBuilding,
 		WorkflowInvestigating,
+		WorkflowPlanning,
 		WorkflowRemediating,
 		WorkflowBudgetExhausted,
 		WorkflowFailed,
@@ -157,23 +181,26 @@ func IsTerminalAgentWorkflow(s AgentWorkflowState) bool {
 
 // AgentWorkflow represents a persistent multi-agent orchestration session.
 type AgentWorkflow struct {
-	ID             string             `json:"id"`
-	TenantID       string             `json:"tenantId"`
-	IncidentID     int64              `json:"incidentId"`
-	ArtifactID     int64              `json:"artifactId"`
-	ArtifactSHA256 string             `json:"artifactSha256"`
-	State          AgentWorkflowState `json:"state"`
-	AgentName      string             `json:"agentName"`
-	AgentVersion   string             `json:"agentVersion"`
-	WorkflowType   string             `json:"workflowType"`
-	CorrelationID  string             `json:"correlationId"`
-	TraceID        string             `json:"traceId,omitempty"`
-	RowVersion     int                `json:"rowVersion"`
-	ErrorDetail    string             `json:"errorDetail,omitempty"`
-	CreatedAt      time.Time          `json:"createdAt"`
-	UpdatedAt      time.Time          `json:"updatedAt"`
-	StartedAt      *time.Time         `json:"startedAt,omitempty"`
-	CompletedAt    *time.Time         `json:"completedAt,omitempty"`
+	ID                         string             `json:"id"`
+	TenantID                   string             `json:"tenantId"`
+	IncidentID                 int64              `json:"incidentId"`
+	ArtifactID                 int64              `json:"artifactId"`
+	ArtifactSHA256             string             `json:"artifactSha256"`
+	State                      AgentWorkflowState `json:"state"`
+	AgentName                  string             `json:"agentName"`
+	AgentVersion               string             `json:"agentVersion"`
+	WorkflowType               string             `json:"workflowType"`
+	TriggerEventID             string             `json:"triggerEventId,omitempty"`
+	PolicyBundleHash           string             `json:"policyBundleHash,omitempty"`
+	AuthorizedEvidenceSetHash  string             `json:"authorizedEvidenceSetHash,omitempty"`
+	CorrelationID              string             `json:"correlationId"`
+	TraceID                    string             `json:"traceId,omitempty"`
+	RowVersion                 int                `json:"rowVersion"`
+	ErrorDetail                string             `json:"errorDetail,omitempty"`
+	CreatedAt                  time.Time          `json:"createdAt"`
+	UpdatedAt                  time.Time          `json:"updatedAt"`
+	StartedAt                  *time.Time         `json:"startedAt,omitempty"`
+	CompletedAt                *time.Time         `json:"completedAt,omitempty"`
 }
 
 // AgentWorkflowEvent records an immutable, idempotent state transition event.
@@ -281,5 +308,49 @@ type VerificationAttestation struct {
 	BlockingFindingsCount int       `json:"blockingFindingsCount"`
 	Status                string    `json:"status"` // CONFIRMED, DISPUTED, PARTIAL
 	AttestationDigest     string    `json:"attestationDigest"`
+	CreatedAt             time.Time `json:"createdAt"`
+}
+
+// RemediationPlanRecord captures a validated, structured remediation plan submitted by RemediationAgent.
+type RemediationPlanRecord struct {
+	ID                   string    `json:"id"`
+	WorkflowID           string    `json:"workflowId"`
+	TenantID             string    `json:"tenantId"`
+	IncidentID           int64     `json:"incidentId"`
+	ArtifactID           int64     `json:"artifactId"`
+	ExpectedParentSHA256 string    `json:"expectedParentSha256"`
+	AttemptNumber        int       `json:"attemptNumber"`
+	PlanHash             string    `json:"planHash"`
+	OperationsJSON       string    `json:"operationsJson"`
+	FindingRefsJSON      string    `json:"findingRefsJson"`
+	Confidence           string    `json:"confidence"`
+	Status               string    `json:"status"` // RECEIVED, VALIDATED, APPLIED, REJECTED
+	CreatedAt            time.Time `json:"createdAt"`
+}
+
+// ArtifactDerivationRecord captures an immutable candidate derivation manifest.
+type ArtifactDerivationRecord struct {
+	ID                    string    `json:"id"`
+	TenantID              string    `json:"tenantId"`
+	WorkflowID            string    `json:"workflowId"`
+	RemediationPlanID     string    `json:"remediationPlanId"`
+	AttemptNumber         int       `json:"attemptNumber"`
+	ParentArtifactID      int64     `json:"parentArtifactId"`
+	ParentSHA256          string    `json:"parentSha256"`
+	CandidateArtifactID   int64     `json:"candidateArtifactId"`
+	CandidateSHA256       string    `json:"candidateSha256"`
+	RemediationPlanHash   string    `json:"remediationPlanHash"`
+	OperationTypesJSON    string    `json:"operationTypesJson"`
+	AgentName             string    `json:"agentName"`
+	AgentVersion          string    `json:"agentVersion"`
+	PolicyDecisionID      string    `json:"policyDecisionId,omitempty"`
+	PolicyDecisionHash    string    `json:"policyDecisionHash,omitempty"`
+	ToolManifestHash      string    `json:"toolManifestHash,omitempty"`
+	ValidatorVersion      string    `json:"validatorVersion"`
+	ValidationRunID       string    `json:"validationRunId"`
+	ValidationOutcome     string    `json:"validationOutcome"` // VALIDATION_PASSED, VALIDATION_FAILED
+	FindingsCount         int       `json:"findingsCount"`
+	BlockingFindingsCount int       `json:"blockingFindingsCount"`
+	DerivationHash        string    `json:"derivationHash"`
 	CreatedAt             time.Time `json:"createdAt"`
 }

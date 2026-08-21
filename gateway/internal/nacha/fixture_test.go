@@ -109,7 +109,7 @@ func buildFile(batches []batchSpec) string {
 			records = append(records, ed)
 
 			batchEntries++
-			if isDebitTransaction(e.transactionCode) {
+			if IsDebitTransaction(e.transactionCode) {
 				batchDebits += e.amountMinor
 			} else {
 				batchCredits += e.amountMinor

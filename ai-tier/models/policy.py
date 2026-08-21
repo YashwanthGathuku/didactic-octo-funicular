@@ -7,6 +7,7 @@ Permission comes strictly from DeterministicPolicyEngine.
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -65,6 +66,7 @@ class ProhibitionType(str, Enum):
     RELEASE = "RELEASE"
     APPROVE = "APPROVE"
     EXECUTE_SQL = "EXECUTE_SQL"
+    # secret-scan-allow: policy prohibition enum constant name
     ACCESS_SECRET = "ACCESS_SECRET"
     CROSS_TENANT_ACCESS = "CROSS_TENANT_ACCESS"
     IRREVERSIBLE_FINANCIAL_AUTHORITY = "IRREVERSIBLE_FINANCIAL_AUTHORITY"
@@ -170,14 +172,82 @@ class PolicyDefinition(BaseModel):
     content_hash: str
 
 
+def _format_canonical_jcs(val: Any) -> str:
+    """Recursively formats value according to RFC 8785 JSON Canonicalization Scheme (JCS)."""
+    if val is None:
+        return "null"
+    if isinstance(val, bool):
+        return "true" if val else "false"
+    if isinstance(val, int):
+        return str(val)
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            raise ValueError("non-finite number (NaN/Infinity) prohibited in canonical JSON")
+        if val == 0.0:
+            return "0"
+        abs_v = abs(val)
+        if 1e-6 <= abs_v < 1e21 and val.is_integer():
+            return str(int(val))
+        s = str(val)
+        if 'e' in s:
+            idx = s.find('e')
+            prefix = s[:idx]
+            sign = s[idx+1]
+            exp_val = int(s[idx+2:])
+            # If in the range [1e-6, 1e-4), Python outputs scientific notation, but ECMAScript requires standard decimal
+            if sign == '-' and 4 <= exp_val <= 6 and 1e-6 <= abs_v < 1e21:
+                neg = prefix.startswith('-')
+                if neg:
+                    prefix = prefix[1:]
+                digits = prefix.replace('.', '')
+                zeros = '0' * (exp_val - 1)
+                res = f"0.{zeros}{digits}"
+                return f"-{res}" if neg else res
+            return f"{prefix}e{sign}{exp_val}"
+        return s
+    if isinstance(val, str):
+        out = []
+        for ch in val:
+            cp = ord(ch)
+            if ch == '"':
+                out.append('\\"')
+            elif ch == '\\':
+                out.append('\\\\')
+            elif ch == '\b':
+                out.append('\\b')
+            elif ch == '\f':
+                out.append('\\f')
+            elif ch == '\n':
+                out.append('\\n')
+            elif ch == '\r':
+                out.append('\\r')
+            elif ch == '\t':
+                out.append('\\t')
+            elif cp < 0x20:
+                out.append(f'\\u{cp:04x}')
+            else:
+                out.append(ch)
+        return '"' + ''.join(out) + '"'
+    if isinstance(val, (list, tuple)):
+        items = [_format_canonical_jcs(elem) for elem in val]
+        return '[' + ','.join(items) + ']'
+    if isinstance(val, dict):
+        # Sort keys strictly by UTF-16-BE bytes (RFC 8785 Section 3.2.3)
+        sorted_keys = sorted(val.keys(), key=lambda k: str(k).encode('utf-16-be'))
+        pairs = []
+        for k in sorted_keys:
+            key_str = _format_canonical_jcs(str(k))
+            val_str = _format_canonical_jcs(val[k])
+            pairs.append(f"{key_str}:{val_str}")
+        return '{' + ','.join(pairs) + '}'
+    if hasattr(val, "model_dump"):
+        return _format_canonical_jcs(val.model_dump(exclude_none=True))
+    return _format_canonical_jcs(str(val))
+
+
 def canonical_json_bytes(obj: Any) -> bytes:
-    """Format any object according to RFC 8785 JSON Canonicalization Scheme (JCS)."""
-    return json.dumps(
-        obj,
-        separators=(',', ':'),
-        sort_keys=True,
-        ensure_ascii=False
-    ).encode('utf-8')
+    """Format any object into RFC 8785 JSON Canonicalization Scheme (JCS) UTF-8 bytes."""
+    return _format_canonical_jcs(obj).encode('utf-8')
 
 
 def compute_policy_content_hash(p: PolicyDefinition) -> str:

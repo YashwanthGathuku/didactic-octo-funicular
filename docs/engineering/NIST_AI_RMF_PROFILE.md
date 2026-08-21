@@ -25,7 +25,7 @@ SentinelFlow incorporates an optional, read-only AI Incident Analyst designed ex
 
 | Subcategory | SentinelFlow Architectural Control | Verification Evidence |
 |---|---|---|
-| **GV-1.1**: AI risk management policies established and communicated | Zero-trust architecture: AI tier is classified as an unprivileged, read-only advisory component (Authority Tier 0). All release actions require dual-control cryptographic human approval. | `gateway/main.go`, `docs/engineering/adr/0001-domain-model-and-state-machines.md` |
+| **GV-1.1**: AI risk management policies established and communicated | Zero-trust architecture: AI tier is classified as an unprivileged, read-only advisory component (Authority Tier 0). All release actions require identity-bound dual-control approval with cryptographic artifact and policy integrity binding. | `gateway/main.go`, `docs/engineering/adr/0001-domain-model-and-state-machines.md` |
 | **GV-1.2**: Roles and responsibilities clearly defined | AI generates hypotheses and suggests runbooks; human operators evaluate findings and execute dual-control sign-off. | `ai-tier/llm_client.py` (System Prompt Invariants) |
 | **GV-1.5**: Third-party AI dependencies managed | Outages, rate limits, and latency spikes in external LLM providers produce typed `UNAVAILABLE` responses; core ingestion is 100% decoupled. | `gateway/resilience_test.go:TestResilience_AIProviderUnavailable_IngestionUnaffected` |
 

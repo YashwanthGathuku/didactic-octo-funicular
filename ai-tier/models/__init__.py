@@ -26,6 +26,14 @@ from .policy import (
     PolicyDefinition,
 )
 
+from contracts.diagnosis import (
+    DiagnosisHypothesis,
+    DiagnosisOutput,
+    DiagnosisRunRequest,
+    DiagnosisRunResponse,
+    AuditMetadata,
+)
+
 __all__ = [
     "AgentContextEnvelope",
     "AgentBudget",
@@ -52,4 +60,9 @@ __all__ = [
     "PolicyEvaluationRequest",
     "PolicyDecision",
     "PolicyDefinition",
+    "DiagnosisHypothesis",
+    "DiagnosisOutput",
+    "DiagnosisRunRequest",
+    "DiagnosisRunResponse",
+    "AuditMetadata",
 ]

@@ -362,7 +362,7 @@ func readEntry(line string, recordNumber int, offset int64, batch *batchState,
 
 	// Position 2-3 is the transaction code; its second digit distinguishes
 	// credits (2x) from debits (2x/3x per the format's code ranges).
-	if isDebitTransaction(field(line, 2, 3)) {
+	if IsDebitTransaction(field(line, 2, 3)) {
 		if batch.debits, err = batch.debits.Add(amount); err != nil {
 			noteOverflow(recordNumber, offset)
 			return err
@@ -493,14 +493,14 @@ func field(line string, start, end int) string {
 	return line[start-1 : end]
 }
 
-// isDebitTransaction reads the transaction code's direction.
+// IsDebitTransaction reads the transaction code's direction.
 //
 // In this format, codes in the 20s are credits and codes in the 30s are debits
 // for savings, while 22/23/27/28 and 32/33/37/38 split checking similarly. The
 // distinguishing digit is the second: 7 and 8 are debits within a series, as
 // are the 5x prefixes. This is the format's own encoding, not a rule-set
 // requirement.
-func isDebitTransaction(code string) bool {
+func IsDebitTransaction(code string) bool {
 	trimmed := strings.TrimSpace(code)
 	if len(trimmed) != 2 {
 		return false

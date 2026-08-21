@@ -112,7 +112,7 @@ func SeedSafetyPolicies() []*PolicyDefinition {
 				Type: "AGENT",
 			},
 			ResourceConstraints: ResourceConstraint{
-				Type: "ARTIFACT",
+				Type: "*",
 			},
 			Effect: DecisionAllowWithObligations,
 			Obligations: []Obligation{
@@ -215,3 +215,101 @@ func ValidateSafetyBootstrap(policies []*PolicyDefinition) error {
 	}
 	return nil
 }
+
+// SeedDefaultEnterprisePolicies returns standard enterprise-layer policies for safe, read-only operational capabilities.
+func SeedDefaultEnterprisePolicies() []*PolicyDefinition {
+	rules := []*PolicyDefinition{
+		// SF-ENT-001: Permit reading incident metadata within tenant boundaries
+		{
+			PolicyID:      "SF-ENT-001",
+			Version:       1,
+			Domain:        DomainArtifact,
+			Layer:         LayerEnterprise,
+			Priority:      100,
+			Status:        StatusActive,
+			EffectiveFrom: DefaultSafetyEffectiveDate,
+			Action:        ActionGetIncident,
+			SubjectConstraints: SubjectConstraint{
+				Type: "*",
+			},
+			ResourceConstraints: ResourceConstraint{
+				Type: "ARTIFACT",
+			},
+			Effect:          DecisionAllow,
+			ReasonCode:      "PERMITTED_INCIDENT_READ",
+			SourceReference: "SGACA Standard Enterprise Operations",
+			CreatedAt:       DefaultSafetyEffectiveDate,
+		},
+		// SF-ENT-002: Permit listing redacted validation findings within tenant boundaries
+		{
+			PolicyID:      "SF-ENT-002",
+			Version:       1,
+			Domain:        DomainArtifact,
+			Layer:         LayerEnterprise,
+			Priority:      100,
+			Status:        StatusActive,
+			EffectiveFrom: DefaultSafetyEffectiveDate,
+			Action:        ActionListFindings,
+			SubjectConstraints: SubjectConstraint{
+				Type: "*",
+			},
+			ResourceConstraints: ResourceConstraint{
+				Type: "ARTIFACT",
+			},
+			Effect:          DecisionAllow,
+			ReasonCode:      "PERMITTED_FINDINGS_READ",
+			SourceReference: "SGACA Standard Enterprise Operations",
+			CreatedAt:       DefaultSafetyEffectiveDate,
+		},
+		// SF-ENT-003: Permit retrieving artifact metadata within tenant boundaries
+		{
+			PolicyID:      "SF-ENT-003",
+			Version:       1,
+			Domain:        DomainArtifact,
+			Layer:         LayerEnterprise,
+			Priority:      100,
+			Status:        StatusActive,
+			EffectiveFrom: DefaultSafetyEffectiveDate,
+			Action:        ActionGetArtifactMetadata,
+			SubjectConstraints: SubjectConstraint{
+				Type: "*",
+			},
+			ResourceConstraints: ResourceConstraint{
+				Type: "ARTIFACT",
+			},
+			Effect:          DecisionAllow,
+			ReasonCode:      "PERMITTED_ARTIFACT_METADATA_READ",
+			SourceReference: "SGACA Standard Enterprise Operations",
+			CreatedAt:       DefaultSafetyEffectiveDate,
+		},
+		// SF-ENT-004: Permit retrieving agent workflow status within tenant boundaries
+		{
+			PolicyID:      "SF-ENT-004",
+			Version:       1,
+			Domain:        DomainAgent,
+			Layer:         LayerEnterprise,
+			Priority:      100,
+			Status:        StatusActive,
+			EffectiveFrom: DefaultSafetyEffectiveDate,
+			Action:        ActionGetWorkflow,
+			SubjectConstraints: SubjectConstraint{
+				Type: "*",
+			},
+			ResourceConstraints: ResourceConstraint{
+				Type: "AGENT",
+			},
+			Effect:          DecisionAllow,
+			ReasonCode:      "PERMITTED_WORKFLOW_READ",
+			SourceReference: "SGACA Standard Enterprise Operations",
+			CreatedAt:       DefaultSafetyEffectiveDate,
+		},
+	}
+
+	for _, r := range rules {
+		if r.ContentHash == "" {
+			r.ContentHash = ComputePolicyContentHash(r)
+		}
+	}
+	return rules
+}
+

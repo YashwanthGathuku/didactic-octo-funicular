@@ -20,7 +20,21 @@ from llm_client import (
     IncidentInput,
     generate_ai_analysis,
 )
-from models import AgentContextEnvelope, EvidenceEnvelope, RedactedFinding, AgentResponse
+from models import (
+    AgentContextEnvelope,
+    EvidenceEnvelope,
+    RedactedFinding,
+    AgentResponse,
+    DiagnosisRunResponse,
+)
+from contracts.orchestration import (
+    AgentStageRequest,
+    AgentStageResponse,
+    CommanderSynthesis,
+)
+from contracts.verification import CriticAssessment
+from agents.diagnosis import DiagnosisAgent
+from agents.verifier import VerifierAgent
 from armor.client import ModelArmorClient, ArmorVerdict
 from evals.runner import run_adversarial_evals
 
@@ -52,9 +66,10 @@ def health_check():
     return {
         "status": "healthy",
         "service": "sentinel-ai-tier",
-        "platform": "Google ADK + Gemini 2.5 Flash",
-        "role": "ORCHESTRATED_SPECIALIST_FLEET",
+        "platform": "Google ADK + Gemini 3.5 Flash",
+        "role": "GOVERNED_DIAGNOSIS_CONTROL_PLANE",
         "specialists": [
+            "DiagnosisAgent",
             "SentinelCoordinator",
             "TriageAgent",
             "ComplianceAgent",
@@ -74,10 +89,24 @@ def list_agents():
     from agents.tools import AGENT_TOOL_SCOPES
     agents = [
         {
+            "id": "diagnosis-agent",
+            "name": "DiagnosisAgent",
+            "type": "DIAGNOSIS",
+            "model": "gemini-3.5-flash",
+            "role": "Governed read-only incident diagnosis & root cause analysis",
+            "autonomy_level": "A1",
+            "tool_scopes": [
+                "incident.get",
+                "validation.findings.list_redacted",
+                "artifact.metadata.get",
+                "workflow.get",
+            ],
+        },
+        {
             "id": "sentinel-coordinator",
             "name": "SentinelCoordinator",
             "type": "COORDINATOR",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.5-flash",
             "role": "Root ADK agent orchestrating specialist fleet",
             "tool_scopes": ["route_to_specialist", "synthesize_verdict"],
         },
@@ -85,7 +114,7 @@ def list_agents():
             "id": "triage-agent",
             "name": "TriageAgent",
             "type": "TRIAGE",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.5-flash",
             "role": "Severity classification (P1-P4)",
             "tool_scopes": AGENT_TOOL_SCOPES.get("TriageAgent", []),
         },
@@ -93,7 +122,7 @@ def list_agents():
             "id": "compliance-agent",
             "name": "ComplianceAgent",
             "type": "COMPLIANCE",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.5-flash",
             "role": "NACHA/ACH regulatory expertise and rule citations",
             "tool_scopes": AGENT_TOOL_SCOPES.get("ComplianceAgent", []),
         },
@@ -101,7 +130,7 @@ def list_agents():
             "id": "remediation-agent",
             "name": "RemediationAgent",
             "type": "REMEDIATION",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.5-flash",
             "role": "Drafts correction proposals as derived artifacts",
             "tool_scopes": AGENT_TOOL_SCOPES.get("RemediationAgent", []),
         },
@@ -109,7 +138,7 @@ def list_agents():
             "id": "verifier-agent",
             "name": "VerifierAgent",
             "type": "VERIFIER",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.5-flash",
             "role": "Independent deterministic re-validation",
             "tool_scopes": AGENT_TOOL_SCOPES.get("VerifierAgent", []),
         },
@@ -117,15 +146,15 @@ def list_agents():
             "id": "memory-agent",
             "name": "MemoryAgent",
             "type": "MEMORY",
-            "model": "gemini-2.5-flash",
-            "role": "Cross-session recall of incident patterns and partner history",
+            "model": "gemini-3.5-flash",
+            "role": "Persistent cross-session recall (Memory Bank)",
             "tool_scopes": AGENT_TOOL_SCOPES.get("MemoryAgent", []),
         },
         {
             "id": "escalation-agent",
             "name": "EscalationAgent",
             "type": "ESCALATION",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.5-flash",
             "role": "SLA breach detection and partner risk scoring",
             "tool_scopes": AGENT_TOOL_SCOPES.get("EscalationAgent", []),
         },
@@ -324,6 +353,100 @@ def orchestrate_agent_fleet(envelope: EvidenceEnvelope):
             status_code=503,
             detail=f"Agent Fleet Orchestrator error: {str(e)}",
         )
+
+
+@app.post("/agents/diagnosis/run", response_model=DiagnosisRunResponse)
+def run_diagnosis_agent(envelope: AgentContextEnvelope):
+    """Executes the governed DiagnosisAgent with server-injected execution envelope."""
+    # Screen untrusted findings text with Model Armor
+    untrusted_text = " ".join([f.description for f in envelope.findings])
+    if untrusted_text:
+        screening = armor.screen_input(untrusted_text, envelope.tenant_id)
+        if screening.verdict == ArmorVerdict.BLOCKED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model Armor blocked input: {screening.reason}",
+            )
+
+    agent = DiagnosisAgent()
+    response = agent.run(envelope)
+
+    if response.status == "FAILED" and response.error:
+        raise HTTPException(
+            status_code=503,
+            detail=response.error.get("message", "Diagnosis execution failed"),
+        )
+
+    return response
+
+
+@app.post("/agents/workflows/run", response_model=CommanderSynthesis)
+def run_multi_agent_workflow(
+    envelope: AgentContextEnvelope,
+    x_sentinel_tenant: Optional[str] = Header(None),
+):
+    """Executes the governed P06 multi-agent fleet investigation workflow.
+    
+    Orchestrates IncidentCommanderAgent -> (DiagnosisAgent + PolicySLAAgent in parallel) -> Synthesis.
+    """
+    if x_sentinel_tenant and x_sentinel_tenant != envelope.tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Tenant header '{x_sentinel_tenant}' does not match authenticated envelope tenant '{envelope.tenant_id}'",
+        )
+
+    # Model Armor screening on untrusted findings text
+    untrusted_text = " ".join([f.description for f in envelope.findings])
+    if untrusted_text:
+        screening = armor.screen_input(untrusted_text, envelope.tenant_id)
+        if screening.verdict == ArmorVerdict.BLOCKED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model Armor blocked input: {screening.reason}",
+            )
+
+    from orchestrator import MultiAgentWorkflowOrchestrator
+    orchestrator = MultiAgentWorkflowOrchestrator()
+    synthesis = orchestrator.run_workflow(envelope)
+    return synthesis
+
+
+@app.post("/internal/agents/stage/run", response_model=AgentStageResponse)
+def run_agent_stage(
+    req: AgentStageRequest,
+    x_sentinel_tenant: Optional[str] = Header(None),
+):
+    """Executes a bounded AI reasoning stage on behalf of the authoritative Go Control Plane."""
+    if x_sentinel_tenant and x_sentinel_tenant != req.tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Tenant header '{x_sentinel_tenant}' does not match authenticated envelope tenant '{req.tenant_id}'",
+        )
+
+    from orchestrator import MultiAgentWorkflowOrchestrator
+    orchestrator = MultiAgentWorkflowOrchestrator()
+    return orchestrator.execute_stage(req)
+
+
+@app.post("/agents/verifier/run", response_model=CriticAssessment)
+def run_verifier_critic(
+    req: Union[AgentStageRequest, AgentContextEnvelope, Dict[str, Any]],
+    x_sentinel_tenant: Optional[str] = Header(None),
+):
+    """Executes the governed VerifierAgent critic assessment stage."""
+    tenant = getattr(req, "tenant_id", None) if not isinstance(req, dict) else req.get("tenant_id")
+    if x_sentinel_tenant and tenant and x_sentinel_tenant != tenant:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Tenant header '{x_sentinel_tenant}' does not match authenticated envelope tenant '{tenant}'",
+        )
+
+    agent = VerifierAgent()
+    return agent.run(req)
+
+
+# Stage handler alias
+StageVerifierCritic = run_verifier_critic
 
 
 @app.get("/evals/run")

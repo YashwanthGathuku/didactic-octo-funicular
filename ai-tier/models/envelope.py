@@ -57,6 +57,8 @@ class AgentContextEnvelope(BaseModel):
     budget: AgentBudget = Field(default_factory=AgentBudget)
     findings: List[RedactedFindingItem] = Field(default_factory=list)
     available_runbooks: List[str] = Field(default_factory=lambda: ["RB-01", "RB-05"])
+    telemetry_summary: Dict[str, Any] = Field(default_factory=dict)
+    filename: str = "unnamed.ach"
     prior_occurrences: int = 0
 
     @model_validator(mode="after")

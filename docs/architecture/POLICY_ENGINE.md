@@ -49,7 +49,7 @@ SentinelFlow provides the explicit deterministic helper contract:
 ### TOCTOU-Safe Human Approval Flow
 A `REQUIRE_HUMAN` decision must **never execute later merely because a human clicked a button in a UI**.
 To prevent Time-Of-Check to Time-Of-Use (TOCTOU) exploits:
-1. The human approval is committed as an immutable authoritative state record in the dual-control review queue with reviewer identity, signature, and timestamp.
+1. The human approval is committed as an immutable authoritative state record in the dual-control review queue with reviewer identity, timestamp, and identity-bound dual-control approval with cryptographic artifact and policy integrity binding.
 2. When execution is subsequently attempted, the gateway **re-evaluates the exact action** through the Deterministic Policy Engine with:
    - Current resource version and SHA-256 digest;
    - Current active policy bundle;
@@ -154,7 +154,7 @@ The system is pre-seeded with 6 immutable foundational safety rules. At boot tim
 
 ---
 
-## 7. RFC 8785 JSON Canonicalization Scheme (JCS) Hashing
+## 7. RFC 8785 JSON Canonicalization Scheme (JCS) Hashing & Numeric Rules
 
 All hashes use SHA-256 over **RFC 8785 JSON Canonicalization Scheme (JCS)** bytes, ensuring byte-identical verification across Go (Gateway) and Python (AI Tier) independent of key ordering, delimiters (`\n`, `:`, `=`), or Unicode characters (`€`, `漢字`, `🔒`).
 
@@ -162,6 +162,18 @@ All hashes use SHA-256 over **RFC 8785 JSON Canonicalization Scheme (JCS)** byte
 2. **`policy_bundle_hash`**: $\text{SHA256}(\text{CanonicalJSON}(\text{bundle\_manifest}))$
 3. **`evaluated_context_hash`**: $\text{SHA256}(\text{CanonicalJSON}(\text{context\_payload}))$
 4. **`decision_hash`**: $\text{SHA256}(\text{CanonicalJSON}(\text{decision\_payload}))$
+
+### 7.1 Strict JCS & I-JSON (RFC 7493) Constraints Enforced:
+- **UTF-16 Code-Unit Property Sorting**: Object properties are sorted strictly by raw UTF-16 code units (RFC 8785 §3.2.3). Non-BMP astral plane characters (e.g. `\ud83d\ude00` -> `0xD83D, 0xDE00`) deterministically sort before high BMP characters (`\uffff` -> `0xFFFF`).
+- **Duplicate Key Rejection**: Raw JSON inputs containing duplicate keys within any object are strictly rejected (`ErrDuplicateObjectKey`).
+- **Non-Finite Numeric Rejection**: `NaN`, `+Infinity`, and `-Infinity` are rejected with `ErrNonFiniteNumber`.
+- **Lone Surrogate Rejection**: Unpaired surrogates (`0xD800`..`0xDFFF`) and invalid UTF-8 byte sequences are rejected with `ErrLoneSurrogate` / `ErrInvalidUTF8`.
+- **No Unicode Normalization**: Unicode code points are preserved as provided without applying NFC/NFD transforms.
+
+### 7.2 Numeric Policy-Contract Rules:
+To avoid IEEE 754 64-bit floating point precision loss in financial contexts:
+- Policy conditions, limits, thresholds, and obligation parameters representing currency or high-precision values **must not rely on JSON floating-point numbers**.
+- Use **typed integer minor units** (e.g. cents: `$10.50` $\rightarrow$ `1050`, basis points: `150`) or canonical decimal strings (e.g. `"10.5000"`).
 
 ---
 
@@ -178,10 +190,14 @@ Replaying a historical decision does **not** query dynamic timestamp effectivene
 
 ---
 
-## 9. Atomic Bundle Activation & Event Outbox Journaling
+## 9. Atomic Bundle Activation & Universal Outbox Journaling
 
 1. **Atomic Compiled Bundle Swapping**: The engine pre-compiles and validates an immutable `CompiledBundle` before swapping it into `activeBundle` via lockless `atomic.Pointer`. Concurrent evaluations in flight each bind to exactly one complete bundle ID and hash.
-2. **Crash-Consistent Outbox Journaling**: `RecordDecisionTx` atomically writes the `PolicyDecision` into `agent_policy_decisions` and emits an idempotent domain event into `agent_workflow_events` within the same database transaction. Fault-injection tests verify clean rollback on failures.
+2. **Universal Transactional Outbox Event (`POLICY_DECISION_RECORDED`)**:
+   - `RecordDecisionTx` atomically writes the `PolicyDecision` into `agent_policy_decisions` and emits a universal domain event into `outbox_events` within the same database transaction.
+   - **Decoupled from AgentWorkflow**: Supports policy evaluations for all subjects—autonomous agents, human operators, API callers, Tool Gateway checks, release gates, and future analytics.
+   - **Payload Content**: Contains strictly identifiers and digests (`tenant_id`, `decision_id`, `request_id`, `policy_bundle_id`, `policy_bundle_version`, `policy_bundle_hash`, `decision_hash`, `decision`, `action`, `evaluated_context_hash`, `evaluated_at`, optional `workflow_id`). Raw financial data is strictly forbidden.
+   - **Fault-Injection & Idempotency**: Rolled-back transactions leave zero trace in `agent_policy_decisions` or `outbox_events`. Re-recording the same decision is idempotent via `dedupe_key = policy-dec-<decision_id>`.
 
 ---
 

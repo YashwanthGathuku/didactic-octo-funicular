@@ -49,11 +49,11 @@ func (s *Store) StorePolicyDefinition(ctx context.Context, p *PolicyDefinition) 
 		return fmt.Errorf("check existing policy: %w", err)
 	}
 
-	subjJSON, _ := json.Marshal(p.SubjectConstraints)
-	resJSON, _ := json.Marshal(p.ResourceConstraints)
-	condJSON, _ := json.Marshal(p.Conditions)
-	oblsJSON, _ := json.Marshal(p.Obligations)
-	prohsJSON, _ := json.Marshal(p.Prohibitions)
+	subjJSON, _ := CanonicalJSON(p.SubjectConstraints)
+	resJSON, _ := CanonicalJSON(p.ResourceConstraints)
+	condJSON, _ := CanonicalJSON(p.Conditions)
+	oblsJSON, _ := CanonicalJSON(p.Obligations)
+	prohsJSON, _ := CanonicalJSON(p.Prohibitions)
 
 	query := `
 		INSERT INTO policy_definitions (
@@ -218,7 +218,8 @@ func (s *Store) ListActivePolicies(ctx context.Context, tenantID string) ([]*Pol
 	return policies, nil
 }
 
-// RecordDecisionTx atomically persists an evaluated PolicyDecision and emits a durable event in a transaction.
+// RecordDecisionTx atomically persists an evaluated PolicyDecision and emits a generic durable domain event in a transaction.
+// It does NOT require an AgentWorkflow, serving as universal SGACA policy infrastructure for agents, humans, API callers, and tools.
 func (s *Store) RecordDecisionTx(ctx context.Context, tx *sql.Tx, tenantID, workflowID string, d *PolicyDecision) error {
 	if d.DecisionID == "" || d.RequestID == "" {
 		return errors.New("decision_id and request_id are required")
@@ -227,11 +228,11 @@ func (s *Store) RecordDecisionTx(ctx context.Context, tx *sql.Tx, tenantID, work
 		d.DecisionHash = ComputeDecisionHash(d)
 	}
 
-	reasonsJSON, _ := json.Marshal(d.ReasonCodes)
-	oblsJSON, _ := json.Marshal(d.Obligations)
-	prohsJSON, _ := json.Marshal(d.Prohibitions)
-	refsJSON, _ := json.Marshal(d.MatchedPolicyRefs)
-	manifestJSON, _ := json.Marshal(d.Manifest)
+	reasonsJSON, _ := CanonicalJSON(d.ReasonCodes)
+	oblsJSON, _ := CanonicalJSON(d.Obligations)
+	prohsJSON, _ := CanonicalJSON(d.Prohibitions)
+	refsJSON, _ := CanonicalJSON(d.MatchedPolicyRefs)
+	manifestJSON, _ := CanonicalJSON(d.Manifest)
 
 	bID := d.PolicyBundleID
 	if bID == "" {
@@ -250,35 +251,59 @@ func (s *Store) RecordDecisionTx(ctx context.Context, tx *sql.Tx, tenantID, work
 			evaluated_context_hash, evaluated_at, evaluator_version, decision_hash, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
+	now := time.Now().UTC()
 	_, err := tx.ExecContext(ctx, query,
 		d.DecisionID, d.RequestID, tenantID, workflowID, string(d.Decision), d.Action,
 		string(reasonsJSON), string(oblsJSON), string(prohsJSON), string(refsJSON),
 		bID, bVer, d.PolicyBundleHash, string(manifestJSON),
-		d.EvaluatedContextHash, d.EvaluatedAt, d.EvaluatorVersion, d.DecisionHash, time.Now().UTC(),
+		d.EvaluatedContextHash, d.EvaluatedAt, d.EvaluatorVersion, d.DecisionHash, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert agent_policy_decision: %w", err)
 	}
 
-	// Emit crash-consistent domain event if workflowID is associated
+	// 1. Universal Transactional Outbox Event: POLICY_DECISION_RECORDED
+	// Emitted for ALL subjects (agents, users, systems, release gates)
+	eventPayload := map[string]interface{}{
+		"tenant_id":              tenantID,
+		"decision_id":            d.DecisionID,
+		"request_id":             d.RequestID,
+		"policy_bundle_id":       bID,
+		"policy_bundle_version":  bVer,
+		"policy_bundle_hash":     d.PolicyBundleHash,
+		"decision_hash":          d.DecisionHash,
+		"decision":               string(d.Decision),
+		"action":                 d.Action,
+		"evaluated_context_hash": d.EvaluatedContextHash,
+		"evaluated_at":           d.EvaluatedAt.Format(time.RFC3339),
+	}
 	if workflowID != "" {
-		eventID := fmt.Sprintf("evt-pdec-%s", d.DecisionID)
-		payloadJSON, _ := json.Marshal(map[string]interface{}{
-			"decision_id":   d.DecisionID,
-			"decision":      d.Decision,
-			"action":        d.Action,
-			"decision_hash": d.DecisionHash,
-		})
+		eventPayload["workflow_id"] = workflowID
+	}
 
-		eventQuery := `
+	payloadBytes, _ := CanonicalJSON(eventPayload)
+	dedupeKey := fmt.Sprintf("policy-dec-%s", d.DecisionID)
+
+	outboxQuery := `
+		INSERT OR IGNORE INTO outbox_events (
+			tenant_id, event_type, subject_type, subject_id, payload, dedupe_key, created_at
+		) VALUES (?, 'POLICY_DECISION_RECORDED', 'POLICY_DECISION', 0, ?, ?, ?)`
+
+	_, _ = tx.ExecContext(ctx, outboxQuery,
+		tenantID, string(payloadBytes), dedupeKey, now,
+	)
+
+	// 2. Optional: If a workflow_id is provided and workflow events table exists, link to workflow timeline
+	if workflowID != "" {
+		wfEventID := fmt.Sprintf("evt-pdec-%s", d.DecisionID)
+		wfEventQuery := `
 			INSERT OR IGNORE INTO agent_workflow_events (
 				id, workflow_id, tenant_id, idempotency_key, event_type,
 				state_from, state_to, row_version, payload, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			) VALUES (?, ?, ?, ?, 'POLICY_DECISION_EVALUATED', 'EVALUATING', ?, 1, ?, ?)`
 
-		_, _ = tx.ExecContext(ctx, eventQuery,
-			eventID, workflowID, tenantID, d.DecisionID, "POLICY_DECISION_EVALUATED",
-			"EVALUATING", string(d.Decision), 1, string(payloadJSON), time.Now().UTC(),
+		_, _ = tx.ExecContext(ctx, wfEventQuery,
+			wfEventID, workflowID, tenantID, d.DecisionID, string(d.Decision), string(payloadBytes), now,
 		)
 	}
 
