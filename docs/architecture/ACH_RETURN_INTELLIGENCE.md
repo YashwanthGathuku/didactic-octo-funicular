@@ -1,149 +1,179 @@
-# Governed ACH Return Intelligence Architecture (Phase P12)
+# Governed ACH Return Intelligence Architecture — P12.5 Truth Gate
 
-## 1. Overview & Objectives
+## Scope
 
-SentinelFlow Phase P12 introduces **Governed ACH Return Intelligence**, empowering financial operations teams to proactively detect, analyze, and manage Automated Clearing House (ACH) returns while strictly preserving every **Strict Governed AI Control Architecture (SGACA)** authority and security boundary.
+P12.5 is a surgical correction to Phase P12. It does not add a subsystem, start P13, or deploy cloud infrastructure.
 
-In enterprise banking and payment processing, ACH return codes (such as `R01` for Insufficient Funds, `R03` for No Account, `R05`/`R10` for Unauthorized Transactions, and `R16` for Account Frozen / OFAC Sanctions) carry strict regulatory return windows, Nacha network thresholds (e.g. 0.5% unauthorized return rate ceiling), and operational SLA cutoffs. 
+## Governing Invariants
 
-SentinelFlow P12 establishes a deterministic, mathematically grounded, and cryptographically audited intelligence engine paired with an Autonomy Level A1 advisory specialist (`ReturnRiskAgent`).
+`ReturnRiskAssessment != FinancialDecision`
 
----
+`ReturnRiskAgent != ReturnAuthority`
 
-## 2. Fundamental SGACA Invariants
+`HistoricalReturnPattern != CurrentTransactionTruth`
 
-The return risk subsystem is governed by the following immutable mathematical and architectural invariants:
+`MemoryRecall != Evidence`
 
-$$\text{ReturnRiskAssessment} \neq \text{FinancialDecision} \land \text{ReturnRiskAgent} \neq \text{ReturnAuthority}$$
+`ReturnTaxonomyGuidance != LegalDecision`
 
-$$\text{HistoricalReturnPattern} \neq \text{CurrentTransactionTruth} \land \text{MemoryRecall} \neq \text{Evidence}$$
+`ReturnRiskScore != ComplianceDecision`
 
-$$\text{RiskHigh} \neq \text{AutoRejectFinancialFile} \land \text{RiskLow} \neq \text{AutoReleaseFinancialFile}$$
+`RiskHigh != AutoRejectFinancialFile` and `RiskLow != AutoReleaseFinancialFile`
 
-```
-+-----------------------------------------------------------------------------------+
-|                        SGACA P12 Authority Invariants                             |
-+-----------------------------------------------------------------------------------+
-| 1. Deterministic Dominance: Go Engine Score/Tier strictly dominates AI Tier output|
-| 2. Read-Only / Non-Authority Mandate: ReturnRiskAgent has ZERO release/mutate power|
-| 3. Disjoint Grounding: EvidenceRefs ∩ MemoryRefs = ∅                              |
-| 4. Input Minimization: Masked 4-Domain Prompt Trust Partitioning                  |
-| 5. Zero Cloud Cost Offline Baseline: 100% testable with deterministic fallback    |
-+-----------------------------------------------------------------------------------+
-```
+## Governed Live Path
 
----
-
-## 3. Layered Architecture
-
-```
-[ Incoming Return Event (Synthetic / Webhook) ]
-                 │
-                 ▼
- [ Go Gateway: gateway/internal/returnrisk/ ]
-   ├── ReturnCodeRegistry lookup (Taxonomy: ACH-RETURN-TAXONOMY-V1)
-   ├── Historical Context extraction (7d/30d volume, partner return rate)
-   ├── Deterministic feature normalization (N_code, N_freq7, N_partner, etc.)
-   ├── Weighted RiskScore calculation [0-100] & Tier assignment (LOW, MEDIUM, HIGH, SEVERE)
-   ├── RFC 8785 Canonical AssessmentHash generation
-   └── Tool Gateway / API Context Marshalling
-                 │
-                 ▼ (Server-Injected Context Envelope)
- [ Python AI Tier: ai-tier/agents/return_risk.py ]
-   ├── GuardedModelBoundary (P09) & 4-Domain Prompt Trust Partitioning
-   ├── Disjoint Grounding Filter: EvidenceRefs != MemoryRefs
-   ├── Deterministic Dominance Override: Model prose CANNOT change Go score or tier
-   └── ReturnRiskAssessment generation (Advisory Explanation Only)
-                 │
-                 ▼
- [ Go Control Plane & Incident Commander ]
-   ├── Commander synthesizes findings (Evidence Set union)
-   ├── Policy Engine evaluates rulepack (RiskHigh != AutoReject; RiskLow != AutoRelease)
-   └── On confirmed resolution: M1 Fact emitted to gateway/internal/memory
+```text
+Go deterministic return-risk result
+        |
+        v
+ReturnRiskAgent
+        |
+        v
+P09 GuardedModelBoundary
+        |
+        +--> data minimization
+        +--> four-domain trust partition
+        +--> Model Armor input screening (when configured)
+        +--> Gemini 3.5 Flash structured inference
+        +--> Model Armor output screening (when configured)
+        +--> Pydantic schema validation
+        +--> AuthorizedEvidenceSet grounding
+        |
+        v
+ReturnRiskAgent deterministic-dominance check
+        |
+        v
+Advisory ReturnRiskAssessment
 ```
 
----
+`ReturnRiskAgent` does not instantiate or call `google.genai.Client`. The shared boundary is the sole provider path for this agent.
 
-## 4. Authoritative ACH Return Code Taxonomy (`ACH-RETURN-TAXONOMY-V1`)
+### Execution truth
 
-The deterministic engine implements an authoritative taxonomy catalog covering 11 representative NACHA return codes:
+- `LOCAL` / `DETERMINISTIC`: deterministic rule-grounded advisory output is permitted and labeled `LOCAL_ADK_DETERMINISTIC`.
+- `LIVE`: boundary/provider failure is surfaced as typed failure (`GUARDRAIL_BLOCKED` or `PROVIDER_UNAVAILABLE` semantics); there is no silent deterministic success.
+- `AUTO`: follows the existing common `GuardedModelBoundary` provider/fallback semantics. A deterministic fallback remains labeled deterministic, never live.
 
-| Code | Label | Normalized Category | Severity | Retry Characteristic | Return Window | Nacha Threshold | Base Severity |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **R01** | `INSUFFICIENT_FUNDS` | `INSUFFICIENT_FUNDS` | `MEDIUM` | `RETRYABLE_ONCE` | 2 Banking Days | 15% Overall | 45.0 |
-| **R02** | `ACCOUNT_CLOSED` | `ACCOUNT_STATUS` | `HIGH` | `NON_RETRYABLE` | 2 Banking Days | 3% Admin | 50.0 |
-| **R03** | `NO_ACCOUNT_UNABLE_TO_LOCATE` | `ACCOUNT_DATA` | `HIGH` | `RETRYABLE_WITH_CORRECTION` | 2 Banking Days | 3% Admin | 55.0 |
-| **R04** | `INVALID_ACCOUNT_STRUCTURE` | `ACCOUNT_DATA` | `HIGH` | `RETRYABLE_WITH_CORRECTION` | 2 Banking Days | 3% Admin | 55.0 |
-| **R05** | `UNAUTHORIZED_CONSUMER_CORPORATE_SEC` | `UNAUTHORIZED` | `CRITICAL` | `NON_RETRYABLE` | 60 Calendar Days | 0.5% Unauthorized | 90.0 |
-| **R07** | `AUTHORIZATION_REVOKED` | `UNAUTHORIZED` | `CRITICAL` | `PROHIBITED` | 60 Calendar Days | 0.5% Unauthorized | 85.0 |
-| **R08** | `PAYMENT_STOPPED` | `ADMINISTRATIVE` | `HIGH` | `NON_RETRYABLE` | 2 Banking Days | 15% Overall | 60.0 |
-| **R10** | `CUSTOMER_ADVISES_UNAUTHORIZED` | `UNAUTHORIZED` | `CRITICAL` | `PROHIBITED` | 60 Calendar Days | 0.5% Unauthorized | 95.0 |
-| **R16** | `ACCOUNT_FROZEN_OR_OFAC` | `OFAC_RESTRICTED` | `CRITICAL` | `PROHIBITED` | 2 Banking Days | Regulatory Restricted | 85.0 |
-| **R20** | `NON_TRANSACTION_ACCOUNT` | `ACCOUNT_STATUS` | `HIGH` | `RETRYABLE_WITH_CORRECTION` | 2 Banking Days | 15% Overall | 50.0 |
-| **R29** | `CORPORATE_CUSTOMER_NOT_AUTHORIZED` | `UNAUTHORIZED` | `CRITICAL` | `PROHIBITED` | 2 Banking Days | 0.5% Unauthorized | 90.0 |
+## Deterministic Risk Score
 
----
+The authoritative Go score remains unchanged and uses exactly seven weighted features:
 
-## 5. Deterministic Risk Score Formula
+\[
+R = 0.30C + 0.15F_7 + 0.10F_{30} + 0.15P + 0.10T + 0.10E + 0.10S
+\]
 
-The Go Control Plane computes a normalized, bounded risk score $S \in [0.0, 100.0]$:
+Where:
 
-$$\text{RawRisk} = w_{\text{code}} N_{\text{code}} + w_{\text{freq7}} N_{\text{freq7}} + w_{\text{freq30}} N_{\text{freq30}} + w_{\text{partner}} N_{\text{partner}} + w_{\text{trend}} N_{\text{trend}} + w_{\text{exposure}} N_{\text{exposure}} + w_{\text{sla}} N_{\text{sla}}$$
+- `C` = CodeSeverity
+- `F7` = Frequency7d
+- `F30` = Frequency30d
+- `P` = PartnerReturnRate relative to an applicable public monitoring level
+- `T` = RecentTrend
+- `E` = Exposure
+- `S` = SLA proximity
 
-Where all weights sum to exactly $1.00$:
-- $w_{\text{code}} = 0.30$ (Return Code Severity)
-- $w_{\text{freq7}} = 0.15$ (7-day Velocity Surge)
-- $w_{\text{freq30}} = 0.10$ (30-day Cumulative Returns)
-- $w_{\text{partner}} = 0.15$ (Partner Return Rate vs Regulatory Ceiling)
-- $w_{\text{trend}} = 0.10$ (Recent Acceleration Ratio)
-- $w_{\text{exposure}} = 0.10$ (Dollar Exposure Bucket)
-- $w_{\text{sla}} = 0.10$ (SLA Proximity / Breach Probability)
+The following remain contextual/diagnostic and are not silently added to the score:
 
-### Discrete Risk Tiers
-- **`LOW`**: $[0.0, 29.99]$
-- **`MEDIUM`**: $[30.0, 59.99]$
-- **`HIGH`**: $[60.0, 79.99]$
-- **`SEVERE`**: $[80.0, 100.0]$
+- `SameCodeRecurrence`
+- `VerifiedPriorOccurrences`
+- `SourceStrength`
 
----
+## Public Return-Rate Monitoring Values
 
-## 6. Fixed 7-Agent Canonical Roster
+SentinelFlow's shared semantics fixture pins:
 
-With Phase P12, SentinelFlow's immutable fixed roster expands from 6 to 7 agents:
+- unauthorized: `0.005` (0.5%)
+- administrative: `0.030` (3.0%)
+- overall: `0.150` (15.0%)
 
-1. `IncidentCommanderAgent` (Autonomy A1)
-2. `DiagnosisAgent` (Autonomy A1)
-3. `PolicySLAAgent` (Autonomy A1)
-4. `MemoryAgent` (Autonomy A1)
-5. `RemediationAgent` (Autonomy A2 — Proposal Only)
-6. `VerifierAgent` (Autonomy A1 — Independent Critic)
-7. `ReturnRiskAgent` (Autonomy A1 — Return Risk Intelligence)
+These are operational monitoring inputs. A threshold comparison does not itself create a compliance or financial decision.
 
----
+## Representative MVP Taxonomy
 
-## 7. Operational Memory (M1) Integration
+The P12.5 catalog is representative, not complete. R51 is deliberately deferred from the MVP catalog.
 
-Upon confirmed operational resolution of an ACH return incident, the Go engine emits an authoritative `FactTypeVerifiedFailurePattern` record to M1 Operational Memory via `gateway/internal/memory/service.go`.
+| Code | Represented operational semantics | Window | Monitoring category |
+|---|---|---|---|
+| R01 | Insufficient funds | Standard 2 banking days | Overall 15% |
+| R02 | Account closed | Standard 2 banking days | Administrative 3% |
+| R03 | No account / unable to locate | Standard 2 banking days | Administrative 3% |
+| R04 | Invalid account number structure | Standard 2 banking days | Administrative 3% |
+| R05 | Unauthorized consumer debit using corporate SEC code | Extended 60 calendar days | Unauthorized 0.5% |
+| R07 | Authorization revoked | Extended 60 calendar days | Unauthorized 0.5% |
+| R08 | Payment stopped | Standard 2 banking days | Overall 15% |
+| R10 | Originator not known to Receiver and/or Originator not authorized by Receiver to debit account | Extended 60 calendar days | Unauthorized 0.5% |
+| R11 | Entry not in accordance with terms of authorization | Extended 60 calendar days | Unauthorized 0.5% |
+| R16 | Current 2026 Account Frozen / Entry Returned Per OFAC Instruction semantics | Standard 2 banking days | Regulatory restricted; percentage N/A |
+| R20 | Non-transaction account | Standard 2 banking days | Overall 15% |
+| R29 | Corporate customer advises not authorized | Standard 2 banking days | Unauthorized 0.5% |
 
-This record contains:
-- `assessment_id` and `assessment_hash` (RFC 8785 canonical hash)
-- `partner_ref`, `return_code`, `risk_score`, and `risk_tier`
-- `primary_drivers` contributing to the risk calculation
-- `verifier_ref` and dual-control operational sign-off timestamp
+### R16 special handling
 
----
+`ThresholdRegulatoryRestricted` does not fall through to a made-up comparison value. The risk feature vector exposes:
 
-## 8. Adversarial Evaluation Harness
+```text
+partner_return_rate_threshold = 0
+partner_return_rate_threshold_applicable = false
+partner_return_rate contribution = 0
+```
 
-The P12 Return Risk Evaluation Suite introduces **20 adversarial scenarios** (`ADV-RET-001` through `ADV-RET-020`) validating:
-- Catalog schema enforcement and unknown return code fail-closed behavior
-- Deterministic risk dominance (blocking model downgrade from `SEVERE` to `LOW`)
-- Numeric score immutability
-- Memory Non-Authority (poisoned memory cannot waive R01 surge or approve release)
-- Autonomy Level A1 containment (blocking release, approval, ledger mutation, SQL execution, remediation writing, and dynamic agent spawning)
-- Strict multi-tenant isolation and cross-tenant leakage prevention
-- Freshness ceilings and stale pattern expiration
-- Disjoint evidence and memory taxonomy enforcement
-- Cold-start uncertainty calibration
+Code severity and the other six weighted features continue to drive the deterministic risk posture.
 
-Across the entire SentinelFlow platform, the master adversarial suite now evaluates **165 scenarios across 8 phases with a 100% pass rate**.
+## Operational Guidance, Not Legal Adjudication
+
+Taxonomy entries use typed guidance such as:
+
+- `REVIEW_REQUIRED`
+- `COMPLIANCE_REVIEW_REQUIRED`
+- `AUTHORIZATION_REVIEW_REQUIRED`
+- `DO_NOT_AUTOMATICALLY_REINITIATE`
+- `CORRECTION_REQUIRED`
+- `STANDARD_EXCEPTION_REVIEW`
+
+Unsupported absolute legal conclusions were removed from the taxonomy. Every represented code carries public-source provenance metadata (`source_id`, `source_name`, `reference`, retrieval date, semantics-verified flag).
+
+## Assessment Hash
+
+P12.5 reuses `gateway/internal/policy/CanonicalJSON`, SentinelFlow's RFC 8785 JSON Canonicalization Scheme implementation.
+
+The protected hash is:
+
+```text
+SHA256(RFC8785_CanonicalJSON({
+  tenant_id,
+  workflow_id,
+  return_event_id,
+  return_code,
+  risk_score,
+  risk_tier,
+  contributions,
+  feature_vector,
+  engine_version
+}))
+```
+
+`AssessmentID` and `ComputedAt` are record metadata and are deliberately excluded, so repeated calculations with the same protected inputs produce the same `AssessmentHash` while each stored assessment can retain a unique record identity.
+
+## Submission Model Truth
+
+The executable governed provider target is `gemini-3.5-flash`.
+
+The capability matrix distinguishes:
+
+- `gemini_3_5_provider_path: TESTED`
+- `live_gemini_3_5: IMPLEMENTED`
+
+The latter is not promoted to `TESTED` merely because mocks/unit tests exercise the provider path; an actual external live call requires separate evidence.
+
+## Verification Gates
+
+```bash
+cd gateway && go test ./internal/returnrisk/... -v
+cd gateway && go test ./internal/...
+pytest ai-tier/tests/ -v
+python ai-tier/evals/return_runner.py
+python ai-tier/evals/runner.py
+python scripts/generate_docs.py --check
+```
+
+No P12.5 claim should be upgraded by weakening these gates.
