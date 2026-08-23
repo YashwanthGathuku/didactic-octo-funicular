@@ -177,19 +177,11 @@ func (r *SourceResolver) ResolveMemorySources(
 
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					// Also check memory_sources table for provenance link
-					var srcID int64
-					err2 := r.db.QueryRowContext(ctx, `
-						SELECT id FROM memory_sources
-						WHERE tenant_id = ? AND source_ref = ?
-						LIMIT 1`, req.TenantID, trimmed).Scan(&srcID)
-					if err2 != nil {
-						res.InvalidSourceRefs = append(res.InvalidSourceRefs, trimmed)
-						continue
-					}
+					res.InvalidSourceRefs = append(res.InvalidSourceRefs, trimmed)
 				} else {
 					return nil, fmt.Errorf("query incident %s: %w", trimmed, err)
 				}
+				continue
 			}
 
 			res.ValidSourceRefs = append(res.ValidSourceRefs, trimmed)
@@ -197,24 +189,29 @@ func (r *SourceResolver) ResolveMemorySources(
 			continue
 		}
 
-		// Look up finding or runbook sources (FINDING-, RB-)
+		// Look up finding or runbook sources (FINDING-, RB-, POL-)
+		// Invariant: MemorySourceRelation != EvidenceAuthority.
+		// A finding/runbook citation must be bound to an active, verified memory record or incident.
 		if strings.HasPrefix(trimmed, "FINDING-") || strings.HasPrefix(trimmed, "RB-") || strings.HasPrefix(trimmed, "POL-") {
-			res.ValidSourceRefs = append(res.ValidSourceRefs, trimmed)
-			res.EvidenceRefsMinted = append(res.EvidenceRefsMinted, trimmed)
+			var activeCount int
+			err := r.db.QueryRowContext(ctx, `
+				SELECT COUNT(*) 
+				FROM memory_sources ms
+				JOIN operational_memories om ON ms.memory_id = om.id AND ms.tenant_id = om.tenant_id
+				WHERE ms.tenant_id = ? AND ms.source_ref = ? AND om.status = 'ACTIVE'
+				LIMIT 1`, req.TenantID, trimmed).Scan(&activeCount)
+
+			if err == nil && activeCount > 0 {
+				res.ValidSourceRefs = append(res.ValidSourceRefs, trimmed)
+				res.EvidenceRefsMinted = append(res.EvidenceRefsMinted, trimmed)
+			} else {
+				res.InvalidSourceRefs = append(res.InvalidSourceRefs, trimmed)
+			}
 			continue
 		}
 
-		// Fallback check in memory_sources provenance table
-		var srcCount int
-		err := r.db.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM memory_sources
-			WHERE tenant_id = ? AND source_ref = ?`, req.TenantID, trimmed).Scan(&srcCount)
-		if err == nil && srcCount > 0 {
-			res.ValidSourceRefs = append(res.ValidSourceRefs, trimmed)
-			res.EvidenceRefsMinted = append(res.EvidenceRefsMinted, trimmed)
-		} else {
-			res.InvalidSourceRefs = append(res.InvalidSourceRefs, trimmed)
-		}
+		// Any other unmatched source is invalid
+		res.InvalidSourceRefs = append(res.InvalidSourceRefs, trimmed)
 	}
 
 	// 3. Sort for deterministic canonical hashing

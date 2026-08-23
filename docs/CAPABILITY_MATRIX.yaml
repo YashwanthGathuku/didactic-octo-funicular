@@ -239,17 +239,17 @@ capabilities:
   live_google_memory_bank:
     status: IMPLEMENTED
     evidence: ai-tier/memory/google_provider.py
-    description: "REST client for Google Agent Platform Memory Bank v1beta1; live production API call is NOT_RUN pending live ADC credentials"
+    description: "REST client for Google Agent Platform Memory Bank v1beta1; ADC verified locally, live API execution on standby awaiting cloud credit activation"
 
   live_ingest_events:
     status: IMPLEMENTED
     evidence: ai-tier/memory/google_provider.py
-    description: "Managed IngestEvents client pipeline; live production API call is NOT_RUN pending live ADC credentials"
+    description: "Managed IngestEvents client pipeline; ADC verified locally, live API execution on standby awaiting cloud credit activation"
 
   live_memory_profiles:
     status: IMPLEMENTED
     evidence: ai-tier/memory/google_provider.py
-    description: "Managed RetrieveProfiles client pipeline; live production API call is NOT_RUN pending live ADC credentials"
+    description: "Managed RetrieveProfiles client pipeline; ADC verified locally, live API execution on standby awaiting cloud credit activation"
 
   # --- Governed Remediation & Independent Verification ---
   derived_artifacts:
