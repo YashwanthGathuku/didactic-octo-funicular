@@ -18,7 +18,7 @@
     },
     "R11": {
       "title": "Customer Advises Entry is Not in Accordance with the Terms of the Authorization",
-      "normalized_category": "AUTHORIZATION_TERMS",
+      "normalized_category": "UNAUTHORIZED",
       "return_window": "EXTENDED_60_CALENDAR_DAYS",
       "threshold_category": "UNAUTHORIZED_0_5_PERCENT"
     },
