@@ -44,13 +44,12 @@ const (
 type ReturnCategory string
 
 const (
-	CategoryInsufficientFunds  ReturnCategory = "INSUFFICIENT_FUNDS"
-	CategoryAccountStatus      ReturnCategory = "ACCOUNT_STATUS"
-	CategoryAccountData        ReturnCategory = "ACCOUNT_DATA"
-	CategoryUnauthorized       ReturnCategory = "UNAUTHORIZED"
-	CategoryAuthorizationTerms ReturnCategory = "AUTHORIZATION_TERMS"
-	CategoryAdministrative     ReturnCategory = "ADMINISTRATIVE"
-	CategoryOFACRestricted     ReturnCategory = "OFAC_RESTRICTED"
+	CategoryInsufficientFunds ReturnCategory = "INSUFFICIENT_FUNDS"
+	CategoryAccountStatus     ReturnCategory = "ACCOUNT_STATUS"
+	CategoryAccountData       ReturnCategory = "ACCOUNT_DATA"
+	CategoryUnauthorized      ReturnCategory = "UNAUTHORIZED"
+	CategoryAdministrative    ReturnCategory = "ADMINISTRATIVE"
+	CategoryOFACRestricted    ReturnCategory = "OFAC_RESTRICTED"
 )
 
 type OperationalSeverity string
