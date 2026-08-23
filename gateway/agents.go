@@ -32,21 +32,32 @@ type AgentRecord struct {
 
 // AgentInvocationRecord tracks an execution of an agent against an incident or workflow.
 type AgentInvocationRecord struct {
-	ID                 string    `json:"id"`
-	AgentID            string    `json:"agentId"`
-	IncidentID         *int64    `json:"incidentId,omitempty"`
-	TenantID           string    `json:"tenantId"`
-	StartedAt          time.Time `json:"startedAt"`
-	CompletedAt        *time.Time `json:"completedAt,omitempty"`
-	Status             string    `json:"status"` // RUNNING, COMPLETED, FAILED, TIMEOUT
-	InputHash          string    `json:"inputHash"`
-	OutputHash         *string   `json:"outputHash,omitempty"`
-	TokenCount         int       `json:"tokenCount"`
-	LatencyMs          int       `json:"latencyMs"`
-	ModelArmorVerdict  string    `json:"modelArmorVerdict,omitempty"` // ALLOWED, BLOCKED, FLAGGED
+	ID                string     `json:"id"`
+	AgentID           string     `json:"agentId"`
+	IncidentID        *int64     `json:"incidentId,omitempty"`
+	TenantID          string     `json:"tenantId"`
+	StartedAt         time.Time  `json:"startedAt"`
+	CompletedAt       *time.Time `json:"completedAt,omitempty"`
+	Status            string     `json:"status"` // RUNNING, COMPLETED, FAILED, TIMEOUT
+	InputHash         string     `json:"inputHash"`
+	OutputHash        *string    `json:"outputHash,omitempty"`
+	TokenCount        int        `json:"tokenCount"`
+	LatencyMs         int        `json:"latencyMs"`
+	ModelArmorVerdict string     `json:"modelArmorVerdict,omitempty"` // ALLOWED, BLOCKED, FLAGGED
 }
 
 func registerAgentRoutes(r chi.Router, db *sql.DB) {
+	// P17 managed cloud ingress deliberately lives under the existing /api/v1
+	// router so it shares request-size, recovery, correlation and transport
+	// middleware. Browser/API bearer authentication lets ONLY this exact route
+	// through when an IAP assertion is present; registerManagedAgentToolRoute
+	// then cryptographically verifies that assertion before decoding tool input.
+	// If the operator explicitly enables the route but its security configuration
+	// is incomplete, startup fails closed rather than exposing a weaker endpoint.
+	if err := registerManagedAgentToolRoute(r, db); err != nil {
+		panic(fmt.Sprintf("managed agent tool ingress configuration: %v", err))
+	}
+
 	r.Route("/agents", func(r chi.Router) {
 		// GET /api/v1/agents — List all active and registered specialist agents
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
