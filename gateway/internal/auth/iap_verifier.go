@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"strings"
@@ -23,10 +24,10 @@ const (
 )
 
 var (
-	ErrMissingIAPAssertion = errors.New("missing X-Goog-IAP-JWT-Assertion")
-	ErrInvalidIAPAssertion = errors.New("invalid IAP JWT assertion")
-	ErrIAPSubjectMismatch  = errors.New("IAP subject does not match configured Agent Runtime identity")
-	ErrMissingAgentName    = errors.New("missing trusted SentinelFlow agent name")
+	ErrMissingIAPAssertion  = errors.New("missing X-Goog-IAP-JWT-Assertion")
+	ErrInvalidIAPAssertion  = errors.New("invalid IAP JWT assertion")
+	ErrIAPSubjectMismatch   = errors.New("IAP subject does not match configured Agent Runtime identity")
+	ErrMissingAgentName     = errors.New("missing trusted SentinelFlow agent name")
 	ErrAgentVersionMismatch = errors.New("agent version does not match fixed canonical roster")
 )
 
@@ -69,12 +70,12 @@ type iapClaims struct {
 // JWK set and validates issuer, audience, signature and expiry.
 type IAPJWTVerifier struct {
 	ExpectedAudience string
-	JWKURL           string
-	HTTPClient       *http.Client
-	CacheTTL         time.Duration
+	JWKURL            string
+	HTTPClient        *http.Client
+	CacheTTL          time.Duration
 
-	mu        sync.RWMutex
-	keys      map[string]*ecdsa.PublicKey
+	mu         sync.RWMutex
+	keys       map[string]*ecdsa.PublicKey
 	cacheUntil time.Time
 }
 
@@ -172,7 +173,9 @@ func (v *IAPJWTVerifier) refreshKeys(ctx context.Context) error {
 	}
 
 	var set iapJWKSet
-	dec := json.NewDecoder(http.MaxBytesReader(nilResponseWriter{}, resp.Body, 1<<20))
+	// Public JWK documents are tiny. Limit the response defensively without
+	// depending on server-only ResponseWriter helpers.
+	dec := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))
 	if err := dec.Decode(&set); err != nil {
 		return fmt.Errorf("iap jwk decode: %w", err)
 	}
@@ -208,14 +211,6 @@ func (v *IAPJWTVerifier) refreshKeys(ctx context.Context) error {
 	v.mu.Unlock()
 	return nil
 }
-
-// nilResponseWriter is used only to apply http.MaxBytesReader to a client
-// response without exposing a server ResponseWriter. The methods are inert.
-type nilResponseWriter struct{}
-
-func (nilResponseWriter) Header() http.Header         { return make(http.Header) }
-func (nilResponseWriter) Write([]byte) (int, error)   { return 0, nil }
-func (nilResponseWriter) WriteHeader(statusCode int)  {}
 
 // ManagedAgentIdentityMiddleware verifies IAP cryptographically before trusting
 // SentinelFlow's internal specialist metadata. Agent Gateway/IAP authenticates
