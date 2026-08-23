@@ -57,8 +57,7 @@ jobs:
         run: npm ci
 
       - name: Frontend TypeScript & Lint Check
-        run: |
-          npx tsc --noEmit
+        run: npx tsc --noEmit
 
   # --------------------------------------------------------------------------
   # 2. Go Unit, Integration & Race Tests
@@ -94,12 +93,15 @@ jobs:
         working-directory: gateway
         run: go test ./internal/returnrisk/... -v
 
+      - name: Run Go Internal Package Suite
+        working-directory: gateway
+        run: go test ./internal/...
+
       - name: Run Go Test Suite with Race Detector
         working-directory: gateway
         env:
           TEST_POSTGRES_DSN: "postgres://sentinel:example-ci-test-db-pass@localhost:5432/sentinel_test?sslmode=disable"
-        run: |
-          go test -race -v -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -v -count=1 -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Check Backend Code Coverage Threshold
         working-directory: gateway
@@ -213,7 +215,7 @@ jobs:
           cd gateway && govulncheck ./...
 
       - name: Run Trivy Vulnerability Scanner (Repo Files)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           ignore-unfixed: true
