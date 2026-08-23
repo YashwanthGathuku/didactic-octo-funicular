@@ -311,6 +311,54 @@ capabilities:
     evidence: deploy/setup-gcp.sh
     description: "Google Cloud SQL PostgreSQL 16 + Cloud Run automated deployment script"
 
+  # --- Phase P11: Google Enterprise Agent Platform Integration ---
+  agent_runtime_adk_deployment:
+    status: TESTED
+    evidence: ai-tier/runtime/app.py
+    description: "Google Agent Runtime packaging wrapping the fixed 6-agent fleet in an AdkApp container with session-to-workflow correlation"
+    test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
+
+  agent_identity_runtime:
+    status: TESTED
+    evidence: gateway/internal/auth/agent_identity.go
+    description: "SPIFFE-style Google Agent Identity validation, project boundary assertion, and mapping to fixed canonical roster at Go ingress"
+    test_command: "go test ./internal/auth/ -run TestAgentIdentityValidator"
+
+  agent_registry:
+    status: TESTED
+    evidence: docs/registry/agent_registry_v1.json
+    description: "Google Agent Registry v1 declarative schema registering the SentinelFlow fleet and bounded /internal/agent-tools endpoint"
+
+  agent_gateway:
+    status: TESTED
+    evidence: ai-tier/runtime/gateway_client.py
+    description: "Google Agent Gateway client with default-deny egress routing, IAP egress token propagation, and dry-run/enforce modes"
+    test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
+
+  agent_gateway_default_deny:
+    status: TESTED
+    evidence: ai-tier/evals/platform_runner.py
+    description: "Default-deny network routing dropping all unregistered egress destinations with HTTP 403"
+    test_command: "python ai-tier/evals/platform_runner.py"
+
+  agent_observability:
+    status: TESTED
+    evidence: ai-tier/observability/telemetry.py
+    description: "Privacy-preserving OpenTelemetry / Cloud Trace integration enforcing TraceMetadataAllowed != PromptPayloadLoggingAllowed"
+    test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
+
+  runtime_to_go_tool_gateway:
+    status: TESTED
+    evidence: gateway/internal/auth/agent_identity_test.go
+    description: "End-to-end identity and capability governance enforcing AgentIdentityValid != ToolAuthorization and GatewayAllow + ToolGatewayDeny => DENY"
+    test_command: "go test ./internal/auth/ -run TestAgentIdentityValidator_AuthorizeCapability"
+
+  platform_adversarial_evals:
+    status: TESTED
+    evidence: ai-tier/evals/platform_runner.py
+    description: "25 adversarial platform scenarios testing default-deny egress, SPIFFE identity spoofing, direct DB bypass, and trace sanitization (100% pass rate)"
+    test_command: "python ai-tier/evals/platform_runner.py"
+
   # --- Observability, Telemetry & CI ---
   prometheus_metrics:
     status: TESTED
@@ -321,7 +369,7 @@ capabilities:
   adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/runner.py
-    description: "120 adversarial security scenarios across 6 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory)"
+    description: "145 adversarial security scenarios across 7 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform)"
     test_command: "python ai-tier/evals/runner.py"
 
   ci_pipeline:

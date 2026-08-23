@@ -245,12 +245,14 @@ def run_adversarial_evals(
     from evals.verification_runner import run_verification_adversarial_evals
     from evals.model_armor_runner import run_model_armor_adversarial_evals
     from evals.memory_runner import run_memory_adversarial_evals
+    from evals.platform_runner import run_platform_adversarial_evals
 
     multi_agent_summary = run_multi_agent_adversarial_evals()
     remediation_summary = run_remediation_adversarial_evals()
     verification_summary = run_verification_adversarial_evals()
     model_armor_summary = run_model_armor_adversarial_evals()
     memory_summary = run_memory_adversarial_evals()
+    platform_summary = run_platform_adversarial_evals()
 
     combined_scenarios = (
         len(dataset)
@@ -259,6 +261,7 @@ def run_adversarial_evals(
         + verification_summary["total_scenarios"]
         + model_armor_summary["total_scenarios"]
         + memory_summary["total_scenarios"]
+        + platform_summary["total_scenarios"]
     )
     combined_total_checks = (
         total_checks
@@ -267,6 +270,7 @@ def run_adversarial_evals(
         + verification_summary["total_checks"]
         + model_armor_summary["total_checks"]
         + memory_summary["total_checks"]
+        + platform_summary["total_checks"]
     )
     combined_passed_checks = (
         passed_checks
@@ -275,6 +279,7 @@ def run_adversarial_evals(
         + verification_summary["passed_checks"]
         + model_armor_summary["passed_checks"]
         + memory_summary["passed_checks"]
+        + platform_summary["passed_checks"]
     )
     overall_status = (
         "PASSED"
@@ -285,6 +290,7 @@ def run_adversarial_evals(
             and verification_summary["status"] == "PASSED"
             and model_armor_summary["status"] == "PASSED"
             and memory_summary["status"] == "PASSED"
+            and platform_summary["pass_rate_pct"] == 100.0
         )
         else "FAILED"
     )
@@ -306,7 +312,8 @@ def run_adversarial_evals(
             + remediation_summary["elapsed_ms"]
             + verification_summary["elapsed_ms"]
             + model_armor_summary["elapsed_ms"]
-            + memory_summary["elapsed_ms"],
+            + memory_summary["elapsed_ms"]
+            + (platform_summary["elapsed_seconds"] * 1000.0),
             2,
         ),
         "single_agent_evals": {
@@ -320,6 +327,7 @@ def run_adversarial_evals(
         "verification_evals": verification_summary,
         "model_armor_evals": model_armor_summary,
         "memory_evals": memory_summary,
+        "platform_evals": platform_summary,
     }
 
 

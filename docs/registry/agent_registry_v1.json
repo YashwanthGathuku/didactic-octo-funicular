@@ -1,0 +1,50 @@
+{
+  "agentRegistry": {
+    "name": "projects/telos-agent/locations/us-central1/agentRegistries/sentinelflow-registry",
+    "displayName": "SentinelFlow Financial Agent Registry",
+    "description": "Governed Agent Registry for SentinelFlow Pre-Ledger Financial Verification Fleet",
+    "agents": [
+      {
+        "agentId": "sentinelflow-runtime-fleet",
+        "displayName": "SentinelFlow Managed Runtime Fleet",
+        "version": "1.0.0",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "autonomyCeiling": "A2",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "registeredCapabilities": [
+          "incident.get",
+          "workflow.get",
+          "artifact.metadata.get",
+          "validation.findings.list_redacted",
+          "memory.retrieve",
+          "memory.profile.get",
+          "verification.result.get",
+          "remediation.candidate.create"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      }
+    ],
+    "destinations": [
+      {
+        "destinationId": "sentinelflow-go-tool-gateway",
+        "displayName": "SentinelFlow Go Agent Ingress Endpoint",
+        "endpointUri": "https://sentinelflow-gateway-dev.internal/internal/agent-tools",
+        "authentication": "IAP_SPIFFE_BEARER",
+        "governedAccess": "AGENT_TO_ANYWHERE",
+        "description": "Exclusive agent-facing Go Tool Gateway endpoint mediating all business tool execution"
+      }
+    ]
+  }
+}

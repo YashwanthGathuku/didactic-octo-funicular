@@ -57,7 +57,7 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 | `verifier_agent` | **TESTED** | `ai-tier/agents/verifier.py` | Autonomy Level A1 read-only critic agent reviewing structured verification evidence with prompt trust partitioning |
 | `memory_agent` | **TESTED** | `ai-tier/agents/memory_agent.py` | Autonomy Level A1 read-only memory specialist retrieving bounded historical context and partner profiles |
 | `agent_runtime` | **IMPLEMENTED** | `gateway/migrations/011_agent_workflows.sql` | Local execution runtime for Google ADK agents; Google Cloud Agent Runtime is PLANNED |
-| `agent_registry` | **IMPLEMENTED** | `gateway/migrations/012_agent_registry.sql` | Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED |
+| `agent_registry` | **TESTED** | `docs/registry/agent_registry_v1.json` | Google Agent Registry v1 declarative schema registering the SentinelFlow fleet and bounded /internal/agent-tools endpoint |
 | `go_operational_memory` | **TESTED** | `gateway/internal/memory/service_test.go` | Go-owned authoritative operational fact store (M1), deterministic eligibility gate with strict PII rejection, RFC 8785 canonical hashing, and outbox event bridge |
 | `sqlite_operational_memory` | **TESTED** | `gateway/internal/memory/service_test.go` | SQLite operational memory persistence, triggers, revisions, and concurrency isolation |
 | `postgresql_operational_memory` | **IMPLEMENTED** | `gateway/migrations/022_operational_memory.sql` | PostgreSQL 16 operational memory schema and migrations in 022_operational_memory.sql; live execution planned in P11 |
@@ -81,15 +81,22 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 | `ai_guardrails_evals` | **TESTED** | `ai-tier/evals/model_armor_runner.py` | 25 adversarial Model Armor security test scenarios validating prompt injection, data minimization, fail-closed timeouts, and secret leakage containment |
 | `cloud_kms_checkpoints` | **IMPLEMENTED** | `gateway/migrations/015_kms_checkpoints.sql` | Database schema for ledger checkpoint digests; Google Cloud KMS API asymmetric signing is PLANNED |
 | `cloud_sql_deployment` | **PLANNED** | `deploy/setup-gcp.sh` | Google Cloud SQL PostgreSQL 16 + Cloud Run automated deployment script |
+| `agent_runtime_adk_deployment` | **TESTED** | `ai-tier/runtime/app.py` | Google Agent Runtime packaging wrapping the fixed 6-agent fleet in an AdkApp container with session-to-workflow correlation |
+| `agent_identity_runtime` | **TESTED** | `gateway/internal/auth/agent_identity.go` | SPIFFE-style Google Agent Identity validation, project boundary assertion, and mapping to fixed canonical roster at Go ingress |
+| `agent_gateway` | **TESTED** | `ai-tier/runtime/gateway_client.py` | Google Agent Gateway client with default-deny egress routing, IAP egress token propagation, and dry-run/enforce modes |
+| `agent_gateway_default_deny` | **TESTED** | `ai-tier/evals/platform_runner.py` | Default-deny network routing dropping all unregistered egress destinations with HTTP 403 |
+| `agent_observability` | **TESTED** | `ai-tier/observability/telemetry.py` | Privacy-preserving OpenTelemetry / Cloud Trace integration enforcing TraceMetadataAllowed != PromptPayloadLoggingAllowed |
+| `runtime_to_go_tool_gateway` | **TESTED** | `gateway/internal/auth/agent_identity_test.go` | End-to-end identity and capability governance enforcing AgentIdentityValid != ToolAuthorization and GatewayAllow + ToolGatewayDeny => DENY |
+| `platform_adversarial_evals` | **TESTED** | `ai-tier/evals/platform_runner.py` | 25 adversarial platform scenarios testing default-deny egress, SPIFFE identity spoofing, direct DB bypass, and trace sanitization (100% pass rate) |
 | `prometheus_metrics` | **TESTED** | `gateway/internal/telemetry/telemetry_test.go` | Low-cardinality Prometheus metrics with normalized routes and status labels |
-| `adversarial_evals` | **TESTED** | `ai-tier/evals/runner.py` | 120 adversarial security scenarios across 6 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory) |
+| `adversarial_evals` | **TESTED** | `ai-tier/evals/runner.py` | 145 adversarial security scenarios across 7 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform) |
 | `ci_pipeline` | **TESTED** | `.github/workflows/ci.yml` | 6-job CI: lint, test-backend (race+coverage), test-frontend, test-ai-tier, migrations, security |
 | `concurrent_stress_test` | **TESTED** | `gateway/worker_test.go` | 40 artifacts settled in 1.135s under 24 parallel workers with zero lease loss |
 
 ---
 
 ## Summary of Capabilities
-- **44 Tested Capabilities** backed by automated regression tests in CI.
-- **7 Implemented Components** with schema/code present.
+- **52 Tested Capabilities** backed by automated regression tests in CI.
+- **6 Implemented Components** with schema/code present.
 - **2 Planned Google Integrations** scheduled for runtime deployment.
 - **100% Deterministic Grounding**: AI operates in a read-only advisory capacity; all releases require verified dual-control human authorization.
