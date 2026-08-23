@@ -39,7 +39,15 @@
 
 `docs/CAPABILITY_MATRIX.yaml` is the status source for submission-facing claims. It distinguishes a **TESTED governed Gemini 3.5 provider path** from **IMPLEMENTED live Gemini 3.5 external execution**. `scripts/generate_docs.py` verifies the generated `docs/DEVPOST_SUBMISSION.md`; it does not claim to regenerate every repository document.
 
-## P12.5 Local Verification Commands
+## P12.5 Local Verification
+
+Preferred:
+
+```bash
+bash scripts/verify_p12_5.sh
+```
+
+Equivalent commands:
 
 ```bash
 cd gateway
