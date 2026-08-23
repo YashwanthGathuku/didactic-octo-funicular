@@ -38,6 +38,15 @@ func loadReturnRiskSemanticsFixture(t *testing.T) returnRiskSemanticsFixture {
 	return fixture
 }
 
+func hasSource(def ACHReturnCode, sourceID string) bool {
+	for _, source := range def.SourceProvenance {
+		if source.SourceID == sourceID {
+			return true
+		}
+	}
+	return false
+}
+
 func TestP125_PublicThresholdValuesAndSharedFixture(t *testing.T) {
 	fixture := loadReturnRiskSemanticsFixture(t)
 	if UnauthorizedReturnRateThreshold != 0.005 || fixture.Thresholds.Unauthorized != UnauthorizedReturnRateThreshold {
@@ -72,8 +81,8 @@ func TestP125_R10AndR11CurrentSemantics(t *testing.T) {
 	if r11.Title != fixture.ReturnCodes["R11"].Title {
 		t.Fatalf("R11 title drift: %q", r11.Title)
 	}
-	if r11.NormalizedCategory != CategoryUnauthorized || fixture.ReturnCodes["R11"].NormalizedCategory != string(CategoryUnauthorized) {
-		t.Fatalf("R11 must remain in unauthorized operational category: go=%s fixture=%s", r11.NormalizedCategory, fixture.ReturnCodes["R11"].NormalizedCategory)
+	if r11.NormalizedCategory != CategoryAuthorizationTerms || fixture.ReturnCodes["R11"].NormalizedCategory != string(CategoryAuthorizationTerms) {
+		t.Fatalf("R11 must preserve authorization-terms semantics: go=%s fixture=%s", r11.NormalizedCategory, fixture.ReturnCodes["R11"].NormalizedCategory)
 	}
 	if r11.ReturnWindow != ReturnWindow60CalendarDays || r11.ThresholdCategory != ThresholdUnauthorized05Percent {
 		t.Fatalf("R11 must use extended window and unauthorized return-rate handling")
@@ -164,5 +173,36 @@ func TestP125_TaxonomyGuidanceIsOperationalNotAuthority(t *testing.T) {
 		if len(def.SourceProvenance) == 0 {
 			t.Fatalf("%s is missing public source provenance", code)
 		}
+		for _, source := range def.SourceProvenance {
+			if source.SourceID == "" || source.SourceName == "" || source.Reference == "" || source.RetrievedDate == "" {
+				t.Fatalf("%s has incomplete public source provenance: %+v", code, source)
+			}
+			if !strings.HasPrefix(source.Reference, "https://www.nacha.org/") {
+				t.Fatalf("%s source %s must reference a public Nacha resource: %s", code, source.SourceID, source.Reference)
+			}
+			if !source.SemanticsVerified {
+				t.Fatalf("%s source %s is not marked semantics-verified", code, source.SourceID)
+			}
+		}
+	}
+}
+
+func TestP125_CodeSpecificPublicSourceProvenance(t *testing.T) {
+	for _, code := range []string{"R05", "R07", "R10", "R11", "R29"} {
+		def, err := LookupReturnCode(code)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasSource(def, "NACHA_PUBLIC_UNAUTHORIZED_REASON_DIFFERENTIATION") {
+			t.Fatalf("%s must carry the public unauthorized-return-reason source", code)
+		}
+	}
+
+	r16, err := LookupReturnCode("R16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSource(r16, "NACHA_PUBLIC_R90_RULE_2026") {
+		t.Fatal("R16 must carry the public R90 transition source describing current/future semantics")
 	}
 }
