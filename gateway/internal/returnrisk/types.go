@@ -7,10 +7,7 @@ import (
 	"sentinel-gateway/internal/memory"
 )
 
-// Engine Version Constant
-const (
-	EngineVersion = "1.0.1-p12.5"
-)
+const EngineVersion = "1.0.1-p12.5"
 
 // Public Nacha return-rate monitoring values used by the deterministic engine.
 // These are operational risk-monitoring inputs, not legal or compliance decisions.
@@ -20,7 +17,6 @@ const (
 	OverallReturnRateLevel          = 0.150
 )
 
-// Domain Errors
 var (
 	ErrNilScope             = errors.New("returnrisk: repository scope is required")
 	ErrNilEvent             = errors.New("returnrisk: return event is nil")
@@ -36,30 +32,27 @@ var (
 	ErrInvalidFeatureVector = errors.New("returnrisk: feature vector values out of legal range [0, 100]")
 )
 
-// RiskTier represents the discrete risk classification tier.
 type RiskTier string
 
 const (
-	RiskTierLow    RiskTier = "LOW"    // [0, 29]
-	RiskTierMedium RiskTier = "MEDIUM" // [30, 59]
-	RiskTierHigh   RiskTier = "HIGH"   // [60, 79]
-	RiskTierSevere RiskTier = "SEVERE" // [80, 100]
+	RiskTierLow    RiskTier = "LOW"
+	RiskTierMedium RiskTier = "MEDIUM"
+	RiskTierHigh   RiskTier = "HIGH"
+	RiskTierSevere RiskTier = "SEVERE"
 )
 
-// ReturnCategory defines the primary normalized operational classification of an ACH return.
 type ReturnCategory string
 
 const (
-	CategoryInsufficientFunds ReturnCategory = "INSUFFICIENT_FUNDS"
-	CategoryAccountStatus     ReturnCategory = "ACCOUNT_STATUS"
-	CategoryAccountData       ReturnCategory = "ACCOUNT_DATA"
-	CategoryUnauthorized      ReturnCategory = "UNAUTHORIZED"
+	CategoryInsufficientFunds  ReturnCategory = "INSUFFICIENT_FUNDS"
+	CategoryAccountStatus      ReturnCategory = "ACCOUNT_STATUS"
+	CategoryAccountData        ReturnCategory = "ACCOUNT_DATA"
+	CategoryUnauthorized       ReturnCategory = "UNAUTHORIZED"
 	CategoryAuthorizationTerms ReturnCategory = "AUTHORIZATION_TERMS"
-	CategoryAdministrative    ReturnCategory = "ADMINISTRATIVE"
-	CategoryOFACRestricted    ReturnCategory = "OFAC_RESTRICTED"
+	CategoryAdministrative     ReturnCategory = "ADMINISTRATIVE"
+	CategoryOFACRestricted     ReturnCategory = "OFAC_RESTRICTED"
 )
 
-// OperationalSeverity ranks the urgency and risk profile of the return event.
 type OperationalSeverity string
 
 const (
@@ -69,7 +62,6 @@ const (
 	SeverityCritical OperationalSeverity = "CRITICAL"
 )
 
-// RetryCharacteristic describes operational handling characteristics. It is not a legal determination.
 type RetryCharacteristic string
 
 const (
@@ -79,7 +71,6 @@ const (
 	Prohibited              RetryCharacteristic = "PROHIBITED"
 )
 
-// ReturnWindowType captures the public return-window semantics represented by the MVP taxonomy.
 type ReturnWindowType string
 
 const (
@@ -87,7 +78,6 @@ const (
 	ReturnWindow60CalendarDays ReturnWindowType = "EXTENDED_60_CALENDAR_DAYS"
 )
 
-// ThresholdType identifies the public Nacha return-rate monitoring category, when applicable.
 type ThresholdType string
 
 const (
@@ -97,19 +87,17 @@ const (
 	ThresholdRegulatoryRestricted   ThresholdType = "REGULATORY_RESTRICTED"
 )
 
-// GuidanceType is typed operational guidance only. ReturnTaxonomyGuidance != LegalDecision.
 type GuidanceType string
 
 const (
-	GuidanceReviewRequired                GuidanceType = "REVIEW_REQUIRED"
-	GuidanceComplianceReviewRequired      GuidanceType = "COMPLIANCE_REVIEW_REQUIRED"
-	GuidanceAuthorizationReviewRequired   GuidanceType = "AUTHORIZATION_REVIEW_REQUIRED"
-	GuidanceDoNotAutomaticallyReinitiate  GuidanceType = "DO_NOT_AUTOMATICALLY_REINITIATE"
-	GuidanceCorrectionRequired            GuidanceType = "CORRECTION_REQUIRED"
-	GuidanceStandardExceptionReview       GuidanceType = "STANDARD_EXCEPTION_REVIEW"
+	GuidanceReviewRequired               GuidanceType = "REVIEW_REQUIRED"
+	GuidanceComplianceReviewRequired     GuidanceType = "COMPLIANCE_REVIEW_REQUIRED"
+	GuidanceAuthorizationReviewRequired  GuidanceType = "AUTHORIZATION_REVIEW_REQUIRED"
+	GuidanceDoNotAutomaticallyReinitiate GuidanceType = "DO_NOT_AUTOMATICALLY_REINITIATE"
+	GuidanceCorrectionRequired           GuidanceType = "CORRECTION_REQUIRED"
+	GuidanceStandardExceptionReview      GuidanceType = "STANDARD_EXCEPTION_REVIEW"
 )
 
-// PublicSourceProvenance records the public material used to verify represented semantics.
 type PublicSourceProvenance struct {
 	SourceID          string `json:"source_id"`
 	SourceName        string `json:"source_name"`
@@ -118,7 +106,6 @@ type PublicSourceProvenance struct {
 	SemanticsVerified bool   `json:"semantics_verified"`
 }
 
-// VerificationStatus represents provenance verification status of the return source.
 type VerificationStatus string
 
 const (
@@ -128,29 +115,27 @@ const (
 	VerificationStatusRejected   VerificationStatus = "REJECTED"
 )
 
-// ACHReturnCode describes one entry in SentinelFlow's representative MVP taxonomy.
-// The catalog is deliberately not a complete ACH return-code catalog.
+// ACHReturnCode is one entry in SentinelFlow's representative MVP catalog, not a complete ACH taxonomy.
 type ACHReturnCode struct {
-	Code                 string                   `json:"code"`
-	ShortLabel           string                   `json:"short_label"`
-	Title                string                   `json:"title"`
-	Description          string                   `json:"description"`
-	NormalizedCategory   ReturnCategory           `json:"normalized_category"`
-	OperationalSeverity  OperationalSeverity      `json:"operational_severity"`
-	RetryCharacteristic  RetryCharacteristic      `json:"retry_characteristic"`
-	AccountDataIssue     bool                     `json:"account_data_issue"`
-	AuthorizationIssue   bool                     `json:"authorization_issue"`
-	AdministrativeIssue  bool                     `json:"administrative_issue"`
-	ReturnWindow         ReturnWindowType         `json:"return_window"`
-	ThresholdCategory    ThresholdType            `json:"threshold_category"`
-	BaseSeverity         float64                  `json:"base_severity"`
-	TaxonomyVersion      string                   `json:"taxonomy_version"`
-	OperationalGuidance  GuidanceType             `json:"operational_guidance"`
-	GuidanceSummary      string                   `json:"guidance_summary"`
-	SourceProvenance     []PublicSourceProvenance `json:"source_provenance"`
+	Code                string                   `json:"code"`
+	ShortLabel          string                   `json:"short_label"`
+	Title               string                   `json:"title"`
+	Description         string                   `json:"description"`
+	NormalizedCategory  ReturnCategory           `json:"normalized_category"`
+	OperationalSeverity OperationalSeverity      `json:"operational_severity"`
+	RetryCharacteristic RetryCharacteristic      `json:"retry_characteristic"`
+	AccountDataIssue    bool                     `json:"account_data_issue"`
+	AuthorizationIssue  bool                     `json:"authorization_issue"`
+	AdministrativeIssue bool                     `json:"administrative_issue"`
+	ReturnWindow        ReturnWindowType         `json:"return_window"`
+	ThresholdCategory   ThresholdType            `json:"threshold_category"`
+	BaseSeverity        float64                  `json:"base_severity"`
+	TaxonomyVersion     string                   `json:"taxonomy_version"`
+	OperationalGuidance GuidanceType             `json:"operational_guidance"`
+	GuidanceSummary     string                   `json:"guidance_summary"`
+	SourceProvenance    []PublicSourceProvenance `json:"source_provenance"`
 }
 
-// ReturnEvent represents an immutable incoming ACH return event to be assessed.
 type ReturnEvent struct {
 	ReturnEventID      string                `json:"return_event_id"`
 	TenantID           string                `json:"tenant_id"`
@@ -166,7 +151,6 @@ type ReturnEvent struct {
 	Classification     memory.Classification `json:"classification"`
 }
 
-// SLAContext provides time-to-breach and operational turnaround constraints.
 type SLAContext struct {
 	DeadlineUTC       time.Time     `json:"deadline_utc"`
 	RemainingDuration time.Duration `json:"remaining_duration"`
@@ -175,7 +159,6 @@ type SLAContext struct {
 	TargetCutoffUTC   string        `json:"target_cutoff_utc"`
 }
 
-// HistoricalReturnContext aggregates tenant-partner historical metrics for scoring.
 type HistoricalReturnContext struct {
 	TotalReturns7d         int     `json:"total_returns_7d"`
 	TotalReturns30d        int     `json:"total_returns_30d"`
@@ -188,26 +171,22 @@ type HistoricalReturnContext struct {
 	RecentTrendVelocity    float64 `json:"recent_trend_velocity"`
 }
 
-// RiskFeatureVector records normalized scoring and contextual features.
-// Authoritative weighted score inputs are: ReturnCodeSeverity, ReturnFrequency7d,
-// ReturnFrequency30d, PartnerReturnRate, RecentTrend, AmountExposureBucket, and SLAProximity.
-// SameCodeRecurrence, VerifiedPriorOccurrences, and SourceStrength are contextual/diagnostic only.
+// RiskFeatureVector records seven weighted scoring features plus contextual/diagnostic features.
 type RiskFeatureVector struct {
-	ReturnCodeSeverity                    float64 `json:"return_code_severity"`
-	ReturnFrequency7d                     float64 `json:"return_frequency_7d"`
-	ReturnFrequency30d                    float64 `json:"return_frequency_30d"`
-	PartnerReturnRate                     float64 `json:"partner_return_rate"`
-	PartnerReturnRateThreshold            float64 `json:"partner_return_rate_threshold"`
-	PartnerReturnRateThresholdApplicable  bool    `json:"partner_return_rate_threshold_applicable"`
-	SameCodeRecurrence                    float64 `json:"same_code_recurrence"`
-	RecentTrend                           float64 `json:"recent_trend"`
-	VerifiedPriorOccurrences              float64 `json:"verified_prior_occurrences"`
-	SLAProximity                          float64 `json:"sla_proximity"`
-	AmountExposureBucket                  float64 `json:"amount_exposure_bucket"`
-	SourceStrength                        float64 `json:"source_strength"`
+	ReturnCodeSeverity                   float64 `json:"return_code_severity"`
+	ReturnFrequency7d                    float64 `json:"return_frequency_7d"`
+	ReturnFrequency30d                   float64 `json:"return_frequency_30d"`
+	PartnerReturnRate                    float64 `json:"partner_return_rate"`
+	PartnerReturnRateThreshold           float64 `json:"partner_return_rate_threshold"`
+	PartnerReturnRateThresholdApplicable bool    `json:"partner_return_rate_threshold_applicable"`
+	SameCodeRecurrence                   float64 `json:"same_code_recurrence"`
+	RecentTrend                          float64 `json:"recent_trend"`
+	VerifiedPriorOccurrences             float64 `json:"verified_prior_occurrences"`
+	SLAProximity                         float64 `json:"sla_proximity"`
+	AmountExposureBucket                 float64 `json:"amount_exposure_bucket"`
+	SourceStrength                       float64 `json:"source_strength"`
 }
 
-// RiskContribution tracks the linear contribution of an individual normalized scoring feature.
 type RiskContribution struct {
 	FeatureName       string  `json:"feature_name"`
 	RawValue          float64 `json:"raw_value"`
@@ -216,8 +195,7 @@ type RiskContribution struct {
 	ContributionScore float64 `json:"contribution_score"`
 }
 
-// ReturnRiskResult is the final output of the deterministic risk calculation.
-// ReturnRiskScore != ComplianceDecision.
+// ReturnRiskResult is operational risk intelligence, not a compliance or financial decision.
 type ReturnRiskResult struct {
 	AssessmentID   string             `json:"assessment_id"`
 	TenantID       string             `json:"tenant_id"`
@@ -235,7 +213,6 @@ type ReturnRiskResult struct {
 	EngineVersion  string             `json:"engine_version"`
 }
 
-// ReturnRiskFactPayload represents the structured payload stored in M1 operational memory.
 type ReturnRiskFactPayload struct {
 	AssessmentID     string    `json:"assessment_id"`
 	WorkflowID       string    `json:"workflow_id"`
