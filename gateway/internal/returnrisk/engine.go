@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
 	"time"
 
 	"sentinel-gateway/internal/memory"
+	"sentinel-gateway/internal/policy"
 	"sentinel-gateway/internal/repository"
 )
 
@@ -46,6 +46,23 @@ func (c EngineConfig) Validate() error {
 		return fmt.Errorf("%w: weights sum to %f, expected 1.0", ErrInvalidWeights, sum)
 	}
 	return nil
+}
+
+// thresholdRateFor returns the public return-rate monitoring value represented by a category.
+// Regulatory-restricted categories intentionally have no synthetic percentage threshold.
+func thresholdRateFor(category ThresholdType) (float64, bool) {
+	switch category {
+	case ThresholdUnauthorized05Percent:
+		return UnauthorizedReturnRateThreshold, true
+	case ThresholdAdministrative3Percent:
+		return AdministrativeReturnRateLevel, true
+	case ThresholdOverall15Percent:
+		return OverallReturnRateLevel, true
+	case ThresholdRegulatoryRestricted:
+		return 0, false
+	default:
+		return 0, false
+	}
 }
 
 // RiskEngine defines the interface for deterministic ACH return risk assessment.
@@ -105,7 +122,7 @@ func (e *DeterministicRiskEngine) CalculateRisk(
 		return nil, ErrInvalidAmount
 	}
 
-	// 2. Resolve NACHA Return Code Taxonomy
+	// 2. Resolve ACH Return Code Taxonomy
 	codeDef, err := LookupReturnCode(event.ReturnCode)
 	if err != nil {
 		return nil, err
@@ -114,7 +131,7 @@ func (e *DeterministicRiskEngine) CalculateRisk(
 	// 3. Extract & Normalize Feature Vector
 	vec := e.extractFeatureVector(event, codeDef, history, sla)
 
-	// 4. Compute Weighted Contributions
+	// 4. Compute Weighted Contributions. The authoritative score intentionally uses seven features.
 	contributions := []RiskContribution{
 		{
 			FeatureName:       "ReturnCodeSeverity",
@@ -203,7 +220,7 @@ func (e *DeterministicRiskEngine) CalculateRisk(
 		}
 	}
 
-	// 8. Mint Assessment ID and Canonical Cryptographic Hash
+	// 8. Mint a unique record identity. Volatile identity/time are excluded from the protected assessment hash.
 	now := time.Now().UTC()
 	assessmentID := fmt.Sprintf("rr-asm-%s-%d", event.ReturnEventID, now.UnixNano())
 
@@ -223,7 +240,6 @@ func (e *DeterministicRiskEngine) CalculateRisk(
 		EngineVersion:  EngineVersion,
 	}
 
-	// Compute immutable assessment digest
 	resultHash, err := computeAssessmentHash(result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute assessment hash: %w", err)
@@ -233,7 +249,7 @@ func (e *DeterministicRiskEngine) CalculateRisk(
 	return result, nil
 }
 
-// extractFeatureVector maps domain event and context into [0, 100] normalized scores.
+// extractFeatureVector maps domain event and context into normalized scores.
 func (e *DeterministicRiskEngine) extractFeatureVector(
 	event ReturnEvent,
 	code ACHReturnCode,
@@ -249,19 +265,15 @@ func (e *DeterministicRiskEngine) extractFeatureVector(
 	// 3. Frequency 30d (sublinear saturation)
 	freq30 := math.Min(100.0, 100.0*(1.0-math.Exp(-0.025*float64(history.TotalReturns30d))))
 
-	// 4. Partner Return Rate vs Regulatory Threshold
+	// 4. Partner Return Rate vs a public Nacha return-rate monitoring value when applicable.
 	actualRate := float64(history.PartnerTotalReturns30d) / math.Max(1.0, float64(history.PartnerTotalEntries30d))
-	threshold := 0.075
-	if code.ThresholdCategory == ThresholdUnauthorized05Percent {
-		threshold = 0.005
-	} else if code.ThresholdCategory == ThresholdAdministrative3Percent {
-		threshold = 0.030
-	} else if code.ThresholdCategory == ThresholdOverall15Percent {
-		threshold = 0.150
+	threshold, thresholdApplicable := thresholdRateFor(code.ThresholdCategory)
+	partnerRate := 0.0
+	if thresholdApplicable {
+		partnerRate = math.Min(100.0, (actualRate/threshold)*50.0)
 	}
-	partnerRate := math.Min(100.0, (actualRate/threshold)*50.0)
 
-	// 5. Same Code Recurrence
+	// 5. Same Code Recurrence (contextual/diagnostic only)
 	sameCodeRecurrence := math.Min(100.0, float64(history.SameCodeCount30d)*10.0)
 
 	// 6. Recent Trend Velocity
@@ -299,7 +311,7 @@ func (e *DeterministicRiskEngine) extractFeatureVector(
 		slaScore = 15.0
 	}
 
-	// 9. Source Strength
+	// 9. Source Strength (contextual/diagnostic only)
 	sourceStrength := 50.0
 	if event.VerificationStatus == VerificationStatusVerified {
 		sourceStrength = 100.0
@@ -307,40 +319,44 @@ func (e *DeterministicRiskEngine) extractFeatureVector(
 		sourceStrength = 20.0
 	}
 
-	// 10. Verified Prior Occurrences
+	// 10. Verified Prior Occurrences (contextual/diagnostic only)
 	verifiedPrior := math.Min(100.0, float64(history.VerifiedPriorCount)*20.0)
 
 	return RiskFeatureVector{
-		ReturnCodeSeverity:       math.Round(codeSeverity*100) / 100,
-		ReturnFrequency7d:        math.Round(freq7*100) / 100,
-		ReturnFrequency30d:       math.Round(freq30*100) / 100,
-		PartnerReturnRate:        math.Round(partnerRate*100) / 100,
-		SameCodeRecurrence:       math.Round(sameCodeRecurrence*100) / 100,
-		RecentTrend:              math.Round(trend*100) / 100,
-		VerifiedPriorOccurrences: math.Round(verifiedPrior*100) / 100,
-		SLAProximity:             math.Round(slaScore*100) / 100,
-		AmountExposureBucket:     exposure,
-		SourceStrength:           sourceStrength,
+		ReturnCodeSeverity:                   math.Round(codeSeverity*100) / 100,
+		ReturnFrequency7d:                    math.Round(freq7*100) / 100,
+		ReturnFrequency30d:                   math.Round(freq30*100) / 100,
+		PartnerReturnRate:                    math.Round(partnerRate*100) / 100,
+		PartnerReturnRateThreshold:           threshold,
+		PartnerReturnRateThresholdApplicable: thresholdApplicable,
+		SameCodeRecurrence:                   math.Round(sameCodeRecurrence*100) / 100,
+		RecentTrend:                          math.Round(trend*100) / 100,
+		VerifiedPriorOccurrences:             math.Round(verifiedPrior*100) / 100,
+		SLAProximity:                         math.Round(slaScore*100) / 100,
+		AmountExposureBucket:                 exposure,
+		SourceStrength:                       sourceStrength,
 	}
 }
 
-// computeAssessmentHash builds a deterministic canonical SHA-256 hash of calculation inputs/outputs.
+// computeAssessmentHash builds an RFC 8785 JCS SHA-256 hash over protected deterministic fields.
+// AssessmentID and ComputedAt are record metadata and are intentionally excluded so identical
+// calculation inputs/outputs produce the same assessment hash.
 func computeAssessmentHash(r *ReturnRiskResult) (string, error) {
-	canonicalMap := map[string]interface{}{
-		"assessment_id":   r.AssessmentID,
+	protected := map[string]interface{}{
 		"tenant_id":       r.TenantID,
 		"workflow_id":     r.WorkflowID,
 		"return_event_id": r.ReturnEventID,
 		"return_code":     r.ReturnCode,
 		"risk_score":      r.RiskScore,
 		"risk_tier":       string(r.RiskTier),
+		"contributions":   r.Contributions,
 		"feature_vector":  r.FeatureVector,
 		"engine_version":  r.EngineVersion,
 	}
-	rawJSON, err := json.Marshal(canonicalMap)
+	canonical, err := policy.CanonicalJSON(protected)
 	if err != nil {
 		return "", err
 	}
-	h := sha256.Sum256(rawJSON)
+	h := sha256.Sum256(canonical)
 	return hex.EncodeToString(h[:]), nil
 }
