@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Generate documentation, capability matrices, and Devpost submission from CAPABILITY_MATRIX.yaml.
+"""Generate and verify the Devpost submission from CAPABILITY_MATRIX.yaml.
 
 Usage:
-    python scripts/generate_docs.py          # Regenerates all derived docs
-    python scripts/generate_docs.py --check  # Verifies docs are up to date (for CI)
+    python scripts/generate_docs.py          # Regenerates docs/DEVPOST_SUBMISSION.md
+    python scripts/generate_docs.py --check  # Verifies that generated submission is current
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
+
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -52,30 +52,29 @@ def generate_devpost_submission(matrix: dict) -> str:
     doc = f"""# SentinelFlow — All Things Agentic Hackathon Submission
 
 ## Project Overview
-**SentinelFlow** is a next-generation autonomous AI Agent Control Plane built for **Gemini models** and targeting the **Google Agent Development Kit (ADK)** for high-assurance enterprise financial file reliability, incident triaging, and pre-ledger compliance.
+**SentinelFlow** is a governed AI Agent Control Plane built for **Gemini 3.5** and the **Google Agent Development Kit (ADK)** for high-assurance enterprise financial file reliability, incident triage, and pre-ledger operational intelligence.
 
-Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of specialist agents** running asynchronously to handle the heavy lifting of batch payments validation, anomaly classification, regulatory compliance auditing, and derived artifact remediation while preserving authoritative deterministic controls.
+Instead of a generic chatbot, SentinelFlow deploys an orchestrated fleet of specialist agents to perform bounded analysis and remediation planning while deterministic Go controls retain authority over evidence, policy, state transitions, verification, and financial release.
 
 ---
 
-## The Specialist Agent Fleet
-1. **SentinelCoordinator (Root Agent)**: Orchestrates the specialist fleet, routes incident findings, and enforces Model Armor guardrails.
-2. **TriageAgent**: Classifies incident severity (P1–P4) from deterministic findings and SLA commitments.
-3. **ComplianceAgent**: Deep NACHA/ACH regulatory expertise with rule citations.
-4. **RemediationAgent**: Proposes non-destructive fixes as **derived artifacts** (preserving immutable originals).
-5. **VerifierAgent**: Independent deterministic re-validation of findings before dual-control human release.
-6. **MemoryAgent (Memory Bank)**: Persistent cross-session recall of incident patterns, counterparty reliability, and SLA trends.
-7. **EscalationAgent**: Proactive SLA breach detection and risk scoring.
+## Governed Specialist Agent Fleet
+1. **IncidentCommanderAgent**: Plans and synthesizes bounded incident investigations.
+2. **DiagnosisAgent**: Produces evidence-grounded diagnostic hypotheses.
+3. **PolicySLAAgent**: Explains deterministic policy and SLA context without overriding it.
+4. **MemoryAgent**: Retrieves advisory historical context; memory is never promoted to evidence by the model.
+5. **RemediationAgent**: Proposes non-destructive derived-artifact repairs only.
+6. **VerifierAgent**: Critiques verification evidence while deterministic Go verification remains authoritative.
+7. **ReturnRiskAgent**: Explains deterministic ACH return-risk results in an A1 read-only role.
 
 ---
 
 ## Google Cloud & Gemini Technology Stack
-- **Gemini 2.5 Flash (`google-genai` SDK)**: Grounded reasoning with calibrated uncertainty.
-- **Google Agent Development Kit (ADK)**: Multi-agent hierarchical delegation with least-privilege tool scopes (local fleet implemented, managed ADK runtime PLANNED).
-- **Google Cloud Model Armor**: Input/output screening against prompt injection, jailbreaks, and PII leakage (local filter implemented, Cloud API PLANNED).
-- **Google Cloud KMS**: Periodic asymmetric signatures on linear hash chain ledger checkpoints (schema implemented, Cloud KMS API PLANNED).
-- **Google Cloud SQL (PostgreSQL 16)**: System of record with row-level security and transactional outbox.
-- **Google Cloud Run**: Containerized, auto-scaling backend gateway and AI Tier.
+- **Gemini 3.5 Flash (`gemini-3.5-flash`, `google-genai` SDK)**: Governed provider path for structured reasoning. A live external invocation is claimed only when separately evidenced in the capability matrix.
+- **Google Agent Development Kit (ADK)**: Fixed specialist-agent runtime objects and bounded orchestration.
+- **Google Cloud Model Armor**: Shared GuardedModelBoundary performs configured pre/post screening before/after live model invocation.
+- **Google Cloud KMS**: Ledger checkpoint signing integration remains separately statused in the capability matrix.
+- **PostgreSQL / SQLite**: Deterministic system-of-record and test/storage paths according to capability status.
 
 ---
 
@@ -94,17 +93,17 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 ---
 
 ## Summary of Capabilities
-- **{len(tested)} Tested Capabilities** backed by automated regression tests in CI.
-- **{len(implemented)} Implemented Components** with schema/code present.
-- **{len(planned)} Planned Google Integrations** scheduled for runtime deployment.
-- **100% Deterministic Grounding**: AI operates in a read-only advisory capacity; all releases require verified dual-control human authorization.
+- **{len(tested)} Tested Capabilities** backed by automated regression evidence.
+- **{len(implemented)} Implemented Components** with code/schema present but not necessarily live-provider verified.
+- **{len(planned)} Planned Integrations** that are not represented as implemented runtime behavior.
+- **Authority invariant**: AI output is advisory; financial release remains behind deterministic controls and human authorization.
 """
     return doc
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate docs from capability matrix")
-    parser.add_argument("--check", action="store_true", help="Check that generated docs match committed files")
+    parser = argparse.ArgumentParser(description="Generate Devpost submission from capability matrix")
+    parser.add_argument("--check", action="store_true", help="Check that generated Devpost submission is current")
     args = parser.parse_args()
 
     matrix = load_and_validate_matrix()
@@ -119,7 +118,7 @@ def main():
         if existing != devpost_content:
             print("Error: docs/DEVPOST_SUBMISSION.md is out of date with CAPABILITY_MATRIX.yaml!", file=sys.stderr)
             sys.exit(1)
-        print("[OK] All documentation matches CAPABILITY_MATRIX.yaml")
+        print("[OK] Generated Devpost submission matches CAPABILITY_MATRIX.yaml")
         return
 
     devpost_path.write_text(devpost_content, encoding="utf-8")
