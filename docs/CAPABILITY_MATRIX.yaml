@@ -8,7 +8,7 @@
 #   EXPERIMENTAL — Proof-of-concept implementation
 #   PLANNED      — Designed; implementation pending
 
-version: "1.1-p12.5"
+version: "1.2-p11.5-p12.5"
 last_updated: "2026-08-23"
 
 capabilities:
@@ -167,12 +167,12 @@ capabilities:
   agent_runtime:
     status: IMPLEMENTED
     evidence: gateway/migrations/011_agent_workflows.sql
-    description: "Local execution runtime for Google ADK agents; managed cloud runtime remains separately statused"
+    description: "Go-owned durable agent workflow runtime; managed Google runtime is separately statused"
 
   agent_registry:
-    status: TESTED
+    status: IMPLEMENTED
     evidence: docs/registry/agent_registry_v1.json
-    description: "Declarative fixed-agent registry schema with bounded internal agent-tools endpoint"
+    description: "Declarative Google Agent Registry payload for the fixed fleet and bounded agent-tools endpoint; live registry creation remains externally unproven"
 
   # --- Governed Operational Memory ---
   go_operational_memory:
@@ -277,7 +277,7 @@ capabilities:
   sentinelflow_lens:
     status: PLANNED
     evidence: null
-    description: "Governed analytics plane; not part of P12.5"
+    description: "Governed analytics plane; intentionally deferred beyond hackathon submission"
 
   # --- AI Guardrails ---
   model_armor_client:
@@ -298,7 +298,7 @@ capabilities:
     description: "Adversarial Model Armor security scenarios cover injection, minimization, fail-closed outage, and leakage containment"
     test_command: "python ai-tier/evals/model_armor_runner.py"
 
-  # --- Cloud Infrastructure (not deployed in P12.5) ---
+  # --- Cloud Infrastructure ---
   cloud_kms_checkpoints:
     status: IMPLEMENTED
     evidence: gateway/migrations/015_kms_checkpoints.sql
@@ -307,49 +307,79 @@ capabilities:
   cloud_sql_deployment:
     status: PLANNED
     evidence: deploy/setup-gcp.sh
-    description: "Cloud SQL / Cloud Run deployment is not part of P12.5"
+    description: "Cloud SQL / production persistence deployment remains deferred until live deployment phase"
 
-  # --- Enterprise Agent Platform Integration ---
+  # --- P11.5 Google Enterprise Agent Platform Integration Truth Gate ---
   agent_runtime_adk_deployment:
-    status: TESTED
-    evidence: ai-tier/runtime/app.py
-    description: "ADK runtime packaging wraps the fixed seven-agent fleet with session/workflow correlation"
+    status: IMPLEMENTED
+    evidence: ai-tier/runtime/managed_adk.py
+    description: "Real vertexai.agent_engines.AdkApp factory packages the fixed seven-agent Google ADK topology; deployment command exists but live Agent Runtime creation is not yet proven"
     test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
 
+  agent_runtime_deploy_command:
+    status: IMPLEMENTED
+    evidence: ai-tier/runtime/deploy_agent_runtime.py
+    description: "Dry-run-by-default deployment command creates Agent Runtime with identity_type=AGENT_IDENTITY only when --execute is explicitly supplied"
+
   agent_identity_runtime:
-    status: TESTED
-    evidence: gateway/internal/auth/agent_identity.go
-    description: "Agent identity validation maps ingress identity to the fixed canonical roster"
-    test_command: "go test ./internal/auth/ -run TestAgentIdentityValidator"
+    status: IMPLEMENTED
+    evidence: gateway/internal/auth/iap_verifier.go
+    description: "Managed ingress verifies signed X-Goog-IAP-JWT-Assertion before binding fixed-roster specialist metadata; application code no longer fabricates Google Agent Identity principals"
+    test_command: "go test -v ./internal/auth/..."
 
   agent_gateway:
-    status: TESTED
+    status: IMPLEMENTED
     evidence: ai-tier/runtime/gateway_client.py
-    description: "Agent Gateway client enforces default-deny egress routing and identity propagation"
+    description: "Managed egress performs bounded HTTP dispatch to the exact registered Go endpoint and relies on Google Agent Gateway/IAP for infrastructure authorization; local policy simulation is labeled separately"
     test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
 
   agent_gateway_default_deny:
     status: TESTED
     evidence: ai-tier/evals/platform_runner.py
-    description: "Default-deny routing rejects unregistered egress destinations"
+    description: "SentinelFlow local defense-in-depth routing rejects unregistered destinations; this is not represented as live Google Agent Gateway proof"
     test_command: "python ai-tier/evals/platform_runner.py"
 
   agent_observability:
     status: TESTED
     evidence: ai-tier/observability/telemetry.py
-    description: "Privacy-preserving telemetry separates allowed trace metadata from prompt payloads"
+    description: "Privacy-preserving OpenTelemetry instrumentation separates allowed trace metadata from prompt payloads; live Cloud Trace proof remains separate"
     test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
 
   runtime_to_go_tool_gateway:
-    status: TESTED
-    evidence: gateway/internal/auth/agent_identity_test.go
-    description: "Identity validity is distinct from tool authorization; any gateway/tool denial remains DENY"
-    test_command: "go test ./internal/auth/ -run TestAgentIdentityValidator_AuthorizeCapability"
+    status: IMPLEMENTED
+    evidence: gateway/internal/auth/iap_verifier.go
+    description: "Managed HTTP path plus signed-IAP ingress binding implemented; live Runtime→Gateway→Go execution is not yet externally proven"
+    test_command: "go test -v ./internal/auth/... && pytest ai-tier/tests/test_platform_runtime.py -v"
+
+  live_agent_runtime:
+    status: IMPLEMENTED
+    evidence: ai-tier/runtime/deploy_agent_runtime.py
+    description: "Live deployment path exists; capability upgrades to TESTED only after a real reasoningEngine resource is created and queried"
+
+  live_agent_identity:
+    status: IMPLEMENTED
+    evidence: ai-tier/runtime/identity.py
+    description: "Managed identity consumption path exists; TESTED requires observing the system-attested principal from a real Agent Runtime resource"
+
+  live_agent_registry:
+    status: IMPLEMENTED
+    evidence: docs/registry/agent_registry_v1.json
+    description: "Registry payload exists; TESTED requires a real Google Agent Registry resource lookup"
+
+  live_agent_gateway:
+    status: IMPLEMENTED
+    evidence: deployment/terraform/agent_platform.tf
+    description: "Gateway infrastructure definition and managed client path exist; TESTED requires live allowed/denied egress evidence"
+
+  live_agent_observability:
+    status: IMPLEMENTED
+    evidence: ai-tier/observability/telemetry.py
+    description: "Cloud-compatible tracing instrumentation exists; TESTED requires an observed managed trace ID from Agent Runtime"
 
   platform_adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/platform_runner.py
-    description: "Platform adversarial scenarios cover default-deny egress, identity spoofing, direct-DB bypass, and trace sanitization"
+    description: "Platform adversarial scenarios test the local governance model, identity-spoofing resistance, direct-DB bypass, and trace sanitization; they are not live-cloud proof"
     test_command: "python ai-tier/evals/platform_runner.py"
 
   # --- P12.5 Governed ACH Return Intelligence Truth Gate ---
@@ -399,7 +429,7 @@ capabilities:
   ci_pipeline:
     status: TESTED
     evidence: .github/workflows/ci.yml
-    description: "CI explicitly gates Go return-risk tests, full Go race tests, Python unit/conformance tests, return-risk evals, master evals, and generated-submission drift"
+    description: "CI gates Go tests/races, Python unit/conformance tests, return-risk evals, master evals, and generated-submission drift"
 
   concurrent_stress_test:
     status: TESTED
