@@ -9,7 +9,15 @@ import (
 
 // Engine Version Constant
 const (
-	EngineVersion = "1.0.0-p12"
+	EngineVersion = "1.0.1-p12.5"
+)
+
+// Public Nacha return-rate monitoring values used by the deterministic engine.
+// These are operational risk-monitoring inputs, not legal or compliance decisions.
+const (
+	UnauthorizedReturnRateThreshold = 0.005
+	AdministrativeReturnRateLevel   = 0.030
+	OverallReturnRateLevel          = 0.150
 )
 
 // Domain Errors
@@ -38,7 +46,7 @@ const (
 	RiskTierSevere RiskTier = "SEVERE" // [80, 100]
 )
 
-// ReturnCategory defines the primary normalized classification of an ACH return.
+// ReturnCategory defines the primary normalized operational classification of an ACH return.
 type ReturnCategory string
 
 const (
@@ -46,6 +54,7 @@ const (
 	CategoryAccountStatus     ReturnCategory = "ACCOUNT_STATUS"
 	CategoryAccountData       ReturnCategory = "ACCOUNT_DATA"
 	CategoryUnauthorized      ReturnCategory = "UNAUTHORIZED"
+	CategoryAuthorizationTerms ReturnCategory = "AUTHORIZATION_TERMS"
 	CategoryAdministrative    ReturnCategory = "ADMINISTRATIVE"
 	CategoryOFACRestricted    ReturnCategory = "OFAC_RESTRICTED"
 )
@@ -60,7 +69,7 @@ const (
 	SeverityCritical OperationalSeverity = "CRITICAL"
 )
 
-// RetryCharacteristic dictates the automated or manual re-origination policy.
+// RetryCharacteristic describes operational handling characteristics. It is not a legal determination.
 type RetryCharacteristic string
 
 const (
@@ -70,7 +79,7 @@ const (
 	Prohibited              RetryCharacteristic = "PROHIBITED"
 )
 
-// ReturnWindowType specifies the legal deadline for RDFI return transmission.
+// ReturnWindowType captures the public return-window semantics represented by the MVP taxonomy.
 type ReturnWindowType string
 
 const (
@@ -78,7 +87,7 @@ const (
 	ReturnWindow60CalendarDays ReturnWindowType = "EXTENDED_60_CALENDAR_DAYS"
 )
 
-// ThresholdType specifies the Nacha Risk Management monitoring threshold.
+// ThresholdType identifies the public Nacha return-rate monitoring category, when applicable.
 type ThresholdType string
 
 const (
@@ -87,6 +96,27 @@ const (
 	ThresholdOverall15Percent       ThresholdType = "OVERALL_15_0_PERCENT"
 	ThresholdRegulatoryRestricted   ThresholdType = "REGULATORY_RESTRICTED"
 )
+
+// GuidanceType is typed operational guidance only. ReturnTaxonomyGuidance != LegalDecision.
+type GuidanceType string
+
+const (
+	GuidanceReviewRequired                GuidanceType = "REVIEW_REQUIRED"
+	GuidanceComplianceReviewRequired      GuidanceType = "COMPLIANCE_REVIEW_REQUIRED"
+	GuidanceAuthorizationReviewRequired   GuidanceType = "AUTHORIZATION_REVIEW_REQUIRED"
+	GuidanceDoNotAutomaticallyReinitiate  GuidanceType = "DO_NOT_AUTOMATICALLY_REINITIATE"
+	GuidanceCorrectionRequired            GuidanceType = "CORRECTION_REQUIRED"
+	GuidanceStandardExceptionReview       GuidanceType = "STANDARD_EXCEPTION_REVIEW"
+)
+
+// PublicSourceProvenance records the public material used to verify represented semantics.
+type PublicSourceProvenance struct {
+	SourceID          string `json:"source_id"`
+	SourceName        string `json:"source_name"`
+	Reference         string `json:"reference"`
+	RetrievedDate     string `json:"retrieved_date"`
+	SemanticsVerified bool   `json:"semantics_verified"`
+}
 
 // VerificationStatus represents provenance verification status of the return source.
 type VerificationStatus string
@@ -98,25 +128,26 @@ const (
 	VerificationStatusRejected   VerificationStatus = "REJECTED"
 )
 
-// ACHReturnCode encapsulates the complete NACHA return code taxonomy.
+// ACHReturnCode describes one entry in SentinelFlow's representative MVP taxonomy.
+// The catalog is deliberately not a complete ACH return-code catalog.
 type ACHReturnCode struct {
-	Code                 string              `json:"code"`
-	ShortLabel           string              `json:"short_label"`
-	Title                string              `json:"title"`
-	Description          string              `json:"description"`
-	NormalizedCategory   ReturnCategory      `json:"normalized_category"`
-	OperationalSeverity  OperationalSeverity `json:"operational_severity"`
-	RetryCharacteristic  RetryCharacteristic `json:"retry_characteristic"`
-	AccountDataIssue     bool                `json:"account_data_issue"`
-	AuthorizationIssue   bool                `json:"authorization_issue"`
-	AdministrativeIssue  bool                `json:"administrative_issue"`
-	ReturnWindow         ReturnWindowType    `json:"return_window"`
-	ThresholdCategory    ThresholdType       `json:"threshold_category"`
-	BaseSeverity         float64             `json:"base_severity"`
-	SourceReference      string              `json:"source_reference"`
-	TaxonomyVersion      string              `json:"taxonomy_version"`
-	RegulatoryCitations  []string            `json:"regulatory_citations"`
-	RemediationDirective string              `json:"remediation_directive"`
+	Code                 string                   `json:"code"`
+	ShortLabel           string                   `json:"short_label"`
+	Title                string                   `json:"title"`
+	Description          string                   `json:"description"`
+	NormalizedCategory   ReturnCategory           `json:"normalized_category"`
+	OperationalSeverity  OperationalSeverity      `json:"operational_severity"`
+	RetryCharacteristic  RetryCharacteristic      `json:"retry_characteristic"`
+	AccountDataIssue     bool                     `json:"account_data_issue"`
+	AuthorizationIssue   bool                     `json:"authorization_issue"`
+	AdministrativeIssue  bool                     `json:"administrative_issue"`
+	ReturnWindow         ReturnWindowType         `json:"return_window"`
+	ThresholdCategory    ThresholdType            `json:"threshold_category"`
+	BaseSeverity         float64                  `json:"base_severity"`
+	TaxonomyVersion      string                   `json:"taxonomy_version"`
+	OperationalGuidance  GuidanceType             `json:"operational_guidance"`
+	GuidanceSummary      string                   `json:"guidance_summary"`
+	SourceProvenance     []PublicSourceProvenance `json:"source_provenance"`
 }
 
 // ReturnEvent represents an immutable incoming ACH return event to be assessed.
@@ -157,21 +188,26 @@ type HistoricalReturnContext struct {
 	RecentTrendVelocity    float64 `json:"recent_trend_velocity"`
 }
 
-// RiskFeatureVector contains all normalized features [0.0, 100.0] feeding the deterministic engine.
+// RiskFeatureVector records normalized scoring and contextual features.
+// Authoritative weighted score inputs are: ReturnCodeSeverity, ReturnFrequency7d,
+// ReturnFrequency30d, PartnerReturnRate, RecentTrend, AmountExposureBucket, and SLAProximity.
+// SameCodeRecurrence, VerifiedPriorOccurrences, and SourceStrength are contextual/diagnostic only.
 type RiskFeatureVector struct {
-	ReturnCodeSeverity       float64 `json:"return_code_severity"`
-	ReturnFrequency7d        float64 `json:"return_frequency_7d"`
-	ReturnFrequency30d       float64 `json:"return_frequency_30d"`
-	PartnerReturnRate        float64 `json:"partner_return_rate"`
-	SameCodeRecurrence       float64 `json:"same_code_recurrence"`
-	RecentTrend              float64 `json:"recent_trend"`
-	VerifiedPriorOccurrences float64 `json:"verified_prior_occurrences"`
-	SLAProximity             float64 `json:"sla_proximity"`
-	AmountExposureBucket     float64 `json:"amount_exposure_bucket"`
-	SourceStrength           float64 `json:"source_strength"`
+	ReturnCodeSeverity                    float64 `json:"return_code_severity"`
+	ReturnFrequency7d                     float64 `json:"return_frequency_7d"`
+	ReturnFrequency30d                    float64 `json:"return_frequency_30d"`
+	PartnerReturnRate                     float64 `json:"partner_return_rate"`
+	PartnerReturnRateThreshold            float64 `json:"partner_return_rate_threshold"`
+	PartnerReturnRateThresholdApplicable  bool    `json:"partner_return_rate_threshold_applicable"`
+	SameCodeRecurrence                    float64 `json:"same_code_recurrence"`
+	RecentTrend                           float64 `json:"recent_trend"`
+	VerifiedPriorOccurrences              float64 `json:"verified_prior_occurrences"`
+	SLAProximity                          float64 `json:"sla_proximity"`
+	AmountExposureBucket                  float64 `json:"amount_exposure_bucket"`
+	SourceStrength                        float64 `json:"source_strength"`
 }
 
-// RiskContribution tracks the linear contribution of an individual normalized feature.
+// RiskContribution tracks the linear contribution of an individual normalized scoring feature.
 type RiskContribution struct {
 	FeatureName       string  `json:"feature_name"`
 	RawValue          float64 `json:"raw_value"`
@@ -181,6 +217,7 @@ type RiskContribution struct {
 }
 
 // ReturnRiskResult is the final output of the deterministic risk calculation.
+// ReturnRiskScore != ComplianceDecision.
 type ReturnRiskResult struct {
 	AssessmentID   string             `json:"assessment_id"`
 	TenantID       string             `json:"tenant_id"`
