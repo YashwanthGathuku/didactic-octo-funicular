@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "as_of": "2026-08-23",
+  "catalog_scope": "representative_mvp_not_complete",
+  "thresholds": {
+    "unauthorized": 0.005,
+    "administrative": 0.03,
+    "overall": 0.15
+  },
+  "unauthorized_return_rate_codes": ["R05", "R07", "R10", "R11", "R29"],
+  "deferred_codes": ["R51"],
+  "return_codes": {
+    "R10": {
+      "title": "Customer Advises Originator is Not Known to Receiver and/or Originator is Not Authorized by Receiver to Debit Receiver's Account",
+      "normalized_category": "UNAUTHORIZED",
+      "return_window": "EXTENDED_60_CALENDAR_DAYS",
+      "threshold_category": "UNAUTHORIZED_0_5_PERCENT"
+    },
+    "R11": {
+      "title": "Customer Advises Entry is Not in Accordance with the Terms of the Authorization",
+      "normalized_category": "AUTHORIZATION_TERMS",
+      "return_window": "EXTENDED_60_CALENDAR_DAYS",
+      "threshold_category": "UNAUTHORIZED_0_5_PERCENT"
+    },
+    "R16": {
+      "threshold_category": "REGULATORY_RESTRICTED",
+      "threshold_applicable": false
+    }
+  },
+  "public_sources": [
+    "NACHA_PUBLIC_ISO20022_RETURN_GUIDE_2023",
+    "NACHA_PUBLIC_NETWORK_RISK_TOPICS",
+    "NACHA_PUBLIC_UNAUTHORIZED_REASON_DIFFERENTIATION",
+    "NACHA_PUBLIC_R90_RULE_2026"
+  ]
+}
