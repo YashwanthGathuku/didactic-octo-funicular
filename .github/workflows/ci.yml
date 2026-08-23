@@ -90,6 +90,10 @@ jobs:
           go-version-file: 'gateway/go.mod'
           cache-dependency-path: 'gateway/go.sum'
 
+      - name: Run P12.5 Return Risk Suite
+        working-directory: gateway
+        run: go test ./internal/returnrisk/... -v
+
       - name: Run Go Test Suite with Race Detector
         working-directory: gateway
         env:
@@ -130,10 +134,10 @@ jobs:
         run: npm run build
 
   # --------------------------------------------------------------------------
-  # 4. Python AI Tier Evals & Adversarial Checks
+  # 4. Python AI Tier Unit, Conformance & Adversarial Checks
   # --------------------------------------------------------------------------
   test-ai-tier:
-    name: Python AI Tier Evals
+    name: Python AI Tier Tests & Evals
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -152,12 +156,16 @@ jobs:
           if [ -f ai-tier/requirements.txt ]; then pip install -r ai-tier/requirements.txt; fi
 
       - name: Lint AI Tier
-        run: |
-          ruff check ai-tier/
+        run: ruff check ai-tier/
 
-      - name: Run AI Adversarial Evals
-        run: |
-          python ai-tier/evals/runner.py
+      - name: Run Python Unit & Conformance Tests
+        run: pytest ai-tier/tests/ -v
+
+      - name: Run P12 Return Risk Adversarial Evals
+        run: python ai-tier/evals/return_runner.py
+
+      - name: Run Master AI Adversarial Evals
+        run: python ai-tier/evals/runner.py
 
   # --------------------------------------------------------------------------
   # 5. Database Migration & Clean-Stack Smoke Test
@@ -177,8 +185,7 @@ jobs:
 
       - name: Run Migration Integration Tests
         working-directory: gateway
-        run: |
-          go test -v -run "TestMigration" .
+        run: go test -v -run "TestMigration" .
 
   # --------------------------------------------------------------------------
   # 6. Security Hygiene, Vulnerability Scanning & License Audit
@@ -198,8 +205,7 @@ jobs:
 
       - name: Run Secret Hygiene Scan
         working-directory: gateway
-        run: |
-          go test -v -run "TestNoLiteralSecretsInSourceOrConfig" .
+        run: go test -v -run "TestNoLiteralSecretsInSourceOrConfig" .
 
       - name: Run Govulncheck (Go Vulnerability Database)
         run: |
@@ -233,5 +239,5 @@ jobs:
       - name: Install PyYAML
         run: pip install pyyaml
 
-      - name: Verify Docs Match Capability Matrix
+      - name: Verify Generated Submission Matches Capability Matrix
         run: python scripts/generate_docs.py --check
