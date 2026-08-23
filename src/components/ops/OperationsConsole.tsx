@@ -1,12 +1,13 @@
 /**
  * Operations Console: Main Operations Dashboard (Light Theme)
- * 
+ *
  * Provides unified segmented tab navigation, real-time KPI overview,
  * and live SSE connection status on a clean canvas.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  BadgeCheck,
   CalendarClock,
   FileSearch,
   FlaskConical,
@@ -28,9 +29,10 @@ import { ReviewQueue } from './ReviewQueue';
 import { EvidenceTimeline } from './EvidenceTimeline';
 import { ContractsScreen } from './ContractsScreen';
 import { ServiceHealthScreen } from './ServiceHealthScreen';
+import { SubmissionProofScreen } from './SubmissionProofScreen';
 import { LoadingState, ResultState } from './states';
 
-type ScreenId = 'board' | 'artifacts' | 'review' | 'evidence' | 'contracts' | 'health';
+type ScreenId = 'board' | 'artifacts' | 'review' | 'evidence' | 'contracts' | 'health' | 'proof';
 
 const SCREENS: Array<{ id: ScreenId; label: string; Icon: React.ElementType }> = [
   { id: 'board', label: 'Feed Board', Icon: CalendarClock },
@@ -39,6 +41,7 @@ const SCREENS: Array<{ id: ScreenId; label: string; Icon: React.ElementType }> =
   { id: 'evidence', label: 'Audit Evidence', Icon: ScrollText },
   { id: 'contracts', label: 'Feed Contracts', Icon: GitBranch },
   { id: 'health', label: 'System Health', Icon: HeartPulse },
+  { id: 'proof', label: 'Submission Proof', Icon: BadgeCheck },
 ];
 
 export const OperationsConsole: React.FC = () => {
@@ -64,6 +67,7 @@ export const OperationsConsole: React.FC = () => {
       case 'evidence': return <EvidenceTimeline key={generation} />;
       case 'contracts': return <ContractsScreen key={generation} />;
       case 'health': return <ServiceHealthScreen key={generation} />;
+      case 'proof': return <SubmissionProofScreen />;
     }
   }, [screen, generation]);
 
@@ -78,13 +82,9 @@ export const OperationsConsole: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {/* Sandbox Environment Notice */}
       {session?.demo && <DemoProfileBanner profile={session.profile} tenant={session.tenantId} />}
 
-      {/* Visual Operational Metric Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        
-        {/* Card 1: Tenant Scope */}
         <div className="stat-card">
           <div className="flex items-center justify-between text-slate-500">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Tenant Scope</span>
@@ -99,7 +99,6 @@ export const OperationsConsole: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 2: Ingress Integrity */}
         <div className="stat-card">
           <div className="flex items-center justify-between text-slate-500">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Ingress Integrity</span>
@@ -114,7 +113,6 @@ export const OperationsConsole: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 3: Audit Ledger */}
         <div className="stat-card">
           <div className="flex items-center justify-between text-slate-500">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Audit Ledger Chain</span>
@@ -129,7 +127,6 @@ export const OperationsConsole: React.FC = () => {
           </div>
         </div>
 
-        {/* Card 4: Quarantine Governance */}
         <div className="stat-card">
           <div className="flex items-center justify-between text-slate-500">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Quarantine Governance</span>
@@ -143,10 +140,8 @@ export const OperationsConsole: React.FC = () => {
             <span>Two-person release rule enforced</span>
           </div>
         </div>
-
       </div>
 
-      {/* Segmented Control Pill Navigation Bar & Live SSE Stream Indicator */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <nav aria-label="Operations screens" className="flex flex-wrap gap-1 rounded-xl bg-slate-100/90 p-1 border border-slate-200/80">
           {SCREENS.map(({ id, label, Icon }) => {
@@ -157,11 +152,7 @@ export const OperationsConsole: React.FC = () => {
                 type="button"
                 onClick={() => setScreen(id)}
                 aria-current={active ? 'page' : undefined}
-                className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${
-                  active
-                    ? 'nav-tab-active'
-                    : 'nav-tab-inactive'
-                }`}
+                className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-all ${active ? 'nav-tab-active' : 'nav-tab-inactive'}`}
               >
                 <Icon className={`h-4 w-4 ${active ? 'text-indigo-600' : 'text-slate-500'}`} aria-hidden />
                 {label}
@@ -173,10 +164,8 @@ export const OperationsConsole: React.FC = () => {
         <StreamIndicator state={stream} />
       </div>
 
-      {/* Screen Surface */}
       <main className="transition-all">{body}</main>
 
-      {/* Footer */}
       <footer className="border-t border-slate-200 pt-4 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span>Signed in as <strong className="text-slate-800 font-mono">{session?.subject}</strong></span>
@@ -205,12 +194,12 @@ const DemoProfileBanner: React.FC<{ profile: string; tenant: string }> = ({ prof
         <p className="font-semibold text-indigo-950">
           Development Sandbox Profile ({profile}) · Tenant: <span className="font-mono font-bold text-indigo-700">{tenant}</span>
         </p>
-        <p className="text-[11px] text-indigo-700/80">All data displayed is fetched directly from the local gateway server with zero simulated client mocks.</p>
+        <p className="text-[11px] text-indigo-700/80">All operational data is fetched from the configured gateway. Managed-cloud proof badges remain NOT_RUN until explicit live evidence is supplied.</p>
       </div>
     </div>
-    
+
     <span className="inline-flex items-center rounded-md border border-indigo-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700 shadow-2xs">
-      Loopback Bound
+      Sandbox
     </span>
   </div>
 );
