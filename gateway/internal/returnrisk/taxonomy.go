@@ -14,8 +14,8 @@ func publicSources(extra ...PublicSourceProvenance) []PublicSourceProvenance {
 	base := []PublicSourceProvenance{
 		{
 			SourceID:          "NACHA_PUBLIC_ISO20022_RETURN_GUIDE_2023",
-			SourceName:        "Nacha ISO 20022 Mapping Guide - Return Reason Codes",
-			Reference:         "https://www.nacha.org/system/files/2023-07/ACH-ISO-20022-Mapping-Guide.pdf",
+			SourceName:        "Nacha ISO 20022-to-ACH Mapping Guide - camt.053 Returns and Notifications of Change",
+			Reference:         "https://www.nacha.org/system/files/2023-08/NACHA_ISO20022_Guide_camt.053_returns%2008-09-23.pdf",
 			RetrievedDate:     taxonomyRetrievedDate,
 			SemanticsVerified: true,
 		},
@@ -33,15 +33,15 @@ func publicSources(extra ...PublicSourceProvenance) []PublicSourceProvenance {
 var unauthorizedReasonSource = PublicSourceProvenance{
 	SourceID:          "NACHA_PUBLIC_UNAUTHORIZED_REASON_DIFFERENTIATION",
 	SourceName:        "Nacha Differentiating Unauthorized Return Reasons",
-	Reference:         "https://www.nacha.org/news/differentiating-unauthorized-return-reasons",
+	Reference:         "https://www.nacha.org/rules/differentiating-unauthorized-return-reasons",
 	RetrievedDate:     taxonomyRetrievedDate,
 	SemanticsVerified: true,
 }
 
 var r16TransitionSource = PublicSourceProvenance{
 	SourceID:          "NACHA_PUBLIC_R90_RULE_2026",
-	SourceName:        "Nacha New Return Reason Code R90 for Sanctions Screening",
-	Reference:         "https://www.nacha.org/rules/new-return-reason-code-r90-sanctions-screening",
+	SourceName:        "Nacha New Return Reason Code for Sanctions Compliance Obligations",
+	Reference:         "https://www.nacha.org/rules/new-return-reason-code-sanctions-compliance-obligations",
 	RetrievedDate:     taxonomyRetrievedDate,
 	SemanticsVerified: true,
 }
@@ -192,7 +192,7 @@ var Catalog = map[string]ACHReturnCode{
 		ShortLabel:           "ENTRY_NOT_IN_ACCORDANCE_WITH_AUTHORIZATION",
 		Title:                "Customer Advises Entry is Not in Accordance with the Terms of the Authorization",
 		Description:          "The Receiver advises that an authorization exists, but the entry is not in accordance with the terms of that authorization.",
-		NormalizedCategory:   CategoryUnauthorized,
+		NormalizedCategory:   CategoryAuthorizationTerms,
 		OperationalSeverity:  SeverityCritical,
 		RetryCharacteristic:  NonRetryable,
 		AuthorizationIssue:   true,
