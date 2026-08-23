@@ -1,25 +1,17 @@
 # SentinelFlow Verified Capability Matrix
 #
-# Single source of truth. All documentation, README claims, Devpost
-# submissions, and architecture diagrams are derived from this file.
-#
-# Legal status vocabulary (strictly enforced by scripts/generate_docs.py):
-#   TESTED       — Implemented AND covered by automated tests in CI
-#   IMPLEMENTED  — Code/schema exists but full integration test suite pending
+# Single source of truth for submission-facing capability status.
+# Legal status vocabulary:
+#   TESTED       — Implemented and covered by automated tests in CI
+#   IMPLEMENTED  — Code/schema exists but full/live integration evidence is pending
 #   DEMO_ONLY    — Development or demonstration profile implementation only
 #   EXPERIMENTAL — Proof-of-concept implementation
-#   PLANNED      — Designed in architecture specification; implementation pending
-#
-# The scripts/generate_docs.py script reads this file and generates:
-#   - README.md claims section
-#   - docs/engineering/CURRENT_STATE.md capability table
-#   - docs/DEVPOST_SUBMISSION.md
+#   PLANNED      — Designed; implementation pending
 
-version: "1.0"
+version: "1.1-p12.5"
 last_updated: "2026-08-23"
 
 capabilities:
-
   # --- Core Deterministic Financial Processing ---
   nacha_validation:
     status: TESTED
@@ -91,7 +83,7 @@ capabilities:
   secret_redaction:
     status: TESTED
     evidence: gateway/internal/secrets/redact_test.go
-    description: "Credentials sealed with AES-256-GCM, redacted in logs/JSON/errors"
+    description: "Credentials sealed with AES-256-GCM and redacted in logs/JSON/errors"
     test_command: "go test ./internal/secrets/ -run TestRedact"
 
   ssrf_prevention:
@@ -100,11 +92,17 @@ capabilities:
     description: "RFC1918 and loopback ranges blocked for connector URIs"
     test_command: "go test -run TestSSRFProtection"
 
-  # --- Multi-Agent Orchestration & AI Operations ---
-  gemini_live_analysis:
+  # --- Gemini 3.5 & Multi-Agent Operations ---
+  gemini_3_5_provider_path:
     status: TESTED
-    evidence: ai-tier/llm_client.py
-    description: "Google Gemini 2.5 Flash grounded incident hypothesis generation"
+    evidence: ai-tier/tests/test_return_risk_agent.py
+    description: "Governed Gemini 3.5 Flash provider path through GuardedModelBoundary; ReturnRiskAgent has no direct provider invocation path"
+    test_command: "pytest ai-tier/tests/test_return_risk_agent.py -v"
+
+  live_gemini_3_5:
+    status: IMPLEMENTED
+    evidence: ai-tier/guardrails/boundary.py
+    description: "Gemini 3.5 Flash live invocation path is implemented; TESTED status requires separately observed external live-provider execution"
 
   read_only_ai_investigator:
     status: TESTED
@@ -115,7 +113,7 @@ capabilities:
   agent_development_kit_orchestration:
     status: TESTED
     evidence: ai-tier/tests/test_adk_introspection.py
-    description: "Real Google ADK Agent instances orchestrating specialized sub-agents with 4-domain trust-partitioned prompts"
+    description: "Real Google ADK Agent instances registered for specialized sub-agents with trust-partitioned prompts"
     test_command: "pytest ai-tier/tests/test_adk_introspection.py -v"
 
   durable_agent_workflows:
@@ -145,7 +143,7 @@ capabilities:
   agent_tool_gateway:
     status: TESTED
     evidence: gateway/internal/toolgateway/gateway_test.go
-    description: "Exclusive gateway mediating all AI tool calls with manifest enforcement, capability allowlists, rate limiting, and side-effect segregation"
+    description: "Exclusive gateway mediating AI tool calls with manifest enforcement, capability allowlists, rate limiting, and side-effect segregation"
     test_command: "go test ./internal/toolgateway/ -run TestToolGateway"
 
   remediation_agent:
@@ -157,99 +155,99 @@ capabilities:
   verifier_agent:
     status: TESTED
     evidence: ai-tier/agents/verifier.py
-    description: "Autonomy Level A1 read-only critic agent reviewing structured verification evidence with prompt trust partitioning"
+    description: "Autonomy Level A1 read-only critic reviewing structured verification evidence"
     test_command: "pytest ai-tier/tests/test_verifier_agent.py -v"
 
   memory_agent:
     status: TESTED
     evidence: ai-tier/agents/memory_agent.py
-    description: "Autonomy Level A1 read-only memory specialist retrieving bounded historical context and partner profiles"
+    description: "Autonomy Level A1 read-only memory specialist retrieving bounded advisory historical context"
     test_command: "pytest ai-tier/tests/test_memory_agent.py -v"
 
   agent_runtime:
     status: IMPLEMENTED
     evidence: gateway/migrations/011_agent_workflows.sql
-    description: "Local execution runtime for Google ADK agents; Google Cloud Agent Runtime is PLANNED"
+    description: "Local execution runtime for Google ADK agents; managed cloud runtime remains separately statused"
 
   agent_registry:
-    status: IMPLEMENTED
-    evidence: gateway/migrations/012_agent_registry.sql
-    description: "Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED"
+    status: TESTED
+    evidence: docs/registry/agent_registry_v1.json
+    description: "Declarative fixed-agent registry schema with bounded internal agent-tools endpoint"
 
-  # --- Governed Operational Memory & Google Memory Bank ---
+  # --- Governed Operational Memory ---
   go_operational_memory:
     status: TESTED
     evidence: gateway/internal/memory/service_test.go
-    description: "Go-owned authoritative operational fact store (M1), deterministic eligibility gate with strict PII rejection, RFC 8785 canonical hashing, and outbox event bridge"
+    description: "Go-owned authoritative operational fact store with deterministic eligibility gate, PII rejection, RFC 8785 canonical hashing, and outbox bridge"
     test_command: "go test ./internal/memory/ -v"
 
   sqlite_operational_memory:
     status: TESTED
     evidence: gateway/internal/memory/service_test.go
-    description: "SQLite operational memory persistence, triggers, revisions, and concurrency isolation"
+    description: "SQLite operational-memory persistence, triggers, revisions, and concurrency isolation"
     test_command: "go test ./internal/memory/ -v"
 
   postgresql_operational_memory:
     status: IMPLEMENTED
     evidence: gateway/migrations/022_operational_memory.sql
-    description: "PostgreSQL 16 operational memory schema and migrations in 022_operational_memory.sql; live execution planned in P11"
+    description: "PostgreSQL 16 operational-memory schema and migrations"
 
   memory_source_resolution:
     status: TESTED
     evidence: gateway/internal/memory/resolver_test.go
-    description: "Go control plane ResolveMemorySources engine validating tenant scope, source status, and cryptographic hashes, with exclusive authority to mint AuthorizedEvidenceRefs"
+    description: "Go source resolver validates tenant, source status and hashes and exclusively mints AuthorizedEvidenceRefs"
     test_command: "go test ./internal/memory/ -run TestSourceResolver"
 
   memory_non_authority:
     status: TESTED
     evidence: ai-tier/evals/memory_runner.py
-    description: "Strict non-equivalence invariant (MemoryRecall != Evidence, MemoryRef not in EvidenceSet, SimilarityScore != Trust) enforced across entire fleet"
+    description: "MemoryRecall != Evidence and SimilarityScore != Trust enforced across the fleet"
     test_command: "python ai-tier/evals/memory_runner.py"
 
   memory_tenant_isolation:
     status: TESTED
     evidence: gateway/internal/memory/property_test.go
-    description: "Strict multi-tenant memory partitioning in Go and Python; cross-tenant retrieval queries return zero foreign tenant hits"
+    description: "Strict multi-tenant memory partitioning in Go and Python"
     test_command: "go test ./internal/memory/ -run TestProperty_TenantIsolation"
 
   memory_poisoning_resistance:
     status: TESTED
     evidence: ai-tier/evals/memory_runner.py
-    description: "Adversarial memory poisoning resistance; poisoned memory claiming policy ALLOW or file release strictly contained"
+    description: "Adversarial memory poisoning cannot promote advisory memory into policy/file-release authority"
     test_command: "python ai-tier/evals/memory_runner.py"
 
   managed_memory_adapter:
     status: TESTED
     evidence: ai-tier/memory/provider.py
-    description: "Python Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval"
+    description: "Python managed-memory adapter with deterministic ranking and bounded retrieval"
     test_command: "pytest ai-tier/tests/test_memory_provider.py -v"
 
   managed_memory_mock:
     status: TESTED
     evidence: ai-tier/memory/mock_provider.py
-    description: "In-memory test memory provider supporting red-team fault injection (TIMEOUT, UNAVAILABLE, CONFLICT, POISON, CROSS_TENANT)"
+    description: "In-memory test provider with fault injection"
     test_command: "pytest ai-tier/tests/test_memory_provider.py -v"
 
   managed_memory_revisions:
     status: TESTED
     evidence: gateway/internal/memory/property_test.go
-    description: "Google Memory Bank managed revision audit tracking; rollback of managed memory never mutates authoritative Go M1 facts"
+    description: "Managed memory revision tracking cannot mutate authoritative Go operational facts"
     test_command: "go test ./internal/memory/ -run TestProperty_RevisionMonotonicity"
 
   live_google_memory_bank:
     status: IMPLEMENTED
     evidence: ai-tier/memory/google_provider.py
-    description: "REST client for Google Agent Platform Memory Bank v1beta1; ADC verified locally, live API execution on standby awaiting cloud credit activation"
+    description: "Managed Memory Bank client implemented; external live execution is not represented as tested here"
 
   live_ingest_events:
     status: IMPLEMENTED
     evidence: ai-tier/memory/google_provider.py
-    description: "Managed IngestEvents client pipeline; ADC verified locally, live API execution on standby awaiting cloud credit activation"
+    description: "Managed memory ingest client implemented; external live execution is not represented as tested here"
 
   live_memory_profiles:
     status: IMPLEMENTED
     evidence: ai-tier/memory/google_provider.py
-    description: "Managed RetrieveProfiles client pipeline; ADC verified locally, live API execution on standby awaiting cloud credit activation"
+    description: "Managed memory profile retrieval client implemented; external live execution is not represented as tested here"
 
   # --- Governed Remediation & Independent Verification ---
   derived_artifacts:
@@ -261,128 +259,129 @@ capabilities:
   governed_remediation:
     status: TESTED
     evidence: gateway/agent_orchestrator_gateway_test.go
-    description: "Exclusive Tool Gateway gate, crash consistency (Windows A-F), orphan reconciliation, deterministic candidate keys, and immutable candidate generation"
+    description: "Exclusive Tool Gateway gate, crash consistency, orphan reconciliation, deterministic candidate keys, and immutable candidate generation"
     test_command: "go test -run TestAgentOrchestrator_ExclusiveToolGateway"
 
   independent_verification:
     status: TESTED
     evidence: gateway/internal/verification/service_test.go
-    description: "Independent Go verification service re-reading ObjectStore bytes, re-running NACHA validator, verifying derivation hashes, and enforcing deterministic dominance"
+    description: "Independent Go verification re-reads ObjectStore bytes, re-runs validation, verifies derivation hashes, and enforces deterministic dominance"
     test_command: "go test ./internal/verification/ -run TestVerification"
 
   verification_integrity_checks:
     status: TESTED
     evidence: gateway/internal/verification/service_test.go
-    description: "12 typed deterministic verification checks covering parent, candidate, derivation, validator, and policy freshness"
+    description: "Typed deterministic verification checks cover parent, candidate, derivation, validator, and policy freshness"
     test_command: "go test ./internal/verification/ -run TestVerification"
 
   sentinelflow_lens:
     status: PLANNED
     evidence: null
-    description: "Governed analytics plane featuring AnalyticsAgent A1, structured QueryIntent AST, deterministic Safe Query Compiler, and branching Investigation Graph"
+    description: "Governed analytics plane; not part of P12.5"
 
-  # --- AI Guardrails & Google Cloud Model Armor ---
+  # --- AI Guardrails ---
   model_armor_client:
     status: TESTED
     evidence: ai-tier/armor/client.py
-    description: "Google Cloud Model Armor regional REST client with ADC token management, template screening, fault injection, and fail-closed handling"
+    description: "Model Armor client with regional screening, fault injection, and fail-closed required-mode behavior"
     test_command: "pytest ai-tier/tests/test_model_armor_boundary.py -v"
 
   guarded_model_boundary:
     status: TESTED
     evidence: ai-tier/guardrails/boundary.py
-    description: "8-step hardened model boundary wrapper with data minimization, 4-domain partitioning, pre/post Model Armor screening, schema enforcement, and audit hashing"
+    description: "Shared hardened model boundary with minimization, trust partitioning, pre/post screening, schema validation, grounding, and audit hashing"
     test_command: "pytest ai-tier/tests/test_model_armor_boundary.py -v"
 
   ai_guardrails_evals:
     status: TESTED
     evidence: ai-tier/evals/model_armor_runner.py
-    description: "25 adversarial Model Armor security test scenarios validating prompt injection, data minimization, fail-closed timeouts, and secret leakage containment"
+    description: "Adversarial Model Armor security scenarios cover injection, minimization, fail-closed outage, and leakage containment"
     test_command: "python ai-tier/evals/model_armor_runner.py"
 
-  # --- Cloud Infrastructure ---
+  # --- Cloud Infrastructure (not deployed in P12.5) ---
   cloud_kms_checkpoints:
     status: IMPLEMENTED
     evidence: gateway/migrations/015_kms_checkpoints.sql
-    description: "Database schema for ledger checkpoint digests; Google Cloud KMS API asymmetric signing is PLANNED"
+    description: "Ledger checkpoint schema exists; external KMS signing remains separately unverified"
 
   cloud_sql_deployment:
     status: PLANNED
     evidence: deploy/setup-gcp.sh
-    description: "Google Cloud SQL PostgreSQL 16 + Cloud Run automated deployment script"
+    description: "Cloud SQL / Cloud Run deployment is not part of P12.5"
 
-  # --- Phase P11: Google Enterprise Agent Platform Integration ---
+  # --- Enterprise Agent Platform Integration ---
   agent_runtime_adk_deployment:
     status: TESTED
     evidence: ai-tier/runtime/app.py
-    description: "Google Agent Runtime packaging wrapping the fixed 6-agent fleet in an AdkApp container with session-to-workflow correlation"
+    description: "ADK runtime packaging wraps the fixed seven-agent fleet with session/workflow correlation"
     test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
 
   agent_identity_runtime:
     status: TESTED
     evidence: gateway/internal/auth/agent_identity.go
-    description: "SPIFFE-style Google Agent Identity validation, project boundary assertion, and mapping to fixed canonical roster at Go ingress"
+    description: "Agent identity validation maps ingress identity to the fixed canonical roster"
     test_command: "go test ./internal/auth/ -run TestAgentIdentityValidator"
-
-  agent_registry:
-    status: TESTED
-    evidence: docs/registry/agent_registry_v1.json
-    description: "Google Agent Registry v1 declarative schema registering the SentinelFlow fleet and bounded /internal/agent-tools endpoint"
 
   agent_gateway:
     status: TESTED
     evidence: ai-tier/runtime/gateway_client.py
-    description: "Google Agent Gateway client with default-deny egress routing, IAP egress token propagation, and dry-run/enforce modes"
+    description: "Agent Gateway client enforces default-deny egress routing and identity propagation"
     test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
 
   agent_gateway_default_deny:
     status: TESTED
     evidence: ai-tier/evals/platform_runner.py
-    description: "Default-deny network routing dropping all unregistered egress destinations with HTTP 403"
+    description: "Default-deny routing rejects unregistered egress destinations"
     test_command: "python ai-tier/evals/platform_runner.py"
 
   agent_observability:
     status: TESTED
     evidence: ai-tier/observability/telemetry.py
-    description: "Privacy-preserving OpenTelemetry / Cloud Trace integration enforcing TraceMetadataAllowed != PromptPayloadLoggingAllowed"
+    description: "Privacy-preserving telemetry separates allowed trace metadata from prompt payloads"
     test_command: "pytest ai-tier/tests/test_platform_runtime.py -v"
 
   runtime_to_go_tool_gateway:
     status: TESTED
     evidence: gateway/internal/auth/agent_identity_test.go
-    description: "End-to-end identity and capability governance enforcing AgentIdentityValid != ToolAuthorization and GatewayAllow + ToolGatewayDeny => DENY"
+    description: "Identity validity is distinct from tool authorization; any gateway/tool denial remains DENY"
     test_command: "go test ./internal/auth/ -run TestAgentIdentityValidator_AuthorizeCapability"
 
   platform_adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/platform_runner.py
-    description: "25 adversarial platform scenarios testing default-deny egress, SPIFFE identity spoofing, direct DB bypass, and trace sanitization (100% pass rate)"
+    description: "Platform adversarial scenarios cover default-deny egress, identity spoofing, direct-DB bypass, and trace sanitization"
     test_command: "python ai-tier/evals/platform_runner.py"
 
-  # --- Phase P12: Governed ACH Return Intelligence ---
+  # --- P12.5 Governed ACH Return Intelligence Truth Gate ---
   deterministic_ach_return_intelligence:
     status: TESTED
-    evidence: gateway/internal/returnrisk/engine_test.go
-    description: "Deterministic Go return risk scoring engine calculating bounded risk [0-100], risk tiers (LOW, MEDIUM, HIGH, SEVERE), and primary feature drivers"
+    evidence: gateway/internal/returnrisk/p12_5_test.go
+    description: "Seven-feature deterministic Go risk score, representative return-code taxonomy, explicit threshold applicability, and RFC 8785 protected assessment hashing"
     test_command: "go test ./internal/returnrisk/... -v"
 
   return_risk_agent:
     status: TESTED
-    evidence: ai-tier/agents/return_risk.py
-    description: "Autonomy Level A1 read-only advisory specialist explaining return risk posture, NACHA category rules, and operational recommendations"
+    evidence: ai-tier/tests/test_return_risk_agent.py
+    description: "A1 read-only return-risk specialist uses only GuardedModelBoundary for live inference; LIVE failure cannot silently become deterministic success"
     test_command: "pytest ai-tier/tests/test_return_risk_agent.py -v"
 
   return_risk_memory_integration:
     status: TESTED
     evidence: gateway/internal/returnrisk/memory.go
-    description: "Emits verified return pattern facts to M1 operational memory upon confirmed incident resolution"
+    description: "Verified return-pattern facts can be emitted to M1 operational memory after confirmed resolution"
     test_command: "go test ./internal/returnrisk/... -v"
 
   return_risk_adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/return_runner.py
-    description: "20 adversarial return risk scenarios evaluating score immutability, tier downgrade containment, memory non-authority, and fail-closed decoupling"
+    description: "20 return-risk adversarial/conformance scenarios cover score immutability, memory non-authority, and authority boundaries"
     test_command: "python ai-tier/evals/return_runner.py"
+
+  return_risk_public_semantics_fixture:
+    status: TESTED
+    evidence: docs/fixtures/return_risk_semantics.json
+    description: "Shared Go/Python fixture pins public threshold values, R10/R11 semantics, unauthorized-rate family, R16 threshold non-applicability, and representative-catalog scope"
+    test_command: "go test ./internal/returnrisk/... -v && pytest ai-tier/tests/test_return_risk_agent.py -v"
 
   # --- Observability, Telemetry & CI ---
   prometheus_metrics:
@@ -394,16 +393,16 @@ capabilities:
   adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/runner.py
-    description: "165 adversarial security scenarios across 8 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform, 20 Return Risk)"
+    description: "Master adversarial evaluation harness spans the eight existing SGACA phases including return risk"
     test_command: "python ai-tier/evals/runner.py"
 
   ci_pipeline:
     status: TESTED
     evidence: .github/workflows/ci.yml
-    description: "6-job CI: lint, test-backend (race+coverage), test-frontend, test-ai-tier, migrations, security"
+    description: "CI explicitly gates Go return-risk tests, full Go race tests, Python unit/conformance tests, return-risk evals, master evals, and generated-submission drift"
 
   concurrent_stress_test:
     status: TESTED
     evidence: gateway/worker_test.go
-    description: "40 artifacts settled in 1.135s under 24 parallel workers with zero lease loss"
+    description: "Concurrent worker stress coverage for durable job processing"
     test_command: "go test -run TestConcurrentSettlement -race"
