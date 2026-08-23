@@ -14,9 +14,11 @@ import (
 )
 
 var (
-	// Redaction patterns
+	// Redaction and forbidden content detection patterns
 	reRawNACHARecord   = regexp.MustCompile(`^[156789][0-9A-Za-z\s]{80,100}$`)
 	reSecretKeyPattern = regexp.MustCompile(`(?i)(bearer\s+[a-z0-9_\-\.]{20,}|(ghp|gho|xoxb|xoxp|sk_live|secret|token)_[a-z0-9_\-]{16,}|BEGIN\s+(RSA|OPENSSH|PGP|EC)\s+PRIVATE\s+KEY)`)
+	reAccountNumber    = regexp.MustCompile(`\b\d{10,17}\b`)
+	reRoutingNumber    = regexp.MustCompile(`\b[0123678]\d{7}\d\b`)
 	reHex64            = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
@@ -119,7 +121,7 @@ func (g *EligibilityGate) EvaluateWithQueryable(ctx context.Context, q Queryable
 		}
 	}
 
-	// 7. Safety, Redaction & Disallowed Content Scanning
+	// 7. Safety, Redaction & Disallowed Content Scanning (Reject rather than silently modify)
 	if len(record.StructuredValue) == 0 {
 		return ErrEmptyStructuredValue
 	}
@@ -173,30 +175,42 @@ func scanForDisallowedContent(raw json.RawMessage) error {
 		return fmt.Errorf("structured_value must be a valid JSON object: %w", err)
 	}
 
-	// Recursively check all strings in the payload for raw NACHA records
-	if err := scanValueForNACHA(val); err != nil {
+	// Recursively check all strings in the payload for raw NACHA records and PII
+	if err := scanValueForSensitiveData(val); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func scanValueForNACHA(val interface{}) error {
+func scanValueForSensitiveData(val interface{}) error {
 	switch v := val.(type) {
 	case string:
 		trimmed := strings.TrimSpace(v)
+		// Check raw NACHA line
 		if len(trimmed) >= 80 && len(trimmed) <= 100 && reRawNACHARecord.MatchString(trimmed) {
 			return fmt.Errorf("%w: raw NACHA line detected in memory value", ErrPIIDetected)
 		}
+		// Check unmasked account numbers (10-17 digits)
+		if reAccountNumber.MatchString(trimmed) {
+			return fmt.Errorf("%w: unmasked account number detected in memory value", ErrPIIDetected)
+		}
 	case []interface{}:
 		for _, item := range v {
-			if err := scanValueForNACHA(item); err != nil {
+			if err := scanValueForSensitiveData(item); err != nil {
 				return err
 			}
 		}
 	case map[string]interface{}:
-		for _, item := range v {
-			if err := scanValueForNACHA(item); err != nil {
+		for key, item := range v {
+			// Also inspect key names for forbidden sensitive fields
+			keyLower := strings.ToLower(key)
+			if keyLower == "raw_nacha" || keyLower == "account_number" || keyLower == "routing_number" {
+				if strVal, ok := item.(string); ok && strVal != "" && !strings.Contains(strVal, "REDACTED") {
+					return fmt.Errorf("%w: raw financial identifier field %q detected", ErrPIIDetected, key)
+				}
+			}
+			if err := scanValueForSensitiveData(item); err != nil {
 				return err
 			}
 		}

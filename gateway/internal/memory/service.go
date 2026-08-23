@@ -2,7 +2,9 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -15,16 +17,28 @@ import (
 
 // Store provides persistence and query APIs for authoritative operational memory.
 type Store struct {
-	db   *sql.DB
-	gate *EligibilityGate
+	db       *sql.DB
+	gate     *EligibilityGate
+	resolver *SourceResolver
 }
 
 // NewStore instantiates a new operational memory Store.
 func NewStore(db *sql.DB) *Store {
 	return &Store{
-		db:   db,
-		gate: NewEligibilityGate(db),
+		db:       db,
+		gate:     NewEligibilityGate(db),
+		resolver: NewSourceResolver(db),
 	}
+}
+
+// ResolveMemorySources executes authoritative Go-owned source resolution and evidence minting.
+func (s *Store) ResolveMemorySources(ctx context.Context, scope repository.Scope, req *ResolveMemorySourcesRequest) (*ResolvedMemorySources, error) {
+	return s.resolver.ResolveMemorySources(ctx, scope, req)
+}
+
+// SetFreshnessPolicy configures a custom Go memory freshness policy on the resolver.
+func (s *Store) SetFreshnessPolicy(factType FactType, freshnessPolicy MemoryFreshnessPolicy) {
+	s.resolver.SetPolicy(factType, freshnessPolicy)
 }
 
 // PersistOperationalFact persists an operational memory record inside a new transaction.
@@ -250,10 +264,11 @@ func (s *Store) InvalidateMemory(ctx context.Context, scope repository.Scope, me
 	}
 
 	revID := fmt.Sprintf("rev-%s-%d", memoryID, time.Now().UnixNano())
+	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO memory_revisions (id, memory_id, tenant_id, revision_number, previous_hash, new_hash, transition_type, reason, actor_id)
-		VALUES (?, ?, ?, (SELECT COUNT(*) + 1 FROM memory_revisions WHERE memory_id = ?), ?, ?, 'INVALIDATED', ?, ?)`,
-		revID, memoryID, rec.TenantID, memoryID, rec.MemoryHash, rec.MemoryHash, reason, actorID,
+		INSERT INTO memory_revisions (id, memory_id, tenant_id, revision_number, previous_hash, new_hash, transition_type, reason, actor_id, created_at)
+		VALUES (?, ?, ?, (SELECT COUNT(*) + 1 FROM memory_revisions WHERE memory_id = ?), ?, ?, 'INVALIDATED', ?, ?, ?)`,
+		revID, memoryID, rec.TenantID, memoryID, rec.MemoryHash, rec.MemoryHash, reason, actorID, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert invalidation revision: %w", err)
@@ -290,10 +305,11 @@ func (s *Store) SupersedeMemory(ctx context.Context, scope repository.Scope, old
 
 	// Record revision on old record
 	revID := fmt.Sprintf("rev-%s-%d", oldMemoryID, time.Now().UnixNano())
+	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO memory_revisions (id, memory_id, tenant_id, revision_number, previous_hash, new_hash, transition_type, reason, actor_id)
-		VALUES (?, ?, ?, (SELECT COUNT(*) + 1 FROM memory_revisions WHERE memory_id = ?), ?, ?, 'SUPERSEDED', ?, ?)`,
-		revID, oldMemoryID, oldRec.TenantID, oldMemoryID, oldRec.MemoryHash, newRecord.MemoryHash, reason, actorID,
+		INSERT INTO memory_revisions (id, memory_id, tenant_id, revision_number, previous_hash, new_hash, transition_type, reason, actor_id, created_at)
+		VALUES (?, ?, ?, (SELECT COUNT(*) + 1 FROM memory_revisions WHERE memory_id = ?), ?, ?, 'SUPERSEDED', ?, ?, ?)`,
+		revID, oldMemoryID, oldRec.TenantID, oldMemoryID, oldRec.MemoryHash, newRecord.MemoryHash, reason, actorID, now,
 	)
 	if err != nil {
 		return fmt.Errorf("insert supersession revision: %w", err)
@@ -312,7 +328,7 @@ func NewIngestionBridgeDeliverer(store *Store) *IngestionBridgeDeliverer {
 	return &IngestionBridgeDeliverer{store: store}
 }
 
-// Deliver handles the asynchronous ingest of verified outbox events into M1.
+// Deliver handles the asynchronous ingest of verified outbox events into M1 with idempotency conflict checks.
 func (b *IngestionBridgeDeliverer) Deliver(ctx context.Context, ev jobs.PendingEvent) error {
 	if ev.EventType != "MEMORY_EVENT_ELIGIBLE" {
 		return nil
@@ -341,8 +357,10 @@ func (b *IngestionBridgeDeliverer) Deliver(ctx context.Context, ev jobs.PendingE
 	if len(dedupeShort) > 8 {
 		dedupeShort = dedupeShort[:8]
 	}
+	memoryID := fmt.Sprintf("mem-%s-%s", strings.ToLower(string(payload.SubjectType)), dedupeShort)
+
 	memRecord := &OperationalMemoryRecord{
-		MemoryID:               fmt.Sprintf("mem-%s-%s", strings.ToLower(string(payload.SubjectType)), dedupeShort),
+		MemoryID:               memoryID,
 		TenantID:               payload.TenantID,
 		MemoryType:             MemoryTypeOperationalFact,
 		SubjectType:            payload.SubjectType,
@@ -355,11 +373,83 @@ func (b *IngestionBridgeDeliverer) Deliver(ctx context.Context, ev jobs.PendingE
 		ConfidenceSource:       payload.ConfidenceSource,
 		Classification:         ClassificationInternal,
 		Status:                 StatusActive,
-		ValidFrom:              time.Now().UTC(),
-		CreatedAt:              time.Now().UTC(),
+		ValidFrom:              time.Unix(0, 0).UTC(),
+		CreatedAt:              time.Unix(0, 0).UTC(),
 		CreatedBy:              payload.CreatedBy,
 	}
 
+	expectedHash, err := ComputeMemoryHash(memRecord)
+	if err != nil {
+		return fmt.Errorf("compute event memory hash: %w", err)
+	}
+	memRecord.MemoryHash = expectedHash
+
 	scope := repository.Scope{}
+
+	// Idempotency check: look up existing record
+	existing, err := b.store.GetMemory(ctx, scope, memoryID)
+	if err == nil {
+		// Existing record found: verify hash
+		if existing.MemoryHash == expectedHash {
+			// Idempotent replay: already persisted identically
+			return nil
+		}
+		// Hash conflict: same event ID with different payload hash
+		return fmt.Errorf("%w: memory %s exists with hash %s, event payload produced %s", ErrIdempotencyConflict, memoryID, existing.MemoryHash, expectedHash)
+	}
+
 	return b.store.PersistOperationalFact(ctx, scope, memRecord)
+}
+
+// ExportToEnvelope validates and exports an authoritative M1 record to an M2/M3 MemoryEventEnvelope.
+func ExportToEnvelope(record *OperationalMemoryRecord, exportPolicy ManagedMemoryExportPolicy) (map[string]interface{}, error) {
+	if record == nil {
+		return nil, ErrNilRecord
+	}
+
+	// 1. Tenant match
+	if exportPolicy.TenantID != "" && record.TenantID != exportPolicy.TenantID {
+		return nil, fmt.Errorf("export error: tenant %s does not match policy %s", record.TenantID, exportPolicy.TenantID)
+	}
+
+	// 2. Fact type check
+	if len(exportPolicy.AllowedFactTypes) > 0 {
+		allowed := false
+		for _, ft := range exportPolicy.AllowedFactTypes {
+			if record.FactType == ft {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("export error: fact_type %s is not permitted by export policy", record.FactType)
+		}
+	}
+
+	// 3. Classification ceiling check
+	if record.Classification == ClassificationRestricted {
+		return nil, fmt.Errorf("%w: RESTRICTED memory cannot be exported to managed memory bank", ErrClassificationForbidden)
+	}
+
+	// 4. Compute export digest
+	exportPayload := map[string]interface{}{
+		"event_id":          fmt.Sprintf("evt-exp-%s", record.MemoryID),
+		"tenant_scope":      record.TenantID,
+		"memory_type":       string(record.MemoryType),
+		"fact_type":         string(record.FactType),
+		"subject_ref":       record.SubjectRef,
+		"sanitized_fact":    string(record.StructuredValue),
+		"source_refs":       record.SourceRefs,
+		"provenance_hashes": record.SourceHashes,
+		"occurred_at":       record.CreatedAt.Format(time.RFC3339),
+	}
+
+	b, err := json.Marshal(exportPayload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal export envelope: %w", err)
+	}
+	h := sha256.Sum256(b)
+	exportPayload["provenance_digest"] = hex.EncodeToString(h[:])
+
+	return exportPayload, nil
 }

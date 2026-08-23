@@ -1,4 +1,4 @@
-"""Unit Tests for SentinelFlow P10 Memory Context Source Revalidation."""
+"""Unit Tests for SentinelFlow P10.5 Memory Context Filtering."""
 
 from datetime import datetime, timezone, timedelta
 import pytest
@@ -12,7 +12,7 @@ from memory.revalidation import MemoryRevalidator
 
 
 def test_revalidator_clean_pass():
-    """Verify clean memory context passes with AUTHORITATIVE_VERIFIED status."""
+    """Verify clean memory context passes with ADVISORY_CONTEXT_READY status."""
     now = datetime.now(timezone.utc)
     hit = MemoryHit(
         memory_id="MEM-001",
@@ -46,13 +46,13 @@ def test_revalidator_clean_pass():
         authorized_evidence_set={"FINDING-101"},
         now=now,
     )
-    assert report.overall_status == "AUTHORITATIVE_VERIFIED"
+    assert report.overall_status == "ADVISORY_CONTEXT_READY"
     assert len(report.revalidated_hits) == 1
     assert report.partner_profile_verified is True
 
 
 def test_revalidator_rejects_stale_memory():
-    """Verify memories older than 90 days are rejected as STALE_EXPIRED."""
+    """Verify memories older than retrieval window are filtered as STALE_EXPIRED."""
     now = datetime.now(timezone.utc)
     old_time = (now - timedelta(days=95)).isoformat()
 
@@ -86,7 +86,7 @@ def test_revalidator_rejects_stale_memory():
 
 
 def test_revalidator_rejects_ungrounded_source():
-    """Verify memories referencing unauthorized sources are flagged."""
+    """Verify memories referencing unauthorized sources are flagged as UNGROUNDED_SOURCE."""
     now = datetime.now(timezone.utc)
     hit = MemoryHit(
         memory_id="MEM-UNGROUNDED",
@@ -117,21 +117,21 @@ def test_revalidator_rejects_ungrounded_source():
     assert report.rejected_hits[0]["reason"] == "UNGROUNDED_SOURCE"
 
 
-def test_revalidator_rejects_low_confidence():
-    """Verify memories with confidence < 0.50 are rejected."""
+def test_revalidator_filters_low_relevance():
+    """Verify memories with relevance < 0.20 are filtered out for context budgeting."""
     now = datetime.now(timezone.utc)
     hit = MemoryHit(
-        memory_id="MEM-LOW-CONF",
+        memory_id="MEM-LOW-REL",
         memory_topic="INCIDENT_PATTERN",
         subject_ref="PARTNER-01",
-        fact_summary="Low confidence hunch.",
+        fact_summary="Low relevance note.",
         source_refs=["FINDING-01"],
-        confidence_score=0.40,
-        relevance_score=0.80,
+        confidence_score=0.90,
+        relevance_score=0.10,
         recency_score=0.90,
         source_strength_score=0.70,
         subject_match_score=1.00,
-        aggregate_ranking_score=0.70,
+        aggregate_ranking_score=0.50,
         occurred_at=now.isoformat(),
         ingested_at=now.isoformat(),
         provenance_hash="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -144,4 +144,4 @@ def test_revalidator_rejects_low_confidence():
         now=now,
     )
     assert len(report.revalidated_hits) == 0
-    assert report.rejected_hits[0]["reason"] == "LOW_CONFIDENCE"
+    assert report.rejected_hits[0]["reason"] == "LOW_RELEVANCE"

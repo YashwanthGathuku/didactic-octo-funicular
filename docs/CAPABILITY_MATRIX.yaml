@@ -176,24 +176,82 @@ capabilities:
     evidence: gateway/migrations/012_agent_registry.sql
     description: "Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED"
 
-  memory_bank:
-    status: TESTED
-    evidence: ai-tier/memory/provider.py
-    description: "4-tier memory taxonomy (M0-M3), Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval"
-    test_command: "pytest ai-tier/tests/test_memory_provider.py -v"
-
-  governed_operational_memory:
+  # --- Governed Operational Memory & Google Memory Bank ---
+  go_operational_memory:
     status: TESTED
     evidence: gateway/internal/memory/service_test.go
-    description: "Go-owned authoritative operational fact store (M1), deterministic eligibility gate, RFC 8785 canonical hashing, and outbox event bridge"
+    description: "Go-owned authoritative operational fact store (M1), deterministic eligibility gate with strict PII rejection, RFC 8785 canonical hashing, and outbox event bridge"
     test_command: "go test ./internal/memory/ -v"
 
-  memory_source_revalidation:
+  sqlite_operational_memory:
     status: TESTED
-    evidence: ai-tier/memory/revalidation.py
-    description: "Cryptographic provenance and 90-day freshness revalidation engine enforcing AuthorizedEvidenceSet grounding and tamper-evident digests"
-    test_command: "pytest ai-tier/tests/test_memory_revalidation.py -v"
+    evidence: gateway/internal/memory/service_test.go
+    description: "SQLite operational memory persistence, triggers, revisions, and concurrency isolation"
+    test_command: "go test ./internal/memory/ -v"
 
+  postgresql_operational_memory:
+    status: IMPLEMENTED
+    evidence: gateway/migrations/022_operational_memory.sql
+    description: "PostgreSQL 16 operational memory schema and migrations in 022_operational_memory.sql; live execution planned in P11"
+
+  memory_source_resolution:
+    status: TESTED
+    evidence: gateway/internal/memory/resolver_test.go
+    description: "Go control plane ResolveMemorySources engine validating tenant scope, source status, and cryptographic hashes, with exclusive authority to mint AuthorizedEvidenceRefs"
+    test_command: "go test ./internal/memory/ -run TestSourceResolver"
+
+  memory_non_authority:
+    status: TESTED
+    evidence: ai-tier/evals/memory_runner.py
+    description: "Strict non-equivalence invariant (MemoryRecall != Evidence, MemoryRef not in EvidenceSet, SimilarityScore != Trust) enforced across entire fleet"
+    test_command: "python ai-tier/evals/memory_runner.py"
+
+  memory_tenant_isolation:
+    status: TESTED
+    evidence: gateway/internal/memory/property_test.go
+    description: "Strict multi-tenant memory partitioning in Go and Python; cross-tenant retrieval queries return zero foreign tenant hits"
+    test_command: "go test ./internal/memory/ -run TestProperty_TenantIsolation"
+
+  memory_poisoning_resistance:
+    status: TESTED
+    evidence: ai-tier/evals/memory_runner.py
+    description: "Adversarial memory poisoning resistance; poisoned memory claiming policy ALLOW or file release strictly contained"
+    test_command: "python ai-tier/evals/memory_runner.py"
+
+  managed_memory_adapter:
+    status: TESTED
+    evidence: ai-tier/memory/provider.py
+    description: "Python Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval"
+    test_command: "pytest ai-tier/tests/test_memory_provider.py -v"
+
+  managed_memory_mock:
+    status: TESTED
+    evidence: ai-tier/memory/mock_provider.py
+    description: "In-memory test memory provider supporting red-team fault injection (TIMEOUT, UNAVAILABLE, CONFLICT, POISON, CROSS_TENANT)"
+    test_command: "pytest ai-tier/tests/test_memory_provider.py -v"
+
+  managed_memory_revisions:
+    status: TESTED
+    evidence: gateway/internal/memory/property_test.go
+    description: "Google Memory Bank managed revision audit tracking; rollback of managed memory never mutates authoritative Go M1 facts"
+    test_command: "go test ./internal/memory/ -run TestProperty_RevisionMonotonicity"
+
+  live_google_memory_bank:
+    status: IMPLEMENTED
+    evidence: ai-tier/memory/google_provider.py
+    description: "REST client for Google Agent Platform Memory Bank v1beta1; live production API call is NOT_RUN pending live ADC credentials"
+
+  live_ingest_events:
+    status: IMPLEMENTED
+    evidence: ai-tier/memory/google_provider.py
+    description: "Managed IngestEvents client pipeline; live production API call is NOT_RUN pending live ADC credentials"
+
+  live_memory_profiles:
+    status: IMPLEMENTED
+    evidence: ai-tier/memory/google_provider.py
+    description: "Managed RetrieveProfiles client pipeline; live production API call is NOT_RUN pending live ADC credentials"
+
+  # --- Governed Remediation & Independent Verification ---
   derived_artifacts:
     status: TESTED
     evidence: gateway/internal/candidate/service_test.go

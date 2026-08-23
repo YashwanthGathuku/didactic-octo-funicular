@@ -58,9 +58,19 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 | `memory_agent` | **TESTED** | `ai-tier/agents/memory_agent.py` | Autonomy Level A1 read-only memory specialist retrieving bounded historical context and partner profiles |
 | `agent_runtime` | **IMPLEMENTED** | `gateway/migrations/011_agent_workflows.sql` | Local execution runtime for Google ADK agents; Google Cloud Agent Runtime is PLANNED |
 | `agent_registry` | **IMPLEMENTED** | `gateway/migrations/012_agent_registry.sql` | Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED |
-| `memory_bank` | **TESTED** | `ai-tier/memory/provider.py` | 4-tier memory taxonomy (M0-M3), Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval |
-| `governed_operational_memory` | **TESTED** | `gateway/internal/memory/service_test.go` | Go-owned authoritative operational fact store (M1), deterministic eligibility gate, RFC 8785 canonical hashing, and outbox event bridge |
-| `memory_source_revalidation` | **TESTED** | `ai-tier/memory/revalidation.py` | Cryptographic provenance and 90-day freshness revalidation engine enforcing AuthorizedEvidenceSet grounding and tamper-evident digests |
+| `go_operational_memory` | **TESTED** | `gateway/internal/memory/service_test.go` | Go-owned authoritative operational fact store (M1), deterministic eligibility gate with strict PII rejection, RFC 8785 canonical hashing, and outbox event bridge |
+| `sqlite_operational_memory` | **TESTED** | `gateway/internal/memory/service_test.go` | SQLite operational memory persistence, triggers, revisions, and concurrency isolation |
+| `postgresql_operational_memory` | **IMPLEMENTED** | `gateway/migrations/022_operational_memory.sql` | PostgreSQL 16 operational memory schema and migrations in 022_operational_memory.sql; live execution planned in P11 |
+| `memory_source_resolution` | **TESTED** | `gateway/internal/memory/resolver_test.go` | Go control plane ResolveMemorySources engine validating tenant scope, source status, and cryptographic hashes, with exclusive authority to mint AuthorizedEvidenceRefs |
+| `memory_non_authority` | **TESTED** | `ai-tier/evals/memory_runner.py` | Strict non-equivalence invariant (MemoryRecall != Evidence, MemoryRef not in EvidenceSet, SimilarityScore != Trust) enforced across entire fleet |
+| `memory_tenant_isolation` | **TESTED** | `gateway/internal/memory/property_test.go` | Strict multi-tenant memory partitioning in Go and Python; cross-tenant retrieval queries return zero foreign tenant hits |
+| `memory_poisoning_resistance` | **TESTED** | `ai-tier/evals/memory_runner.py` | Adversarial memory poisoning resistance; poisoned memory claiming policy ALLOW or file release strictly contained |
+| `managed_memory_adapter` | **TESTED** | `ai-tier/memory/provider.py` | Python Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval |
+| `managed_memory_mock` | **TESTED** | `ai-tier/memory/mock_provider.py` | In-memory test memory provider supporting red-team fault injection (TIMEOUT, UNAVAILABLE, CONFLICT, POISON, CROSS_TENANT) |
+| `managed_memory_revisions` | **TESTED** | `gateway/internal/memory/property_test.go` | Google Memory Bank managed revision audit tracking; rollback of managed memory never mutates authoritative Go M1 facts |
+| `live_google_memory_bank` | **IMPLEMENTED** | `ai-tier/memory/google_provider.py` | REST client for Google Agent Platform Memory Bank v1beta1; live production API call is NOT_RUN pending live ADC credentials |
+| `live_ingest_events` | **IMPLEMENTED** | `ai-tier/memory/google_provider.py` | Managed IngestEvents client pipeline; live production API call is NOT_RUN pending live ADC credentials |
+| `live_memory_profiles` | **IMPLEMENTED** | `ai-tier/memory/google_provider.py` | Managed RetrieveProfiles client pipeline; live production API call is NOT_RUN pending live ADC credentials |
 | `derived_artifacts` | **TESTED** | `gateway/internal/candidate/service_test.go` | Remediation creates new artifacts linked to quarantined originals, never mutating originals |
 | `governed_remediation` | **TESTED** | `gateway/agent_orchestrator_gateway_test.go` | Exclusive Tool Gateway gate, crash consistency (Windows A-F), orphan reconciliation, deterministic candidate keys, and immutable candidate generation |
 | `independent_verification` | **TESTED** | `gateway/internal/verification/service_test.go` | Independent Go verification service re-reading ObjectStore bytes, re-running NACHA validator, verifying derivation hashes, and enforcing deterministic dominance |
@@ -79,7 +89,7 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 ---
 
 ## Summary of Capabilities
-- **38 Tested Capabilities** backed by automated regression tests in CI.
-- **3 Implemented Components** with schema/code present.
+- **44 Tested Capabilities** backed by automated regression tests in CI.
+- **7 Implemented Components** with schema/code present.
 - **2 Planned Google Integrations** scheduled for runtime deployment.
 - **100% Deterministic Grounding**: AI operates in a read-only advisory capacity; all releases require verified dual-control human authorization.

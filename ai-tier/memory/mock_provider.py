@@ -74,16 +74,26 @@ class MockManagedMemoryProvider(ManagedMemoryProvider):
         if tenant not in self._events_by_tenant:
             self._events_by_tenant[tenant] = []
 
-        # Deduplicate by event_hash
-        if any(e.event_hash == event.event_hash for e in self._events_by_tenant[tenant]):
-            return IngestionResult(
-                success=False,
-                event_id=event.event_id,
-                event_hash=event.event_hash,
-                tenant_scope_token=tenant,
-                error_code="DUPLICATE_EVENT",
-                error_message="Event already exists",
-            )
+        # Deduplicate and check idempotency by event_id
+        for existing_event in self._events_by_tenant[tenant]:
+            if existing_event.event_id == event.event_id:
+                if existing_event.event_hash == event.event_hash:
+                    # Idempotent replay: already stored identically
+                    return IngestionResult(
+                        success=True,
+                        event_id=event.event_id,
+                        event_hash=event.event_hash,
+                        tenant_scope_token=tenant,
+                    )
+                # Same ID with different hash -> conflict
+                return IngestionResult(
+                    success=False,
+                    event_id=event.event_id,
+                    event_hash=event.event_hash,
+                    tenant_scope_token=tenant,
+                    error_code="IDEMPOTENCY_CONFLICT",
+                    error_message="Event ID already exists with different payload hash",
+                )
 
         self._events_by_tenant[tenant].append(event)
         return IngestionResult(

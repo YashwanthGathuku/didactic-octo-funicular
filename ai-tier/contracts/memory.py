@@ -1,10 +1,17 @@
-"""Canonical Data Models for SentinelFlow P10 Managed Memory Subsystem.
+"""Canonical Data Models for SentinelFlow P10.5 Managed Memory Subsystem.
 
 Defines schemas for:
 - MemoryEventEnvelope: Data-minimized, hashed event for persistent ingestion.
 - MemoryQuery & MemoryHit: Bounded retrieval query and multi-factor ranked hit.
 - PartnerOperationalProfile: Aggregate profile of counterparty behavioral history.
 - AdvisoryMemoryContext: Structured payload injected into AgentContextEnvelope.
+
+Formal Invariants:
+- ManagedMemory != AuthoritativeEvidence
+- PythonMemoryValidation != EvidenceAuthority
+- SimilarityScore != Trust
+- MemoryConfidence != EvidenceValidity
+- MemoryRef ∉ EvidenceSet
 """
 
 from __future__ import annotations
@@ -94,25 +101,25 @@ class MemoryQuery(BaseModel):
     subject_ref: Optional[str] = Field(None, description="Target entity ID to recall")
     query_text: Optional[str] = Field(None, description="Semantic text query for matching")
     limit: int = Field(default=5, ge=1, le=5, description="Bounded retrieval limit (max 5 hits)")
-    min_score_threshold: float = Field(default=0.55, ge=0.0, le=1.0, description="Minimum ranking score cutoff")
-    lookback_days: int = Field(default=90, ge=1, le=365, description="Historical lookback ceiling")
+    min_score_threshold: float = Field(default=0.55, ge=0.0, le=1.0, description="Minimum ranking score cutoff for retrieval pruning")
+    lookback_days: int = Field(default=90, ge=1, le=365, description="Client-side retrieval lookback filter")
     correlation_id: str = Field(default="", description="Distributed trace correlation ID")
 
 
 class MemoryHit(BaseModel):
-    """A single ranked memory item retrieved from Memory Bank."""
+    """A single ranked memory item retrieved from Memory Bank (Advisory context only)."""
 
     memory_id: str = Field(..., description="Unique identifier of the stored memory")
     memory_topic: str = Field(..., description="Topic of the memory")
     subject_ref: str = Field(..., description="Entity reference")
     fact_summary: str = Field(..., description="Sanitized factual summary")
     source_refs: List[str] = Field(default_factory=list, description="Original source citations")
-    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Underlying provider confidence")
+    confidence_score: float = Field(default=0.85, ge=0.0, le=1.0, description="Provider match confidence (for ranking only, NOT trust)")
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Semantic relevance score (w1)")
     recency_score: float = Field(..., ge=0.0, le=1.0, description="Recency decay score (w2)")
     source_strength_score: float = Field(..., ge=0.0, le=1.0, description="Source authority score (w3)")
     subject_match_score: float = Field(..., ge=0.0, le=1.0, description="Subject exactness score (w4)")
-    aggregate_ranking_score: float = Field(..., ge=0.0, le=1.0, description="Weighted composite score")
+    aggregate_ranking_score: float = Field(..., ge=0.0, le=1.0, description="Weighted composite ranking score")
     occurred_at: str = Field(..., description="ISO 8601 timestamp of original event")
     ingested_at: str = Field(..., description="ISO 8601 timestamp of memory ingestion")
     provenance_hash: str = Field(..., description="SHA-256 hash of original memory event")
@@ -152,7 +159,11 @@ class PartnerOperationalProfile(BaseModel):
 
 
 class AdvisoryMemoryContext(BaseModel):
-    """Complete advisory memory package injected into AgentContextEnvelope under ADVISORY_DATA."""
+    """Complete advisory memory package injected into AgentContextEnvelope under ADVISORY_DATA.
+    
+    Formal Invariant:
+    MemoryRecall != Evidence AND MemoryRef ∉ EvidenceSet
+    """
 
     schema_version: Literal["1.0"] = "1.0"
     query_audit: List[Dict[str, Any]] = Field(
@@ -178,9 +189,13 @@ class AdvisoryMemoryContext(BaseModel):
         default="",
         description="SHA-256 digest of hits and profile for tamper detection",
     )
+    authorized_memory_refs: List[str] = Field(
+        default_factory=list,
+        description="Advisory memory references (MEM-HIT-*, MEM-PROFILE-*), strictly disjoint from AuthorizedEvidenceRefs",
+    )
     memory_evidence_refs: List[str] = Field(
         default_factory=list,
-        description="Prefixed citations (MEM-HIT-*, MEM-PROFILE-*) for AuthorizedEvidenceSet registration",
+        description="Deprecated alias for authorized_memory_refs; preserved for backward compatibility",
     )
 
     @model_validator(mode="after")
@@ -190,20 +205,21 @@ class AdvisoryMemoryContext(BaseModel):
         if len(self.query_audit) > 2:
             raise ValueError(f"query_audit count {len(self.query_audit)} exceeds maximum limit of 2 queries")
 
-        # Auto-populate memory evidence refs
+        # Auto-populate advisory memory refs
         refs = []
         for i, hit in enumerate(self.retrieved_hits):
             refs.append(f"MEM-HIT-{i+1:02d}")
             refs.append(f"MEM-{hit.memory_id}")
         if self.partner_profile:
             refs.append(f"MEM-PROFILE-{self.partner_profile.partner_ref}")
-        self.memory_evidence_refs = sorted(list(set(refs)))
+        self.authorized_memory_refs = sorted(list(set(refs)))
+        self.memory_evidence_refs = self.authorized_memory_refs
 
         # Compute tamper-evident provenance digest
         summary_obj = {
             "hits": [h.memory_id for h in self.retrieved_hits],
             "partner": self.partner_profile.partner_ref if self.partner_profile else None,
-            "refs": self.memory_evidence_refs,
+            "refs": self.authorized_memory_refs,
         }
         self.provenance_digest = hashlib.sha256(json.dumps(summary_obj, sort_keys=True).encode("utf-8")).hexdigest()
         return self
