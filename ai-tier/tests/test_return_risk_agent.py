@@ -81,7 +81,9 @@ def test_local_mode_allows_truthful_deterministic_fallback():
     assert res.non_authority_statement == RETURN_RISK_NON_AUTHORITY_STATEMENT
     assert res.execution_source == "LOCAL_ADK_DETERMINISTIC"
     assert "MEM-HIT-01" in res.memory_refs
-    assert all("1.5%" not in text for text in res.operational_recommendations)
+    assert all(
+        "1.5%" not in text for text in res.operational_recommendations
+    )
 
 
 def test_return_risk_input_minimization_helper():
@@ -153,7 +155,11 @@ def test_return_risk_agent_uses_guarded_boundary_in_auto_mode():
     )
     agent = ReturnRiskAgent(boundary=boundary)
 
-    with patch.dict(os.environ, {"SENTINEL_AI_MODE": "auto", "GOOGLE_API_KEY": ""}, clear=False):
+    with patch.dict(
+        os.environ,
+        {"SENTINEL_AI_MODE": "auto", "GOOGLE_API_KEY": ""},
+        clear=False,
+    ):
         with patch.object(boundary, "invoke", wraps=boundary.invoke) as invoke:
             res = agent.run(make_envelope())
 
@@ -181,9 +187,18 @@ def test_shared_threshold_and_r10_r11_semantics_fixture():
         "administrative": 0.03,
         "overall": 0.15,
     }
-    assert fixture["return_codes"]["R10"]["threshold_category"] == "UNAUTHORIZED_0_5_PERCENT"
-    assert fixture["return_codes"]["R11"]["threshold_category"] == "UNAUTHORIZED_0_5_PERCENT"
-    assert fixture["return_codes"]["R11"]["return_window"] == "EXTENDED_60_CALENDAR_DAYS"
+    assert (
+        fixture["return_codes"]["R10"]["threshold_category"]
+        == "UNAUTHORIZED_0_5_PERCENT"
+    )
+    assert (
+        fixture["return_codes"]["R11"]["threshold_category"]
+        == "UNAUTHORIZED_0_5_PERCENT"
+    )
+    assert (
+        fixture["return_codes"]["R11"]["return_window"]
+        == "EXTENDED_60_CALENDAR_DAYS"
+    )
     assert "R11" in fixture["unauthorized_return_rate_codes"]
     assert fixture["return_codes"]["R16"]["threshold_applicable"] is False
 
