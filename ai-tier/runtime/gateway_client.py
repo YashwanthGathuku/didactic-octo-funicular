@@ -1,13 +1,10 @@
 """Governed egress client for SentinelFlow's Agent Runtime workload.
 
-This module contains two deliberately separate concerns:
-
-1. A deterministic local allowlist used as defense-in-depth and for offline
-   tests.  It is *not* represented as Google Agent Gateway proof.
-2. A managed HTTP dispatch path.  When running on Agent Runtime, Google Agent
-   Gateway/IAP governs the actual network egress outside this process.  The
-   application does not manufacture Agent Identity credentials or claim a local
-   allowlist decision is a managed-gateway decision.
+The local destination check is defense-in-depth and testable policy; it is never
+reported as live Google Agent Gateway evidence. In managed mode the client sends
+a bounded HTTP request to one *exact* registered Go endpoint. Google Agent
+Gateway/IAP governs the network interaction outside this process; SentinelFlow's
+Go Tool Gateway then governs the business capability inside that endpoint.
 
 Formal invariants:
 - AgentGatewayAllow != PolicyAllow.
@@ -31,15 +28,10 @@ from runtime.identity import AgentIdentityProvider
 logger = logging.getLogger("sentinel.runtime.gateway")
 
 GatewayMode = Literal["DRY_RUN", "ENFORCE"]
+DEFAULT_MANAGED_TOOL_PATH = "/api/v1/internal/agent-tools"
 
 
 class GatewayEgressReport(BaseModel):
-    """Application-side egress policy report.
-
-    ``decision_source`` is intentionally explicit so local policy simulations
-    cannot be confused with live Google Agent Gateway evidence.
-    """
-
     mode: GatewayMode
     decision: Literal["ALLOW", "DENY", "WOULD_DENY"]
     target_endpoint: str
@@ -50,11 +42,11 @@ class GatewayEgressReport(BaseModel):
 
 
 class AgentGatewayClient:
-    """Bounded dispatcher for the registered SentinelFlow Go agent endpoint."""
+    """Bounded dispatcher for SentinelFlow's single managed Go agent endpoint."""
 
-    ALLOWED_PATHS = {
-        "/internal/agent-tools",
-        "/internal/agent-tools/execute",
+    ALLOWED_LOCAL_PATHS = {
+        DEFAULT_MANAGED_TOOL_PATH,
+        "/internal/agent-tools",  # legacy/local compatibility only
     }
 
     def __init__(
@@ -63,56 +55,66 @@ class AgentGatewayClient:
         project_id: Optional[str] = None,
         region: str = "us-central1",
         mode: GatewayMode = "ENFORCE",
+        registered_endpoint_url: Optional[str] = None,
+        # Backward-compatible alias used by older local tests. If it has no path,
+        # DEFAULT_MANAGED_TOOL_PATH is appended.
         registered_endpoint_base_url: Optional[str] = None,
         timeout_seconds: float = 10.0,
     ):
-        # ``gateway_endpoint`` is retained for configuration/provenance only.
-        # Managed Agent Gateway is an infrastructure egress layer; application
-        # traffic is sent to the registered destination URL and intercepted by
-        # the platform rather than authenticated by a hand-authored header.
         self.gateway_endpoint = gateway_endpoint or os.environ.get("AGENT_GATEWAY_ENDPOINT", "")
         self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
         self.region = region or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
         self.mode: GatewayMode = mode
         self.platform_mode = AgentIdentityProvider.platform_mode()
-        self.registered_endpoint_base_url = (
-            registered_endpoint_base_url
+
+        configured = (
+            registered_endpoint_url
             or os.environ.get("SENTINEL_GO_AGENT_ENDPOINT", "")
-        ).rstrip("/")
+            or registered_endpoint_base_url
+            or ""
+        ).strip()
+        self.registered_endpoint_url = self._canonical_registered_url(configured)
         self.timeout_seconds = max(0.1, min(float(timeout_seconds), 30.0))
+
+    @staticmethod
+    def _canonical_registered_url(value: str) -> str:
+        value = value.rstrip("/")
+        if not value:
+            return ""
+        parsed = urlparse(value)
+        if not parsed.scheme or not parsed.netloc:
+            return value
+        path = parsed.path.rstrip("/")
+        if path in ("", "/"):
+            path = DEFAULT_MANAGED_TOOL_PATH
+        return f"{parsed.scheme}://{parsed.netloc}{path}"
 
     def set_mode(self, mode: GatewayMode) -> None:
         if mode not in ("DRY_RUN", "ENFORCE"):
             raise ValueError(f"unsupported gateway mode {mode!r}")
         self.mode = mode
 
-    def _normalize_target(self, target_endpoint: str) -> tuple[str, str]:
+    @staticmethod
+    def _canonical_target(target_endpoint: str) -> str:
         target = (target_endpoint or "").strip()
         if not target:
-            return "", ""
-
+            return ""
         parsed = urlparse(target)
         if parsed.scheme and parsed.netloc:
-            return f"{parsed.scheme}://{parsed.netloc}", parsed.path or "/"
-
-        path = target if target.startswith("/") else f"/{target}"
-        return self.registered_endpoint_base_url, path
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/') or '/'}"
+        return target if target.startswith("/") else f"/{target}"
 
     def _is_registered_destination(self, target_endpoint: str) -> bool:
-        base, path = self._normalize_target(target_endpoint)
-        if path not in self.ALLOWED_PATHS:
-            return False
-
-        # In managed mode an exact registered destination base URL is required;
-        # this prevents suffix/path tricks from being treated as registered.
+        target = self._canonical_target(target_endpoint)
         if self.platform_mode == "managed":
-            if not self.registered_endpoint_base_url or not base:
+            if not self.registered_endpoint_url:
                 return False
-            return base == self.registered_endpoint_base_url
-
-        # Local tests may use a relative path but still exercise default-deny
-        # semantics.  This remains LOCAL_POLICY evidence only.
-        return True
+            if target.startswith("http://") or target.startswith("https://"):
+                return target == self.registered_endpoint_url
+            # A relative request is legal only for the exact managed tool path;
+            # dispatch resolves it to the one configured registered URL.
+            return target == DEFAULT_MANAGED_TOOL_PATH
+        return target in self.ALLOWED_LOCAL_PATHS
 
     def evaluate_egress(
         self,
@@ -122,9 +124,9 @@ class AgentGatewayClient:
         workflow_id: str = "",
         tenant_id: str = "",
     ) -> GatewayEgressReport:
-        del payload, workflow_id, tenant_id  # policy decision uses destination + fixed roster only
+        del payload, workflow_id, tenant_id
         validate_agent_roster_membership(agent_name)
-        target = (target_endpoint or "").strip()
+        target = self._canonical_target(target_endpoint)
         is_registered = self._is_registered_destination(target)
 
         if not is_registered:
@@ -136,7 +138,7 @@ class AgentGatewayClient:
                     is_registered=False,
                     decision_source="LOCAL_POLICY",
                     details=(
-                        "Local P11 defense-in-depth policy would deny this destination. "
+                        "SentinelFlow local egress policy would deny this destination. "
                         "This is not evidence of a live Google Agent Gateway decision."
                     ),
                     status_code=200,
@@ -158,34 +160,39 @@ class AgentGatewayClient:
             is_registered=True,
             decision_source="LOCAL_POLICY",
             details=(
-                "Destination is in SentinelFlow's local registered-endpoint allowlist; "
+                "Destination matches SentinelFlow's exact local registered-endpoint policy; "
                 "managed mode still requires Google Agent Gateway/IAP authorization."
             ),
             status_code=200,
         )
 
     def _dispatch_url(self, target_endpoint: str) -> str:
-        base, path = self._normalize_target(target_endpoint)
-        if not base:
+        if not self.registered_endpoint_url:
             raise RuntimeError("SENTINEL_GO_AGENT_ENDPOINT is required for managed dispatch")
-        return f"{base}{path}"
+        target = self._canonical_target(target_endpoint)
+        if target.startswith("http://") or target.startswith("https://"):
+            if target != self.registered_endpoint_url:
+                raise RuntimeError("target does not match registered managed endpoint")
+        elif target != DEFAULT_MANAGED_TOOL_PATH:
+            raise RuntimeError("relative managed target must be the canonical agent-tools path")
+        return self.registered_endpoint_url
 
     def dispatch_tool_call(
         self,
         agent_name: str,
         tool_name: str,
         tool_args: Dict[str, Any],
-        target_endpoint: str = "/internal/agent-tools",
+        target_endpoint: str = DEFAULT_MANAGED_TOOL_PATH,
         workflow_id: str = "",
         tenant_id: str = "",
         idempotency_key: str = "",
     ) -> Dict[str, Any]:
         """Dispatches a bounded tool request.
 
-        In local mode this returns an explicit simulation envelope.  In managed
-        mode it performs a real HTTP request to the registered Go destination;
-        Google Agent Gateway/IAP is expected to authenticate/authorize that
-        egress at the infrastructure layer.
+        Local mode returns an explicitly labeled simulation. Managed mode makes
+        a real HTTP request. The caller-supplied tenant remains non-authoritative:
+        the Go endpoint resolves the tenant from the durable workflow and merely
+        rejects a mismatch in this metadata.
         """
 
         validate_agent_roster_membership(agent_name)
@@ -219,6 +226,7 @@ class AgentGatewayClient:
             "agent_name": agent_name,
             "tool_name": tool_name,
             "tool_args": tool_args,
+            "idempotency_key": idempotency_key,
         }
 
         if self.platform_mode != "managed":
@@ -267,6 +275,5 @@ class AgentGatewayClient:
         try:
             result["response"] = response.json()
         except ValueError:
-            # Never return arbitrarily large backend bodies into model context.
             result["response"] = {"text": response.text[:4096]}
         return result
