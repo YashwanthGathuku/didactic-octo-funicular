@@ -1,10 +1,15 @@
-"""Deploy SentinelFlow's governed ADK application to Google Agent Runtime.
+"""Deploy SentinelFlow's fixed Google ADK fleet to Agent Runtime.
 
-The command is dry-run by default.  A real deployment requires ``--execute``
-and valid Application Default Credentials.  The script never prints tokens and
-never creates more than one resource implicitly: callers should pass an
-existing resource name to their own update workflow rather than rerunning this
-creation command blindly.
+Safety properties:
+- dry-run by default;
+- a real deployment requires ``--execute`` and ADC;
+- Agent Identity is requested at *creation* time;
+- an optional existing Agent-to-Anywhere Gateway can be bound at creation;
+- no token, credential or financial payload is printed.
+
+This command creates a new reasoning engine when ``--execute`` is supplied. It
+therefore intentionally does not auto-retry creation or silently create a second
+resource. Reuse/update of an existing engine is handled by the P17 live runbook.
 """
 
 from __future__ import annotations
@@ -26,6 +31,8 @@ class DeploymentPlan:
     identity_type: str
     display_name: str
     tracing_enabled: bool
+    agent_gateway: Optional[str]
+    vertex_ai_backend: bool
 
 
 def _parse_args() -> argparse.Namespace:
@@ -46,6 +53,14 @@ def _parse_args() -> argparse.Namespace:
         help="Managed runtime display name",
     )
     parser.add_argument(
+        "--agent-gateway",
+        default=os.getenv("SENTINEL_AGENT_GATEWAY_RESOURCE", ""),
+        help=(
+            "Optional full Agent-to-Anywhere Gateway resource, for example "
+            "projects/PROJECT/locations/us-central1/agentGateways/NAME"
+        ),
+    )
+    parser.add_argument(
         "--execute",
         action="store_true",
         help="Actually create the Agent Runtime resource. Without this flag the command is dry-run only.",
@@ -54,6 +69,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _plan(args: argparse.Namespace) -> DeploymentPlan:
+    gateway = args.agent_gateway.strip() or None
     return DeploymentPlan(
         project=args.project,
         location=args.location,
@@ -61,6 +77,8 @@ def _plan(args: argparse.Namespace) -> DeploymentPlan:
         identity_type="AGENT_IDENTITY",
         display_name=args.display_name,
         tracing_enabled=True,
+        agent_gateway=gateway,
+        vertex_ai_backend=True,
     )
 
 
@@ -72,6 +90,43 @@ def _resource_name(remote_app: Any) -> Optional[str]:
     api_resource = getattr(remote_app, "api_resource", None)
     value = getattr(api_resource, "name", None) if api_resource is not None else None
     return str(value) if value else None
+
+
+def _build_config(args: argparse.Namespace, identity_type: Any) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "display_name": args.display_name,
+        "identity_type": identity_type,
+        "requirements": [
+            "google-adk>=2.7.1,<3.0.0",
+            "google-genai>=2.18.1,<3.0.0",
+            "google-cloud-aiplatform[agent_engines,adk]>=1.111.0,<3.0.0",
+            "pydantic>=2.10.4,<3.0.0",
+            "httpx>=0.27.0,<1.0.0",
+        ],
+        "env_vars": {
+            "GOOGLE_CLOUD_PROJECT": args.project,
+            "GOOGLE_CLOUD_LOCATION": args.location,
+            # Managed ADK model calls use Vertex AI + ADC/Agent Identity rather
+            # than requiring a long-lived Gemini API key in the Runtime.
+            "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
+            "SENTINEL_PLATFORM_MODE": "managed",
+            "SENTINEL_AI_MODE": "live",
+        },
+    }
+
+    gateway = args.agent_gateway.strip()
+    if gateway:
+        expected_prefix = f"projects/{args.project}/locations/{args.location}/agentGateways/"
+        if not gateway.startswith(expected_prefix):
+            raise RuntimeError(
+                "for the hackathon single-project deployment, --agent-gateway must be in "
+                f"the same project/region and start with {expected_prefix!r}"
+            )
+        config["agent_gateway_config"] = {
+            "agent_to_anywhere_config": {"agent_gateway": gateway}
+        }
+
+    return config
 
 
 def deploy(args: argparse.Namespace) -> dict[str, Any]:
@@ -97,51 +152,37 @@ def deploy(args: argparse.Namespace) -> dict[str, Any]:
     if credentials is None:
         raise RuntimeError("Application Default Credentials are unavailable")
 
-    # The configured project is authoritative; ADC's quota/default project may
-    # legitimately differ but is reported for operator visibility.
     client = vertexai.Client(
         project=args.project,
         location=args.location,
         http_options={"api_version": "v1beta1"},
     )
     app = build_agent_runtime_app(enable_tracing=True)
+    config = _build_config(args, types.IdentityType.AGENT_IDENTITY)
 
-    remote_app = client.agent_engines.create(
-        agent=app,
-        config={
-            "display_name": args.display_name,
-            "identity_type": types.IdentityType.AGENT_IDENTITY,
-            "requirements": [
-                "google-adk>=2.7.1,<3.0.0",
-                "google-genai>=2.18.1,<3.0.0",
-                "google-cloud-aiplatform[agent_engines,adk]>=1.111.0,<3.0.0",
-                "pydantic>=2.10.4,<3.0.0",
-                "httpx>=0.27.0,<1.0.0",
-            ],
-            "env_vars": {
-                "GOOGLE_CLOUD_PROJECT": args.project,
-                "GOOGLE_CLOUD_LOCATION": args.location,
-                "SENTINEL_PLATFORM_MODE": "managed",
-                "SENTINEL_AI_MODE": "live",
-            },
-        },
-    )
+    remote_app = client.agent_engines.create(agent=app, config=config)
+    resource_name = _resource_name(remote_app)
+    if not resource_name:
+        raise RuntimeError(
+            "Agent Runtime create returned without a resource name; do not treat the deployment as proven"
+        )
 
     return {
         "status": "CREATED",
         "project": args.project,
         "location": args.location,
         "adc_project": adc_project,
-        "resource_name": _resource_name(remote_app),
+        "resource_name": resource_name,
         "identity_type": "AGENT_IDENTITY",
         "model": MANAGED_MODEL,
+        "agent_gateway": plan.agent_gateway,
+        "vertex_ai_backend": True,
     }
 
 
 def main() -> None:
     args = _parse_args()
     result = deploy(args)
-    # Output contains resource metadata only; never credentials/tokens.
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
