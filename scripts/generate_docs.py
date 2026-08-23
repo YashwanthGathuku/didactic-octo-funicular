@@ -16,8 +16,17 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MATRIX_FILE = REPO_ROOT / "docs" / "CAPABILITY_MATRIX.yaml"
-
 LEGAL_STATUSES = {"IMPLEMENTED", "TESTED", "DEMO_ONLY", "EXPERIMENTAL", "PLANNED"}
+SUBMISSION_CAPABILITIES = [
+    "gemini_3_5_provider_path",
+    "live_gemini_3_5",
+    "guarded_model_boundary",
+    "deterministic_ach_return_intelligence",
+    "return_risk_agent",
+    "return_risk_public_semantics_fixture",
+    "dual_control_release",
+    "independent_verification",
+]
 
 
 def load_and_validate_matrix() -> dict:
@@ -33,70 +42,75 @@ def load_and_validate_matrix() -> dict:
         status = cap.get("status")
         if status not in LEGAL_STATUSES:
             invalid_statuses.append((name, status))
-
     if invalid_statuses:
         print(f"Error: Invalid capability status vocabulary detected in {MATRIX_FILE}:", file=sys.stderr)
         for name, status in invalid_statuses:
             print(f"  - {name}: '{status}' (legal statuses: {', '.join(sorted(LEGAL_STATUSES))})", file=sys.stderr)
         sys.exit(1)
 
+    missing = [name for name in SUBMISSION_CAPABILITIES if name not in capabilities]
+    if missing:
+        print(f"Error: submission capabilities missing from matrix: {missing}", file=sys.stderr)
+        sys.exit(1)
     return matrix
 
 
 def generate_devpost_submission(matrix: dict) -> str:
-    capabilities = matrix.get("capabilities", {})
-    tested = [k for k, v in capabilities.items() if v.get("status") == "TESTED"]
-    implemented = [k for k, v in capabilities.items() if v.get("status") == "IMPLEMENTED"]
-    planned = [k for k, v in capabilities.items() if v.get("status") == "PLANNED"]
-
-    doc = f"""# SentinelFlow — All Things Agentic Hackathon Submission
+    capabilities = matrix["capabilities"]
+    doc = """# SentinelFlow — All Things Agentic Hackathon Submission
 
 ## Project Overview
-**SentinelFlow** is a governed AI Agent Control Plane built for **Gemini 3.5** and the **Google Agent Development Kit (ADK)** for high-assurance enterprise financial file reliability, incident triage, and pre-ledger operational intelligence.
+**SentinelFlow** is a governed AI Agent Control Plane built for **Gemini 3.5** and the **Google Agent Development Kit (ADK)** for high-assurance financial-file reliability, incident triage, and pre-ledger operational intelligence.
 
-Instead of a generic chatbot, SentinelFlow deploys an orchestrated fleet of specialist agents to perform bounded analysis and remediation planning while deterministic Go controls retain authority over evidence, policy, state transitions, verification, and financial release.
+AI is intentionally separated from financial authority: deterministic Go services own validation, evidence, policy, risk scoring, verification, and state transitions; human dual control owns release decisions.
 
----
+## Governed Specialist Fleet
+1. **IncidentCommanderAgent** — bounded planning and synthesis.
+2. **DiagnosisAgent** — evidence-grounded diagnostic hypotheses.
+3. **PolicySLAAgent** — advisory explanation of deterministic policy/SLA context.
+4. **MemoryAgent** — advisory historical retrieval; memory is not evidence.
+5. **RemediationAgent** — proposal-only derived-artifact remediation.
+6. **VerifierAgent** — verification critic; deterministic Go verification remains authoritative.
+7. **ReturnRiskAgent** — A1 ACH return-intelligence specialist.
 
-## Governed Specialist Agent Fleet
-1. **IncidentCommanderAgent**: Plans and synthesizes bounded incident investigations.
-2. **DiagnosisAgent**: Produces evidence-grounded diagnostic hypotheses.
-3. **PolicySLAAgent**: Explains deterministic policy and SLA context without overriding it.
-4. **MemoryAgent**: Retrieves advisory historical context; memory is never promoted to evidence by the model.
-5. **RemediationAgent**: Proposes non-destructive derived-artifact repairs only.
-6. **VerifierAgent**: Critiques verification evidence while deterministic Go verification remains authoritative.
-7. **ReturnRiskAgent**: Explains deterministic ACH return-risk results in an A1 read-only role.
+## Gemini & Guardrail Path
+- **Gemini 3.5 Flash (`gemini-3.5-flash`)** is the executable provider target for the governed path.
+- **GuardedModelBoundary** performs data minimization, trust partitioning, configured Model Armor pre/post screening, Pydantic validation, and evidence grounding around live inference.
+- **LIVE** provider failure is surfaced as failure/unavailable; it is not silently relabeled as successful deterministic AI.
+- **LOCAL/DETERMINISTIC** mode permits clearly labeled rule-grounded fallback.
+- **AUTO** follows the common SentinelFlow boundary semantics.
 
----
+## P12.5 Return Intelligence Truth Gate
+- Public return-rate monitoring values represented by SentinelFlow: **0.5% unauthorized, 3.0% administrative, 15.0% overall**.
+- R10 and R11 semantics are pinned by a shared public-semantics fixture; R11 participates in unauthorized-return-rate handling.
+- R16 has **no invented percentage threshold**; threshold applicability is explicit and false for the regulatory-restricted category.
+- The representative MVP taxonomy is **not a complete ACH return-code catalog**.
+- Operational taxonomy guidance is not a legal decision, and a return-risk score is not a compliance decision.
+- Assessment hashes reuse SentinelFlow's RFC 8785 canonical JSON implementation over deterministic protected fields; volatile record identity/time are excluded.
 
-## Google Cloud & Gemini Technology Stack
-- **Gemini 3.5 Flash (`gemini-3.5-flash`, `google-genai` SDK)**: Governed provider path for structured reasoning. A live external invocation is claimed only when separately evidenced in the capability matrix.
-- **Google Agent Development Kit (ADK)**: Fixed specialist-agent runtime objects and bounded orchestration.
-- **Google Cloud Model Armor**: Shared GuardedModelBoundary performs configured pre/post screening before/after live model invocation.
-- **Google Cloud KMS**: Ledger checkpoint signing integration remains separately statused in the capability matrix.
-- **PostgreSQL / SQLite**: Deterministic system-of-record and test/storage paths according to capability status.
+## Submission Capability Truth
 
----
-
-## Verified Capabilities Matrix (Single Source of Truth)
-
-| Capability | Status | Evidence & Test Suite | Description |
+| Capability | Status | Evidence | Description |
 |---|---|---|---|
 """
-    for name, cap in capabilities.items():
-        status = cap.get("status", "UNKNOWN")
-        evidence = cap.get("evidence", "—")
-        desc = cap.get("description", "")
-        doc += f"| `{name}` | **{status}** | `{evidence}` | {desc} |\n"
+    for name in SUBMISSION_CAPABILITIES:
+        cap = capabilities[name]
+        doc += (
+            f"| `{name}` | **{cap.get('status', 'UNKNOWN')}** | "
+            f"`{cap.get('evidence', '—')}` | {cap.get('description', '')} |\n"
+        )
 
-    doc += f"""
----
+    doc += """
 
-## Summary of Capabilities
-- **{len(tested)} Tested Capabilities** backed by automated regression evidence.
-- **{len(implemented)} Implemented Components** with code/schema present but not necessarily live-provider verified.
-- **{len(planned)} Planned Integrations** that are not represented as implemented runtime behavior.
-- **Authority invariant**: AI output is advisory; financial release remains behind deterministic controls and human authorization.
+## Authority Invariants
+
+`ReturnRiskAssessment != FinancialDecision`
+
+`MemoryRecall != Evidence`
+
+`ReturnRiskScore != ComplianceDecision`
+
+`RiskHigh != AutoRejectFinancialFile` and `RiskLow != AutoReleaseFinancialFile`
 """
     return doc
 
