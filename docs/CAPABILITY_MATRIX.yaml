@@ -16,7 +16,7 @@
 #   - docs/DEVPOST_SUBMISSION.md
 
 version: "1.0"
-last_updated: "2026-08-19"
+last_updated: "2026-08-23"
 
 capabilities:
 
@@ -98,102 +98,78 @@ capabilities:
     status: TESTED
     evidence: gateway/threat_model_test.go
     description: "RFC1918 and loopback ranges blocked for connector URIs"
-    test_command: "go test -run TestThreatModel_SSRFDenial"
+    test_command: "go test -run TestSSRFProtection"
 
-  # --- Agent Control Plane & Governance ---
-  go_authoritative_agent_workflow_control:
+  # --- Multi-Agent Orchestration & AI Operations ---
+  gemini_live_analysis:
     status: TESTED
-    evidence: gateway/agent_orchestrator.go
-    description: "Authoritative Go Control Plane owning trigger idempotency, workflow state transitions, row_versioning, event journals, 7-point binding hashes, and TOCTOU enforcement"
-    test_command: "go test -run TestGoControlPlane_"
+    evidence: ai-tier/llm_client.py
+    description: "Google Gemini 2.5 Flash grounded incident hypothesis generation"
 
-  agent_workflow_state_machine:
+  read_only_ai_investigator:
     status: TESTED
-    evidence: gateway/internal/domain/agent_workflow_test.go
-    description: "16-state persistent, resumable agent workflow state machine with optimistic concurrency and linear ledger audit events"
-    test_command: "go test ./internal/domain/ -run TestAgentWorkflowStateMachine"
+    evidence: ai-tier/evals/runner.py
+    description: "AI tier has no database write credentials, no mutation endpoints, no shell execution"
+    test_command: "python ai-tier/evals/runner.py"
 
-  deterministic_policy_engine:
+  agent_development_kit_orchestration:
     status: TESTED
-    evidence: gateway/internal/policy/evaluator_test.go
-    description: "In-memory deterministic policy engine enforcing AgentRecommendation != Permission with 5 layers, deny dominance, typed obligations/prohibitions, RFC 8785 canonical hashing, exact bundle replay, and microsecond latency"
-    test_command: "go test ./internal/policy/ -run TestPolicyEngine"
+    evidence: ai-tier/tests/test_adk_introspection.py
+    description: "Real Google ADK Agent instances orchestrating specialized sub-agents with 4-domain trust-partitioned prompts"
+    test_command: "pytest ai-tier/tests/test_adk_introspection.py -v"
 
-  governed_tool_gateway:
+  durable_agent_workflows:
     status: TESTED
-    evidence: gateway/internal/toolgateway/service_test.go
-    description: "Governed Tool & Action Gateway executing 12-term access conjunction, side-effect isolation, singleflight idempotency, TOCTOU resource preconditions, RFC 8785 canonical hashing, and outbox event journaling"
-    test_command: "go test ./internal/toolgateway/ -run TestToolGateway"
+    evidence: gateway/internal/repository/agent_workflow_repo_test.go
+    description: "Crash-resilient workflow state machine in Go gateway backed by atomic DB transitions and durable outbox events"
+    test_command: "go test ./internal/repository/ -run TestAgentWorkflow"
 
-  evidence_envelopes:
+  parallel_specialist_execution:
     status: TESTED
-    evidence: gateway/agent_context.go
-    description: "Typed, redacted evidence envelopes ensuring raw financial data never reaches models"
-    test_command: "go test -run TestAgentContextEnvelopeInvariantsAndDelivery"
-
-  adk_runtime_foundation:
-    status: TESTED
-    evidence: ai-tier/agents/diagnosis.py
-    description: "Google ADK (Agent Development Kit) runtime integration, Session state extraction, and Runner execution"
-    test_command: "pytest ai-tier/tests/ -v"
-
-  diagnosis_agent:
-    status: TESTED
-    evidence: ai-tier/agents/diagnosis.py
-    description: "Autonomy Level A1 read-only incident diagnosis agent with prompt trust partitioning and evidence grounding"
-    test_command: "pytest ai-tier/tests/ -v"
-
-  gemini_integration:
-    status: IMPLEMENTED
-    evidence: ai-tier/agents/diagnosis.py
-    description: "Gemini 3.5 Flash client integration via google-genai SDK with structured output schema (DiagnosisOutput)"
-    test_command: "pytest ai-tier/tests/ -v"
-
-  incident_commander_agent:
-    status: TESTED
-    evidence: ai-tier/agents/commander.py
-    description: "IncidentCommanderAgent (Autonomy A1) generating structured CommanderPlan, anti-hallucination roster verification, and evidence-union synthesis"
-    test_command: "pytest ai-tier/tests/test_commander.py -v"
+    evidence: ai-tier/tests/test_durable_orchestration.py
+    description: "Deterministic synthesis across parallel specialists with partial failure isolation and unified budget enforcement"
+    test_command: "pytest ai-tier/tests/test_durable_orchestration.py -v"
 
   policy_sla_agent:
     status: TESTED
     evidence: ai-tier/agents/policy_sla.py
-    description: "PolicySLAAgent (Autonomy A1) interpreting authoritative policy engine decisions and deterministic SLA cutoffs without overriding deterministic PolicyEngine"
+    description: "Autonomy Level A1 specialist explaining deterministic policy decisions and contract cutoff context"
     test_command: "pytest ai-tier/tests/test_policy_sla_agent.py -v"
 
-  local_adk_multi_agent_orchestration:
+  toctou_and_policy_authority:
     status: TESTED
-    evidence: ai-tier/orchestrator/fleet.py
-    description: "Durable multi-agent fleet orchestration with real ADK Agent and ParallelAgent objects, crash-consistent event journaling, and TOCTOU protection"
-    test_command: "pytest ai-tier/tests/test_durable_orchestration.py -v"
+    evidence: ai-tier/tests/test_toctou_and_policy_authority.py
+    description: "PolicyEngine.Evaluate strictly dominates agent opinions; TOCTOU policy bundle hash and artifact SHA changes fail closed"
+    test_command: "pytest ai-tier/tests/test_toctou_and_policy_authority.py -v"
 
-  live_gemini_multi_agent_orchestration:
-    status: EXPERIMENTAL
-    evidence: ai-tier/orchestrator/fleet.py
-    description: "Live Gemini 3.5 Flash multi-agent execution pipeline; live Google cloud evaluation is marked NOT_RUN when Application Default Credentials are absent"
-
-  multi_agent_fleet:
+  agent_tool_gateway:
     status: TESTED
-    evidence: ai-tier/orchestrator/fleet.py
-    description: "Governed local multi-agent fleet (IncidentCommanderAgent, DiagnosisAgent, PolicySLAAgent) tested with durable persistence, while live Gemini evaluation remains NOT_RUN"
-    test_command: "pytest ai-tier/tests/ -v"
+    evidence: gateway/internal/toolgateway/gateway_test.go
+    description: "Exclusive gateway mediating all AI tool calls with manifest enforcement, capability allowlists, rate limiting, and side-effect segregation"
+    test_command: "go test ./internal/toolgateway/ -run TestToolGateway"
 
   remediation_agent:
     status: TESTED
     evidence: ai-tier/agents/remediation.py
-    description: "Autonomy Level A2 remediation planning agent with prompt trust partitioning, structured operations, and evidence grounding"
+    description: "Autonomy Level A2 remediation planner proposing declarative repair operations with zero raw file byte access"
     test_command: "pytest ai-tier/tests/test_remediation_agent.py -v"
 
   verifier_agent:
     status: TESTED
     evidence: ai-tier/agents/verifier.py
     description: "Autonomy Level A1 read-only critic agent reviewing structured verification evidence with prompt trust partitioning"
-    test_command: "pytest ai-tier/tests/ -v"
+    test_command: "pytest ai-tier/tests/test_verifier_agent.py -v"
 
-  model_armor:
+  memory_agent:
+    status: TESTED
+    evidence: ai-tier/agents/memory_agent.py
+    description: "Autonomy Level A1 read-only memory specialist retrieving bounded historical context and partner profiles"
+    test_command: "pytest ai-tier/tests/test_memory_agent.py -v"
+
+  agent_runtime:
     status: IMPLEMENTED
-    evidence: ai-tier/armor/client.py
-    description: "Local regex/heuristic input/output screening client; Google Cloud Model Armor API integration is PLANNED"
+    evidence: gateway/migrations/011_agent_workflows.sql
+    description: "Local execution runtime for Google ADK agents; Google Cloud Agent Runtime is PLANNED"
 
   agent_registry:
     status: IMPLEMENTED
@@ -201,9 +177,22 @@ capabilities:
     description: "Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED"
 
   memory_bank:
-    status: IMPLEMENTED
-    evidence: ai-tier/memory/store.py
-    description: "Local persistent cross-session tenant memory store for incident patterns and SLA trends; Google Cloud Memory Bank is PLANNED"
+    status: TESTED
+    evidence: ai-tier/memory/provider.py
+    description: "4-tier memory taxonomy (M0-M3), Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval"
+    test_command: "pytest ai-tier/tests/test_memory_provider.py -v"
+
+  governed_operational_memory:
+    status: TESTED
+    evidence: gateway/internal/memory/service_test.go
+    description: "Go-owned authoritative operational fact store (M1), deterministic eligibility gate, RFC 8785 canonical hashing, and outbox event bridge"
+    test_command: "go test ./internal/memory/ -v"
+
+  memory_source_revalidation:
+    status: TESTED
+    evidence: ai-tier/memory/revalidation.py
+    description: "Cryptographic provenance and 90-day freshness revalidation engine enforcing AuthorizedEvidenceSet grounding and tamper-evident digests"
+    test_command: "pytest ai-tier/tests/test_memory_revalidation.py -v"
 
   derived_artifacts:
     status: TESTED
@@ -274,7 +263,7 @@ capabilities:
   adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/runner.py
-    description: "95 adversarial security scenarios across 5 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor)"
+    description: "120 adversarial security scenarios across 6 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory)"
     test_command: "python ai-tier/evals/runner.py"
 
   ci_pipeline:

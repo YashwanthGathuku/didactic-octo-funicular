@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
+from contracts.memory import AdvisoryMemoryContext
 
 
 class AgentBudget(BaseModel):
@@ -60,6 +61,10 @@ class AgentContextEnvelope(BaseModel):
     telemetry_summary: Dict[str, Any] = Field(default_factory=dict)
     filename: str = "unnamed.ach"
     prior_occurrences: int = 0
+    advisory_memory_context: Optional[AdvisoryMemoryContext] = Field(
+        default=None,
+        description="Optional advisory memory context retrieved for this execution",
+    )
 
     @model_validator(mode="after")
     def validate_security_invariants(self) -> "AgentContextEnvelope":

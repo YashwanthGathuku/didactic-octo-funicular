@@ -270,7 +270,7 @@ Deterministic Findings:
         hypotheses.append(Hypothesis(
             rank=1,
             hypothesis="Unclassified pre-ledger validation exception or expectation violation.",
-            confidence="LOW" if len(evidence_citations) == 0 else "MEDIUM",
+            confidence="LOW" if len(input_data.findings) == 0 else "MEDIUM",
             rationale="Deterministic validation encountered non-zero findings during ingest processing.",
             evidence_citations=evidence_citations
         ))

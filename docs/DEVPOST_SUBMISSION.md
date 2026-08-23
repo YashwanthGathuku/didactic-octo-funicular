@@ -45,24 +45,22 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 | `rbac_permissions` | **TESTED** | `gateway/router_auth_test.go` | 8-capability RBAC model enforced at route level |
 | `secret_redaction` | **TESTED** | `gateway/internal/secrets/redact_test.go` | Credentials sealed with AES-256-GCM, redacted in logs/JSON/errors |
 | `ssrf_prevention` | **TESTED** | `gateway/threat_model_test.go` | RFC1918 and loopback ranges blocked for connector URIs |
-| `go_authoritative_agent_workflow_control` | **TESTED** | `gateway/agent_orchestrator.go` | Authoritative Go Control Plane owning trigger idempotency, workflow state transitions, row_versioning, event journals, 7-point binding hashes, and TOCTOU enforcement |
-| `agent_workflow_state_machine` | **TESTED** | `gateway/internal/domain/agent_workflow_test.go` | 16-state persistent, resumable agent workflow state machine with optimistic concurrency and linear ledger audit events |
-| `deterministic_policy_engine` | **TESTED** | `gateway/internal/policy/evaluator_test.go` | In-memory deterministic policy engine enforcing AgentRecommendation != Permission with 5 layers, deny dominance, typed obligations/prohibitions, RFC 8785 canonical hashing, exact bundle replay, and microsecond latency |
-| `governed_tool_gateway` | **TESTED** | `gateway/internal/toolgateway/service_test.go` | Governed Tool & Action Gateway executing 12-term access conjunction, side-effect isolation, singleflight idempotency, TOCTOU resource preconditions, RFC 8785 canonical hashing, and outbox event journaling |
-| `evidence_envelopes` | **TESTED** | `gateway/agent_context.go` | Typed, redacted evidence envelopes ensuring raw financial data never reaches models |
-| `adk_runtime_foundation` | **TESTED** | `ai-tier/agents/diagnosis.py` | Google ADK (Agent Development Kit) runtime integration, Session state extraction, and Runner execution |
-| `diagnosis_agent` | **TESTED** | `ai-tier/agents/diagnosis.py` | Autonomy Level A1 read-only incident diagnosis agent with prompt trust partitioning and evidence grounding |
-| `gemini_integration` | **IMPLEMENTED** | `ai-tier/agents/diagnosis.py` | Gemini 3.5 Flash client integration via google-genai SDK with structured output schema (DiagnosisOutput) |
-| `incident_commander_agent` | **TESTED** | `ai-tier/agents/commander.py` | IncidentCommanderAgent (Autonomy A1) generating structured CommanderPlan, anti-hallucination roster verification, and evidence-union synthesis |
-| `policy_sla_agent` | **TESTED** | `ai-tier/agents/policy_sla.py` | PolicySLAAgent (Autonomy A1) interpreting authoritative policy engine decisions and deterministic SLA cutoffs without overriding deterministic PolicyEngine |
-| `local_adk_multi_agent_orchestration` | **TESTED** | `ai-tier/orchestrator/fleet.py` | Durable multi-agent fleet orchestration with real ADK Agent and ParallelAgent objects, crash-consistent event journaling, and TOCTOU protection |
-| `live_gemini_multi_agent_orchestration` | **EXPERIMENTAL** | `ai-tier/orchestrator/fleet.py` | Live Gemini 3.5 Flash multi-agent execution pipeline; live Google cloud evaluation is marked NOT_RUN when Application Default Credentials are absent |
-| `multi_agent_fleet` | **TESTED** | `ai-tier/orchestrator/fleet.py` | Governed local multi-agent fleet (IncidentCommanderAgent, DiagnosisAgent, PolicySLAAgent) tested with durable persistence, while live Gemini evaluation remains NOT_RUN |
-| `remediation_agent` | **TESTED** | `ai-tier/agents/remediation.py` | Autonomy Level A2 remediation planning agent with prompt trust partitioning, structured operations, and evidence grounding |
+| `gemini_live_analysis` | **TESTED** | `ai-tier/llm_client.py` | Google Gemini 2.5 Flash grounded incident hypothesis generation |
+| `read_only_ai_investigator` | **TESTED** | `ai-tier/evals/runner.py` | AI tier has no database write credentials, no mutation endpoints, no shell execution |
+| `agent_development_kit_orchestration` | **TESTED** | `ai-tier/tests/test_adk_introspection.py` | Real Google ADK Agent instances orchestrating specialized sub-agents with 4-domain trust-partitioned prompts |
+| `durable_agent_workflows` | **TESTED** | `gateway/internal/repository/agent_workflow_repo_test.go` | Crash-resilient workflow state machine in Go gateway backed by atomic DB transitions and durable outbox events |
+| `parallel_specialist_execution` | **TESTED** | `ai-tier/tests/test_durable_orchestration.py` | Deterministic synthesis across parallel specialists with partial failure isolation and unified budget enforcement |
+| `policy_sla_agent` | **TESTED** | `ai-tier/agents/policy_sla.py` | Autonomy Level A1 specialist explaining deterministic policy decisions and contract cutoff context |
+| `toctou_and_policy_authority` | **TESTED** | `ai-tier/tests/test_toctou_and_policy_authority.py` | PolicyEngine.Evaluate strictly dominates agent opinions; TOCTOU policy bundle hash and artifact SHA changes fail closed |
+| `agent_tool_gateway` | **TESTED** | `gateway/internal/toolgateway/gateway_test.go` | Exclusive gateway mediating all AI tool calls with manifest enforcement, capability allowlists, rate limiting, and side-effect segregation |
+| `remediation_agent` | **TESTED** | `ai-tier/agents/remediation.py` | Autonomy Level A2 remediation planner proposing declarative repair operations with zero raw file byte access |
 | `verifier_agent` | **TESTED** | `ai-tier/agents/verifier.py` | Autonomy Level A1 read-only critic agent reviewing structured verification evidence with prompt trust partitioning |
-| `model_armor` | **IMPLEMENTED** | `ai-tier/armor/client.py` | Local regex/heuristic input/output screening client; Google Cloud Model Armor API integration is PLANNED |
+| `memory_agent` | **TESTED** | `ai-tier/agents/memory_agent.py` | Autonomy Level A1 read-only memory specialist retrieving bounded historical context and partner profiles |
+| `agent_runtime` | **IMPLEMENTED** | `gateway/migrations/011_agent_workflows.sql` | Local execution runtime for Google ADK agents; Google Cloud Agent Runtime is PLANNED |
 | `agent_registry` | **IMPLEMENTED** | `gateway/migrations/012_agent_registry.sql` | Local database schema for agent lifecycle metadata, versioning, and invocations; Google Cloud Agent Registry is PLANNED |
-| `memory_bank` | **IMPLEMENTED** | `ai-tier/memory/store.py` | Local persistent cross-session tenant memory store for incident patterns and SLA trends; Google Cloud Memory Bank is PLANNED |
+| `memory_bank` | **TESTED** | `ai-tier/memory/provider.py` | 4-tier memory taxonomy (M0-M3), Google Agent Platform Memory Bank adapter with ADC tokens, multi-factor deterministic ranker, and bounded retrieval |
+| `governed_operational_memory` | **TESTED** | `gateway/internal/memory/service_test.go` | Go-owned authoritative operational fact store (M1), deterministic eligibility gate, RFC 8785 canonical hashing, and outbox event bridge |
+| `memory_source_revalidation` | **TESTED** | `ai-tier/memory/revalidation.py` | Cryptographic provenance and 90-day freshness revalidation engine enforcing AuthorizedEvidenceSet grounding and tamper-evident digests |
 | `derived_artifacts` | **TESTED** | `gateway/internal/candidate/service_test.go` | Remediation creates new artifacts linked to quarantined originals, never mutating originals |
 | `governed_remediation` | **TESTED** | `gateway/agent_orchestrator_gateway_test.go` | Exclusive Tool Gateway gate, crash consistency (Windows A-F), orphan reconciliation, deterministic candidate keys, and immutable candidate generation |
 | `independent_verification` | **TESTED** | `gateway/internal/verification/service_test.go` | Independent Go verification service re-reading ObjectStore bytes, re-running NACHA validator, verifying derivation hashes, and enforcing deterministic dominance |
@@ -74,14 +72,14 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 | `cloud_kms_checkpoints` | **IMPLEMENTED** | `gateway/migrations/015_kms_checkpoints.sql` | Database schema for ledger checkpoint digests; Google Cloud KMS API asymmetric signing is PLANNED |
 | `cloud_sql_deployment` | **PLANNED** | `deploy/setup-gcp.sh` | Google Cloud SQL PostgreSQL 16 + Cloud Run automated deployment script |
 | `prometheus_metrics` | **TESTED** | `gateway/internal/telemetry/telemetry_test.go` | Low-cardinality Prometheus metrics with normalized routes and status labels |
-| `adversarial_evals` | **TESTED** | `ai-tier/evals/runner.py` | 95 adversarial security scenarios across 5 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor) |
+| `adversarial_evals` | **TESTED** | `ai-tier/evals/runner.py` | 120 adversarial security scenarios across 6 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory) |
 | `ci_pipeline` | **TESTED** | `.github/workflows/ci.yml` | 6-job CI: lint, test-backend (race+coverage), test-frontend, test-ai-tier, migrations, security |
 | `concurrent_stress_test` | **TESTED** | `gateway/worker_test.go` | 40 artifacts settled in 1.135s under 24 parallel workers with zero lease loss |
 
 ---
 
 ## Summary of Capabilities
-- **37 Tested Capabilities** backed by automated regression tests in CI.
-- **5 Implemented Components** with schema/code present.
+- **38 Tested Capabilities** backed by automated regression tests in CI.
+- **3 Implemented Components** with schema/code present.
 - **2 Planned Google Integrations** scheduled for runtime deployment.
 - **100% Deterministic Grounding**: AI operates in a read-only advisory capacity; all releases require verified dual-control human authorization.

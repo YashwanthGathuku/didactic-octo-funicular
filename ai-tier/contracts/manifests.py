@@ -1,4 +1,4 @@
-"""Fixed Agent Roster and Canonical Manifests for SentinelFlow Phase P06."""
+"""Fixed Agent Roster and Canonical Manifests for SentinelFlow Phase P10."""
 
 import hashlib
 import json
@@ -11,7 +11,7 @@ class AgentManifest(BaseModel):
     name: str = Field(..., description="Canonical agent name")
     version: str = Field(..., description="Semantic version string")
     autonomy_level: Literal["A1", "A2", "A3", "A4", "A5"] = Field(
-        "A1", description="Autonomy tier (All P06 agents are A1: Investigate / Plan Only)"
+        "A1", description="Autonomy tier (All agents are A1-A2: Investigate, Plan, or Generate Candidate)"
     )
     provider: str = Field("google", description="Model provider ('google' or 'deterministic')")
     model: str = Field("gemini-3.5-flash", description="Configured target model")
@@ -32,7 +32,7 @@ class AgentManifest(BaseModel):
     max_tool_calls: int = Field(10, le=10, description="Maximum tool invocations per turn")
     timeout_seconds: float = Field(15.0, le=30.0, description="Execution timeout ceiling")
     memory_read: bool = Field(False, description="Read access to persistent memory")
-    memory_write: bool = Field(False, description="Write access to persistent memory (False in P06)")
+    memory_write: bool = Field(False, description="Write access to persistent memory (False across all agents)")
     output_schema_name: str = Field(..., description="Name of the canonical Pydantic output schema")
     data_classifications: List[str] = Field(
         default_factory=lambda: ["METADATA_ONLY", "REDACTED_FINDINGS"],
@@ -53,7 +53,7 @@ class AgentManifest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# FIXED AGENT ROSTER (Immutable registry of permitted P06 agents)
+# FIXED AGENT ROSTER (Immutable registry of permitted P10 agents)
 # ---------------------------------------------------------------------------
 
 FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
@@ -73,7 +73,10 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "incident.get",
             "workflow.get",
             "artifact.metadata.get",
+            "memory.retrieve",
+            "memory.profile.get",
         ],
+        memory_read=True,
         max_turns=5,
         max_tool_calls=5,
         timeout_seconds=15.0,
@@ -90,7 +93,9 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "validation.findings.list_redacted",
             "artifact.metadata.get",
             "workflow.get",
+            "memory.retrieve",
         ],
+        memory_read=True,
         max_turns=5,
         max_tool_calls=10,
         timeout_seconds=15.0,
@@ -106,7 +111,9 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "incident.get",
             "workflow.get",
             "artifact.metadata.get",
+            "memory.profile.get",
         ],
+        memory_read=True,
         max_turns=5,
         max_tool_calls=5,
         timeout_seconds=15.0,
@@ -123,7 +130,9 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "validation.findings.list_redacted",
             "artifact.metadata.get",
             "workflow.get",
+            "memory.retrieve",
         ],
+        memory_read=True,
         denied_capabilities=[
             "artifact.release",
             "incident.approve",
@@ -155,6 +164,7 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "workflow.get",
             "verification.result.get",
         ],
+        memory_read=False,
         denied_capabilities=[
             "artifact.release",
             "incident.approve",
@@ -169,6 +179,41 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
         max_tool_calls=10,
         timeout_seconds=15.0,
         output_schema_name="CriticAssessment",
+    ),
+    "MemoryAgent": AgentManifest(
+        name="MemoryAgent",
+        version="1.0.0",
+        autonomy_level="A1",
+        model="gemini-3.5-flash",
+        triggers=[
+            "MEMORY_QUERY_REQUESTED",
+            "MEMORY_PROFILE_REQUESTED",
+            "INCIDENT_ANALYSIS",
+        ],
+        allowed_tools=[
+            "incident.get",
+            "workflow.get",
+            "artifact.metadata.get",
+            "memory.retrieve",
+            "memory.profile.get",
+        ],
+        memory_read=True,
+        memory_write=False,
+        denied_capabilities=[
+            "artifact.release",
+            "incident.approve",
+            "ledger.mutate",
+            "database.raw_sql",
+            "system.shell",
+            "agent.create_dynamic",
+            "artifact.write_direct",
+            "remediation.candidate.create",
+            "memory.write_direct",
+        ],
+        max_turns=5,
+        max_tool_calls=10,
+        timeout_seconds=15.0,
+        output_schema_name="AdvisoryMemoryContext",
     ),
 }
 
