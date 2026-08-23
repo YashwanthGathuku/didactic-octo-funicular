@@ -1,17 +1,18 @@
-"""Google Agent Runtime Application Wrapper for SentinelFlow P11.
+"""Local HTTP adapter for SentinelFlow's Agent Platform package.
 
-Packages the fixed canonical 6-agent fleet:
-- IncidentCommanderAgent
-- DiagnosisAgent
-- PolicySLAAgent
-- MemoryAgent
-- RemediationAgent
-- VerifierAgent
+IMPORTANT P11.5 TRUTH BOUNDARY
+-----------------------------
+This FastAPI module is a local/development adapter and health surface.  It is
+*not* itself Google's ``vertexai.agent_engines.AdkApp`` and it does not claim a
+managed Agent Runtime execution succeeded merely because an HTTP route was hit.
 
-Formal Invariants:
+The real deployable Agent Runtime object is built in ``runtime.managed_adk``.
+
+Formal invariants:
 - AgentRuntime != WorkflowAuthority
 - AgentRuntimeSessionID != AgentWorkflowID
 - RegistryContains(agent) != SentinelFlowRosterAllows(agent)
+- Local adapter metadata != managed execution proof
 """
 
 from __future__ import annotations
@@ -19,43 +20,31 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, Optional
-from fastapi import FastAPI, Header, HTTPException, Request, Response
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from agents.commander import IncidentCommanderAgent
 from agents.diagnosis import DiagnosisAgent
-from agents.policy_sla import PolicySLAAgent
 from agents.memory_agent import MemoryAgent
+from agents.policy_sla import PolicySLAAgent
 from agents.remediation import RemediationAgent
 from agents.return_risk import ReturnRiskAgent
 from agents.verifier import VerifierAgent
 from contracts.manifests import FIXED_AGENT_ROSTER, validate_agent_roster_membership
-from runtime.identity import AgentIdentityProvider
-from runtime.gateway_client import AgentGatewayClient
 from observability.telemetry import configure_agent_observability, get_tracer
+from runtime.identity import AgentIdentityProvider
 
 logger = logging.getLogger("sentinel.runtime.app")
 
 
-class SentinelFlowAdkApp:
-    """Managed Agent Runtime Application hosting SentinelFlow's fixed fleet."""
+class SentinelFlowLocalRuntimeAdapter:
+    """Development adapter exposing fixed-roster metadata without fake execution."""
 
-    def __init__(
-        self,
-        project_id: Optional[str] = None,
-        region: str = "us-central1",
-        gateway_endpoint: Optional[str] = None,
-    ):
+    def __init__(self, project_id: Optional[str] = None, region: str = "us-central1"):
         self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
         self.region = region or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
-        self.gateway_client = AgentGatewayClient(
-            gateway_endpoint=gateway_endpoint,
-            project_id=self.project_id,
-            region=self.region,
-        )
-        self.tracer = get_tracer("sentinelflow.runtime")
-
-        # Initialize fixed 7-agent fleet
+        self.tracer = get_tracer("sentinelflow.runtime.local-adapter")
         self.agents = {
             "IncidentCommanderAgent": IncidentCommanderAgent(),
             "DiagnosisAgent": DiagnosisAgent(),
@@ -67,11 +56,37 @@ class SentinelFlowAdkApp:
         }
 
     def get_agent(self, agent_name: str) -> Any:
-        """Retrieves an agent instance strictly from the fixed canonical roster."""
-        # Enforce Fixed Canonical Roster boundary
         validate_agent_roster_membership(agent_name)
         return self.agents[agent_name]
 
+    def describe_agent_step(
+        self,
+        agent_name: str,
+        session_id: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Returns local adapter metadata; it intentionally executes no model call."""
+
+        validate_agent_roster_membership(agent_name)
+        correlation_id = workflow_id or f"sess-corr-{session_id or 'anon'}"
+        identity = AgentIdentityProvider.create_identity_context(
+            agent_name=agent_name,
+            project_id=self.project_id,
+            correlation_id=correlation_id,
+        )
+        return {
+            "agent_name": agent_name,
+            "status": "NOT_EXECUTED",
+            "execution_source": "LOCAL_RUNTIME_ADAPTER",
+            "correlation_id": correlation_id,
+            "identity_source": identity.identity_source,
+            "workload_principal": identity.workload_principal,
+            "output_schema": FIXED_AGENT_ROSTER[agent_name].output_schema_name,
+            "managed_runtime_app": "runtime.managed_adk:build_agent_runtime_app",
+        }
+
+    # Backward-compatible method name.  Previous P11 code returned COMPLETED
+    # without running the agent; P11.5 makes the semantics explicit.
     def execute_agent_step(
         self,
         agent_name: str,
@@ -79,44 +94,22 @@ class SentinelFlowAdkApp:
         session_id: Optional[str] = None,
         workflow_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Executes a single agent step with OpenTelemetry tracing and identity binding."""
-        validate_agent_roster_membership(agent_name)
-        agent = self.agents[agent_name]
+        del input_payload
+        return self.describe_agent_step(agent_name, session_id=session_id, workflow_id=workflow_id)
 
-        # Bind session to workflow ID pseudonmyously
-        correlation_id = workflow_id or f"sess-corr-{session_id or 'anon'}"
-        principal = AgentIdentityProvider.get_spiffe_principal(agent_name, self.project_id)
 
-        with self.tracer.start_as_current_span(
-            f"invoke_agent:{agent_name}",
-            attributes={
-                "agent.name": agent_name,
-                "agent.version": FIXED_AGENT_ROSTER[agent_name].version,
-                "agent.autonomy_level": FIXED_AGENT_ROSTER[agent_name].autonomy_level,
-                "agent.principal": principal,
-                "workflow.correlation_id": correlation_id,
-            },
-        ):
-            # Invariant: Managed session is NOT financial persistence.
-            # Agents execute using their existing prompt-partitioned logic
-            return {
-                "agent_name": agent_name,
-                "status": "COMPLETED",
-                "execution_source": "AGENT_RUNTIME",
-                "correlation_id": correlation_id,
-                "principal": principal,
-                "output_schema": FIXED_AGENT_ROSTER[agent_name].output_schema_name,
-            }
+# Compatibility alias for existing imports.  Do not confuse this local adapter
+# with vertexai.agent_engines.AdkApp.
+SentinelFlowAdkApp = SentinelFlowLocalRuntimeAdapter
 
 
 def create_app() -> FastAPI:
-    """Factory creating the FastAPI application wrapper for Agent Runtime deployment."""
     configure_agent_observability()
-    runtime_app = SentinelFlowAdkApp()
+    runtime_adapter = SentinelFlowLocalRuntimeAdapter()
 
     app = FastAPI(
-        title="SentinelFlow Google Agent Runtime Application",
-        version="1.0.0",
+        title="SentinelFlow Agent Platform Local Adapter",
+        version="1.1.0-p11.5",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
     )
@@ -125,49 +118,25 @@ def create_app() -> FastAPI:
     async def health_check() -> Dict[str, str]:
         return {
             "status": "HEALTHY",
-            "service": "sentinelflow-agent-runtime",
-            "project": runtime_app.project_id,
-            "region": runtime_app.region,
+            "service": "sentinelflow-agent-runtime-local-adapter",
+            "project": runtime_adapter.project_id,
+            "region": runtime_adapter.region,
+            "managed_execution": "NOT_PROVEN_BY_THIS_PROCESS",
         }
 
     @app.get("/api/roster")
     async def get_roster() -> Dict[str, Any]:
-        """Returns the immutable fixed agent roster metadata."""
-        return {
-            "roster": {
-                name: manifest.model_dump()
-                for name, manifest in FIXED_AGENT_ROSTER.items()
-            }
-        }
+        return {"roster": {name: manifest.model_dump() for name, manifest in FIXED_AGENT_ROSTER.items()}}
 
-    @app.post("/api/agents/{agent_name}/execute")
-    async def execute_agent(
-        agent_name: str,
-        request: Request,
-        x_workflow_id: Optional[str] = Header(None, alias="X-Workflow-ID"),
-        x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
-    ) -> JSONResponse:
+    @app.post("/api/agents/{agent_name}/describe")
+    async def describe_agent(agent_name: str) -> JSONResponse:
         try:
-            body = await request.json()
-        except Exception:
-            body = {}
-
-        try:
-            res = runtime_app.execute_agent_step(
-                agent_name=agent_name,
-                input_payload=body,
-                session_id=x_session_id,
-                workflow_id=x_workflow_id,
-            )
-            return JSONResponse(status_code=200, content=res)
-        except ValueError as ve:
-            raise HTTPException(status_code=403, detail=str(ve))
-        except Exception as e:
-            logger.exception("Runtime agent execution error")
-            raise HTTPException(status_code=500, detail=str(e))
+            result = runtime_adapter.describe_agent_step(agent_name)
+            return JSONResponse(status_code=200, content=result)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     return app
 
 
-# Default app instance for uvicorn / Agent Runtime entrypoint
 app = create_app()
