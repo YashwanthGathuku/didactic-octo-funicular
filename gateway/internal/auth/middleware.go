@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -13,26 +14,17 @@ type ctxKey int
 
 const principalKey ctxKey = iota
 
-// FromContext returns the verified principal, or nil.
-//
-// Handlers must treat nil as "deny". There is no anonymous principal, because
-// an anonymous principal is an object other code will eventually authorize.
+// FromContext returns the verified browser/API principal, or nil.
+// Managed agent ingress uses a separate signed-IAP context in agent_identity.go.
 func FromContext(ctx context.Context) *Principal {
 	p, _ := ctx.Value(principalKey).(*Principal)
 	return p
 }
 
-// AuditSink records security-relevant events. Denials are recorded, not only
-// successes: a login that fails is the signal worth keeping.
+// AuditSink records security-relevant events. Denials are recorded, not only successes.
 type AuditSink func(event string, actor string, detail map[string]any)
 
-// Middleware authenticates requests.
-//
-// It fails closed in every direction:
-//   - a nil verifier rejects every request rather than passing them through
-//   - a missing or malformed token is 401
-//   - every rejection returns the same body, so probing cannot distinguish
-//     "expired" from "wrong signature" from "unknown key"
+// Middleware authenticates browser/API requests.
 type Middleware struct {
 	Verifier *Verifier
 	Audit    AuditSink
@@ -57,9 +49,33 @@ func deny(w http.ResponseWriter, status int, code string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
 }
 
+// isManagedIAPIngressCandidate is intentionally narrow. It bypasses *only* the
+// browser/API bearer verifier so the exact managed-agent endpoint can perform
+// its stronger, workload-specific signed IAP verification. A header is not
+// accepted as identity here; cryptographic verification still occurs in
+// ManagedAgentIdentityMiddleware before the tool handler can execute.
+func isManagedIAPIngressCandidate(r *http.Request) bool {
+	enabled := strings.TrimSpace(os.Getenv("SENTINEL_MANAGED_AGENT_INGRESS"))
+	if enabled != "1" && !strings.EqualFold(enabled, "true") {
+		return false
+	}
+	if r.URL.Path != "/api/v1/internal/agent-tools" {
+		return false
+	}
+	return strings.TrimSpace(r.Header.Get("X-Goog-IAP-JWT-Assertion")) != ""
+}
+
 // Authenticate verifies the bearer token and attaches the principal.
 func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Managed agent ingress has no end-user bearer token. The exact route is
+		// allowed through this layer only when a signed-IAP assertion is present;
+		// the assertion is verified downstream before any request body is trusted.
+		if isManagedIAPIngressCandidate(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		if m.DemoPrincipal != nil {
 			ctx := context.WithValue(r.Context(), principalKey, m.DemoPrincipal)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -67,8 +83,6 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 		}
 
 		if m.Verifier == nil {
-			// Unconfigured authentication is a refusal, never a bypass. The
-			// previous middleware treated an unset token as "auth disabled".
 			m.audit("AUTH_MISCONFIGURED", "", map[string]any{"path": r.URL.Path})
 			deny(w, http.StatusServiceUnavailable, "authentication_not_configured")
 			return
@@ -83,7 +97,6 @@ func (m *Middleware) Authenticate(next http.Handler) http.Handler {
 
 		p, err := m.Verifier.Verify(raw)
 		if err != nil {
-			// The reason is logged but never returned.
 			m.audit("AUTH_DENIED", "", map[string]any{"path": r.URL.Path, "reason": err.Error()})
 			deny(w, http.StatusUnauthorized, "unauthorized")
 			return
@@ -111,20 +124,6 @@ func bearerToken(r *http.Request) string {
 // Only applied when the request carries a session cookie: a request
 // authenticated purely by an Authorization header is not CSRF-able, because a
 // browser will not attach that header cross-origin on its own.
-//
-// Two cookie names, and they are different cookies on purpose. The session
-// cookie decides *whether* this is a cookie-authenticated mutation; the CSRF
-// cookie is what the header is compared against. The first form of this
-// function took one name and compared the header to the session cookie -- but
-// SessionCookie is HttpOnly precisely so script cannot read it, so no browser
-// could ever produce a matching header and every cookie-authenticated mutation
-// would have been refused. It was invisible only because nothing sets a
-// session cookie yet: the PKCE login flow in pkce.go is implemented and not
-// wired to a route. The defect would have surfaced on the day it was.
-//
-// The double-submit property is unchanged: the CSRF cookie is readable to this
-// origin's script and to nobody else's, and it is meaningless without the
-// HttpOnly session cookie that accompanies it.
 func RequireCSRFToken(sessionCookie, csrfCookie, headerName string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,14 +135,13 @@ func RequireCSRFToken(sessionCookie, csrfCookie, headerName string) func(http.Ha
 
 			c, err := r.Cookie(sessionCookie)
 			if err != nil || c.Value == "" {
-				// No session cookie: not a cookie-authenticated mutation.
+				// No session cookie: not a cookie-authenticated mutation. Managed IAP
+				// requests also arrive without the browser session cookie and are
+				// authenticated by their signed assertion downstream.
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// A session cookie with no CSRF cookie beside it is a refusal, not
-			// a pass. Treating a missing token as "nothing to check" would
-			// make the control removable by deleting one cookie.
 			token, err := r.Cookie(csrfCookie)
 			if err != nil || token.Value == "" {
 				deny(w, http.StatusForbidden, "csrf_token_missing")
@@ -160,10 +158,7 @@ func RequireCSRFToken(sessionCookie, csrfCookie, headerName string) func(http.Ha
 	}
 }
 
-// RequirePermission enforces a permission for a tenant resolved from the
-// request. It is defence in depth: the repository refuses an unauthorized scope
-// regardless, so a route registered without this middleware still cannot read
-// another tenant's data.
+// RequirePermission enforces a permission for a tenant resolved from the request.
 func (m *Middleware) RequirePermission(tenantOf func(*http.Request) string, perm Permission) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,8 +172,6 @@ func (m *Middleware) RequirePermission(tenantOf func(*http.Request) string, perm
 				m.audit("AUTHZ_DENIED", p.ActorID(), map[string]any{
 					"path": r.URL.Path, "tenant": tenant, "permission": string(perm),
 				})
-				// Not-a-member and lacking-permission return the same status,
-				// so probing cannot map another tenant's existence.
 				deny(w, http.StatusForbidden, "forbidden")
 				return
 			}
