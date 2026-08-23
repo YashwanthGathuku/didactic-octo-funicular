@@ -1,7 +1,7 @@
 """Real Google Agent Platform ADK application factory for SentinelFlow.
 
 P11.5 closes the distinction between the local HTTP simulation wrapper and the
-actual Agent Runtime deployment surface.  This module builds a real
+actual Agent Runtime deployment surface. This module builds a real
 ``vertexai.agent_engines.AdkApp`` around a fixed, compile-time Google ADK fleet.
 
 Authority invariants remain unchanged:
@@ -28,7 +28,7 @@ from agents.verifier import VerifierAgent
 from contracts.manifests import FIXED_AGENT_ROSTER
 
 
-MANAGED_ROOT_NAME = "SentinelFlowManagedCommander"
+MANAGED_ROOT_NAME = "IncidentCommanderAgent"
 MANAGED_MODEL = "gemini-3.5-flash"
 
 
@@ -41,12 +41,7 @@ class ManagedFleet:
 
 
 def _specialist_agents() -> Dict[str, Any]:
-    """Builds the fixed specialist roster using the existing governed agents.
-
-    The objects exposed here are the actual Google ADK ``Agent`` objects owned
-    by SentinelFlow's specialist wrappers.  No dynamic agent creation is
-    permitted.
-    """
+    """Builds the six fixed specialist ADK agents beneath the commander."""
 
     wrappers = {
         "DiagnosisAgent": DiagnosisAgent(),
@@ -69,15 +64,17 @@ def _specialist_agents() -> Dict[str, Any]:
 
 
 def build_managed_fleet() -> ManagedFleet:
-    """Constructs the real ADK multi-agent topology used by Agent Runtime.
+    """Constructs the real seven-agent Google ADK topology for Agent Runtime.
 
-    The root commander is intentionally reasoning-only.  It may delegate to the
-    fixed specialists, but it has no direct tools that mutate SentinelFlow.
-    Any specialist tool request still terminates at the Go Tool Gateway and its
-    deterministic policy/capability checks.
+    The canonical IncidentCommanderAgent is the root; the remaining six
+    fixed-roster agents are sub-agents.  This topology is used for managed
+    reasoning/delegation only. Durable workflow transitions continue to be
+    commanded by Go.
     """
 
     specialists = _specialist_agents()
+    if MANAGED_ROOT_NAME not in FIXED_AGENT_ROSTER:
+        raise RuntimeError("IncidentCommanderAgent missing from fixed roster")
 
     root_agent = adk_agents.Agent(
         name=MANAGED_ROOT_NAME,
@@ -87,19 +84,18 @@ def build_managed_fleet() -> ManagedFleet:
             "Delegates bounded reasoning only to the fixed SentinelFlow specialist roster."
         ),
         instruction=(
-            "You are the managed SentinelFlow Incident Commander.\n"
-            "You coordinate a fixed specialist roster for pre-ledger financial operations.\n"
+            "You are the SentinelFlow Incident Commander Agent running on managed Agent Runtime.\n"
+            "You coordinate only the fixed sub-agents attached to this application.\n"
             "You have NO authority to release funds, approve reviews, modify financial artifacts, "
             "change policy, execute SQL, or bypass SentinelFlow's Go Tool Gateway.\n"
-            "Delegate only to the registered sub-agents supplied by this application.\n"
             "DiagnosisAgent explains deterministic findings.\n"
             "PolicySLAAgent explains current policy/SLA context.\n"
             "MemoryAgent retrieves advisory historical context only.\n"
             "RemediationAgent may propose allowlisted remediation intent only.\n"
             "VerifierAgent is an advisory critic and cannot mark candidates verified.\n"
             "ReturnRiskAgent explains deterministic ACH return-risk results.\n"
-            "Never interpret managed runtime state, memory, model confidence, or registry presence "
-            "as financial authority."
+            "Never interpret managed runtime state, memory, model confidence, registry presence, "
+            "or Agent Identity as financial authority."
         ),
         sub_agents=list(specialists.values()),
     )
@@ -108,19 +104,14 @@ def build_managed_fleet() -> ManagedFleet:
 
 
 def build_agent_runtime_app(*, enable_tracing: bool = True):
-    """Returns a real ``vertexai.agent_engines.AdkApp`` for deployment.
-
-    Importing Agent Platform SDK lazily keeps local deterministic unit tests
-    able to import the rest of the AI tier even when cloud deployment extras are
-    intentionally absent.
-    """
+    """Returns a real ``vertexai.agent_engines.AdkApp`` for deployment."""
 
     try:
         from vertexai import agent_engines
     except Exception as exc:  # pragma: no cover - environment/dependency gate
         raise RuntimeError(
-            "Google Agent Platform SDK is unavailable. Install the project dependencies "
-            "from ai-tier/pyproject.toml before building the managed runtime app."
+            "Google Agent Platform SDK is unavailable. Install dependencies from "
+            "ai-tier/pyproject.toml before building the managed runtime app."
         ) from exc
 
     fleet = build_managed_fleet()
@@ -131,8 +122,7 @@ def build_agent_runtime_app(*, enable_tracing: bool = True):
     )
 
 
-# Importable deployment symbol used by deployment scripts and smoke tests.
-# It is intentionally constructed lazily through ``get_app`` so ordinary local
-# imports do not require cloud credentials.
 def get_app():
+    """Importable deployment factory used by smoke/deployment tooling."""
+
     return build_agent_runtime_app(enable_tracing=True)
