@@ -1,15 +1,16 @@
-"""Unit & Integration Tests for Google Agent Platform Runtime, Identity, Gateway & Observability."""
+"""Unit tests for Agent Runtime packaging, identity, egress policy and telemetry."""
 
 import pytest
+
 from contracts.manifests import FIXED_AGENT_ROSTER, validate_agent_roster_membership
-from runtime.app import SentinelFlowAdkApp, create_app
-from runtime.identity import AgentIdentityProvider
+from observability.telemetry import sanitize_span_attributes
+from runtime.app import SentinelFlowAdkApp
 from runtime.gateway_client import AgentGatewayClient
-from observability.telemetry import sanitize_span_attributes, get_tracer
+from runtime.identity import AgentIdentityProvider
+from runtime.managed_adk import MANAGED_MODEL, MANAGED_ROOT_NAME, build_managed_fleet
 
 
 def test_fixed_canonical_roster_membership():
-    """Verify all 6 fixed agents are approved and dynamic agents are rejected."""
     expected = [
         "IncidentCommanderAgent",
         "DiagnosisAgent",
@@ -19,6 +20,7 @@ def test_fixed_canonical_roster_membership():
         "VerifierAgent",
         "ReturnRiskAgent",
     ]
+    assert sorted(FIXED_AGENT_ROSTER) == sorted(expected)
     for agent_name in expected:
         manifest = validate_agent_roster_membership(agent_name)
         assert manifest.name == agent_name
@@ -27,32 +29,44 @@ def test_fixed_canonical_roster_membership():
         validate_agent_roster_membership("DynamicCloudAgent")
 
 
-def test_adk_app_fleet_initialization():
-    """Verify SentinelFlowAdkApp initializes all 7 canonical agents."""
+def test_local_runtime_adapter_does_not_fake_managed_execution(monkeypatch):
+    monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "local")
     app = SentinelFlowAdkApp(project_id="telos-agent")
     assert len(app.agents) == 7
-    assert "IncidentCommanderAgent" in app.agents
-    assert "VerifierAgent" in app.agents
-    assert "ReturnRiskAgent" in app.agents
 
-    # Execution step returns proper envelope
-    step_res = app.execute_agent_step(
+    result = app.execute_agent_step(
         agent_name="DiagnosisAgent",
         input_payload={"test": "data"},
         workflow_id="wf-p11-test-01",
     )
-    assert step_res["status"] == "COMPLETED"
-    assert step_res["agent_name"] == "DiagnosisAgent"
-    assert step_res["principal"] == "spiffe://telos-agent.iam.gserviceaccount.com/agent/diagnosis"
+    assert result["status"] == "NOT_EXECUTED"
+    assert result["execution_source"] == "LOCAL_RUNTIME_ADAPTER"
+    assert result["identity_source"] == "LOCAL_TEST_FIXTURE"
+    assert result["workload_principal"] == "test-agent:DiagnosisAgent"
+    assert "managed_adk" in result["managed_runtime_app"]
 
 
-def test_agent_identity_provider_spiffe_principals():
-    """Verify SPIFFE principal generation and header formatting."""
-    principal = AgentIdentityProvider.get_spiffe_principal("VerifierAgent", project_id="telos-agent")
-    assert principal == "spiffe://telos-agent.iam.gserviceaccount.com/agent/verifier"
+def test_real_managed_adk_topology_uses_fixed_seven_agent_roster():
+    fleet = build_managed_fleet()
+    assert MANAGED_ROOT_NAME == "IncidentCommanderAgent"
+    assert MANAGED_MODEL == "gemini-3.5-flash"
+    assert fleet.root_agent.name == "IncidentCommanderAgent"
+    assert set(fleet.specialists) == {
+        "DiagnosisAgent",
+        "PolicySLAAgent",
+        "MemoryAgent",
+        "RemediationAgent",
+        "VerifierAgent",
+        "ReturnRiskAgent",
+    }
+    assert {agent.name for agent in fleet.specialists.values()} == set(fleet.specialists)
 
-    sa_email = AgentIdentityProvider.get_service_account_email("RemediationAgent", project_id="telos-agent")
-    assert sa_email == "sentinelflow-remediation@telos-agent.iam.gserviceaccount.com"
+
+def test_identity_provider_local_fixture_is_visibly_non_production(monkeypatch):
+    monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "local")
+    principal, source = AgentIdentityProvider.get_runtime_principal("VerifierAgent")
+    assert principal == "test-agent:VerifierAgent"
+    assert source == "LOCAL_TEST_FIXTURE"
 
     headers = AgentIdentityProvider.get_egress_headers(
         agent_name="PolicySLAAgent",
@@ -60,36 +74,80 @@ def test_agent_identity_provider_spiffe_principals():
         workflow_id="wf-001",
         tenant_id="TENANT-A",
     )
-    assert headers["X-Agent-Identity-Principal"] == "spiffe://telos-agent.iam.gserviceaccount.com/agent/policysla"
-    assert headers["X-Workflow-ID"] == "wf-001"
-    assert headers["X-Sentinel-Tenant"] == "TENANT-A"
+    assert "X-Agent-Identity-Principal" not in headers
+    assert headers["X-Sentinel-Agent-Name"] == "PolicySLAAgent"
+    assert headers["X-Sentinel-Test-Principal"] == "test-agent:PolicySLAAgent"
 
 
-def test_gateway_client_default_deny_enforcement():
-    """Verify Agent Gateway default-deny routing."""
+def test_identity_provider_managed_mode_never_fabricates_principal(monkeypatch):
+    monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "managed")
+    monkeypatch.delenv("SENTINEL_AGENT_IDENTITY_PRINCIPAL", raising=False)
+    with pytest.raises(RuntimeError, match="requires SENTINEL_AGENT_IDENTITY_PRINCIPAL"):
+        AgentIdentityProvider.get_runtime_principal("DiagnosisAgent")
+
+    real_shape = (
+        "principal://agents.global.org-123.system.id.goog/resources/aiplatform/"
+        "projects/456/locations/us-central1/reasoningEngines/789"
+    )
+    monkeypatch.setenv("SENTINEL_AGENT_IDENTITY_PRINCIPAL", real_shape)
+    principal, source = AgentIdentityProvider.get_runtime_principal("DiagnosisAgent")
+    assert principal == real_shape
+    assert source == "GOOGLE_AGENT_IDENTITY"
+
+
+def test_gateway_client_default_deny_is_explicitly_local_policy(monkeypatch):
+    monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "local")
     gw = AgentGatewayClient(project_id="telos-agent", mode="ENFORCE")
 
-    # 1. Registered endpoint ALLOW
     allowed = gw.evaluate_egress("IncidentCommanderAgent", "/internal/agent-tools", {})
     assert allowed.decision == "ALLOW"
     assert allowed.is_registered is True
-    assert allowed.status_code == 200
+    assert allowed.decision_source == "LOCAL_POLICY"
 
-    # 2. Unregistered endpoint DENY
-    blocked = gw.evaluate_egress("IncidentCommanderAgent", "https://arbitrary-api.com/leak", {})
+    blocked = gw.evaluate_egress(
+        "IncidentCommanderAgent", "https://arbitrary-api.example/leak", {}
+    )
     assert blocked.decision == "DENY"
     assert blocked.is_registered is False
     assert blocked.status_code == 403
+    assert blocked.decision_source == "LOCAL_POLICY"
 
-    # 3. Dry-run mode WOULD_DENY
     gw.set_mode("DRY_RUN")
-    dry_res = gw.evaluate_egress("IncidentCommanderAgent", "https://arbitrary-api.com/leak", {})
-    assert dry_res.decision == "WOULD_DENY"
-    assert dry_res.status_code == 200
+    dry_result = gw.evaluate_egress(
+        "IncidentCommanderAgent", "https://arbitrary-api.example/leak", {}
+    )
+    assert dry_result.decision == "WOULD_DENY"
+    assert dry_result.status_code == 200
+
+
+def test_gateway_managed_mode_requires_exact_registered_base(monkeypatch):
+    monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "managed")
+    monkeypatch.setenv(
+        "SENTINEL_AGENT_IDENTITY_PRINCIPAL",
+        "principal://agents.global.org-123.system.id.goog/resources/aiplatform/"
+        "projects/456/locations/us-central1/reasoningEngines/789",
+    )
+    gw = AgentGatewayClient(
+        project_id="telos-agent",
+        mode="ENFORCE",
+        registered_endpoint_base_url="https://gateway.example.internal",
+    )
+    allowed = gw.evaluate_egress(
+        "DiagnosisAgent",
+        "https://gateway.example.internal/internal/agent-tools",
+        {},
+    )
+    assert allowed.decision == "ALLOW"
+
+    suffix_attack = gw.evaluate_egress(
+        "DiagnosisAgent",
+        "https://evil.example/internal/agent-tools",
+        {},
+    )
+    assert suffix_attack.decision == "DENY"
 
 
 def test_telemetry_financial_privacy_sanitization():
-    """Verify financial records and account numbers are strictly scrubbed from span attributes."""
     raw_attrs = {
         "agent.name": "IncidentCommanderAgent",
         "nacha.raw": "6221234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234",
