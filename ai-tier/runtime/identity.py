@@ -1,52 +1,92 @@
-"""Google Agent Identity & Principal Context Propagation for SentinelFlow P11.
+"""Agent Runtime identity context for SentinelFlow.
 
-Formal Invariants:
-- AgentIdentity != ToolAuthorization
-- AuthenticatedAgentIdentity -> CallerIdentityInput -> Go Tool Gateway Authorization
-- Model-supplied identity cannot override cryptographically bound principal
+P11.5 deliberately separates *managed, system-attested* Google Agent Identity
+from local test fixtures.  SentinelFlow never manufactures a SPIFFE identity and
+never sends a client-authored ``X-Agent-Identity-Principal`` header as proof of
+identity.
+
+Formal invariants:
+- AgentIdentity != ToolAuthorization.
+- Managed identity is supplied/attested by Google infrastructure, not generated
+  from an agent name in application code.
+- Internal specialist names are fixed-roster metadata, not cloud credentials.
+- Model-supplied identity cannot override trusted runtime/ingress identity.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 from contracts.manifests import FIXED_AGENT_ROSTER, validate_agent_roster_membership
 
 logger = logging.getLogger("sentinel.runtime.identity")
 
+PlatformMode = Literal["local", "managed"]
+
 
 class AgentIdentityContext(BaseModel):
-    """Immutable identity context bound to an executing agent workload."""
+    """Immutable identity context for a fixed-roster specialist invocation."""
 
-    agent_name: str = Field(..., description="Canonical agent name")
-    principal: str = Field(..., description="SPIFFE or service account principal URI")
+    agent_name: str = Field(..., description="Canonical SentinelFlow specialist name")
+    workload_principal: str = Field(
+        ...,
+        description="System-attested managed workload principal or explicit local test fixture",
+    )
     project_id: str = Field(..., description="Google Cloud project ID")
     autonomy_level: str = Field(..., description="Autonomy tier (A1 / A2)")
     correlation_id: str = Field(default="", description="Workflow / trace correlation ID")
+    identity_source: Literal["GOOGLE_AGENT_IDENTITY", "LOCAL_TEST_FIXTURE"]
 
 
 class AgentIdentityProvider:
-    """Provides SPIFFE principal formatting and header propagation for Agent Identity."""
+    """Builds trusted identity *context* without fabricating managed identities."""
 
     @staticmethod
-    def get_spiffe_principal(agent_name: str, project_id: Optional[str] = None) -> str:
-        """Returns the canonical SPIFFE identity URI for an agent."""
-        validate_agent_roster_membership(agent_name)
-        proj = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
-        # Format: spiffe://{project}.iam.gserviceaccount.com/agent/{agent_slug}
-        agent_slug = agent_name.lower().replace("agent", "")
-        return f"spiffe://{proj}.iam.gserviceaccount.com/agent/{agent_slug}"
+    def platform_mode() -> PlatformMode:
+        value = os.environ.get("SENTINEL_PLATFORM_MODE", "local").strip().lower()
+        if value not in ("local", "managed"):
+            raise RuntimeError(f"unsupported SENTINEL_PLATFORM_MODE={value!r}")
+        return value  # type: ignore[return-value]
 
     @staticmethod
-    def get_service_account_email(agent_name: str, project_id: Optional[str] = None) -> str:
-        """Returns the service account email identity for an agent."""
+    def get_managed_workload_principal() -> str:
+        """Returns the Google-provisioned Agent Identity principal from trusted config.
+
+        The value is populated only after a real Agent Runtime deployment is
+        created and its output-only principal is observed.  The application does
+        not derive or guess this value.
+        """
+
+        principal = os.environ.get("SENTINEL_AGENT_IDENTITY_PRINCIPAL", "").strip()
+        if not principal:
+            raise RuntimeError(
+                "managed mode requires SENTINEL_AGENT_IDENTITY_PRINCIPAL from the "
+                "deployed Google Agent Runtime resource"
+            )
+        if not (
+            principal.startswith("principal://agents.")
+            or principal.startswith("spiffe://agents.")
+        ):
+            raise RuntimeError("managed Agent Identity principal has an unexpected format")
+        return principal
+
+    @staticmethod
+    def get_local_fixture_principal(agent_name: str) -> str:
+        """Returns a visibly non-production principal for deterministic local tests."""
+
         validate_agent_roster_membership(agent_name)
-        proj = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
-        agent_slug = agent_name.lower().replace("agent", "")
-        return f"sentinelflow-{agent_slug}@{proj}.iam.gserviceaccount.com"
+        return f"test-agent:{agent_name}"
+
+    @classmethod
+    def get_runtime_principal(cls, agent_name: str) -> tuple[str, str]:
+        validate_agent_roster_membership(agent_name)
+        if cls.platform_mode() == "managed":
+            return cls.get_managed_workload_principal(), "GOOGLE_AGENT_IDENTITY"
+        return cls.get_local_fixture_principal(agent_name), "LOCAL_TEST_FIXTURE"
 
     @classmethod
     def create_identity_context(
@@ -55,18 +95,18 @@ class AgentIdentityProvider:
         project_id: Optional[str] = None,
         correlation_id: str = "",
     ) -> AgentIdentityContext:
-        """Constructs an AgentIdentityContext for the canonical agent."""
         validate_agent_roster_membership(agent_name)
         manifest = FIXED_AGENT_ROSTER[agent_name]
-        proj = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
-        principal = cls.get_spiffe_principal(agent_name, proj)
+        project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
+        principal, source = cls.get_runtime_principal(agent_name)
 
         return AgentIdentityContext(
             agent_name=agent_name,
-            principal=principal,
-            project_id=proj,
+            workload_principal=principal,
+            project_id=project,
             autonomy_level=manifest.autonomy_level,
             correlation_id=correlation_id,
+            identity_source=source,  # type: ignore[arg-type]
         )
 
     @classmethod
@@ -77,19 +117,31 @@ class AgentIdentityProvider:
         workflow_id: str = "",
         tenant_id: str = "",
     ) -> Dict[str, str]:
-        """Generates managed egress headers with Agent Identity and correlation binding."""
-        validate_agent_roster_membership(agent_name)
-        proj = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
-        principal = cls.get_spiffe_principal(agent_name, proj)
+        """Builds application metadata headers for the governed Go endpoint.
 
-        headers = {
-            "X-Agent-Identity-Principal": principal,
-            "X-Agent-Identity-Name": agent_name,
-            "X-Agent-Identity-Project": proj,
+        These headers are NOT authentication.  In managed mode Google Agent
+        Gateway/IAP authenticates the workload out-of-band and the Go endpoint
+        verifies that managed ingress before trusting this metadata.
+        """
+
+        validate_agent_roster_membership(agent_name)
+        manifest = FIXED_AGENT_ROSTER[agent_name]
+        project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
+
+        headers: Dict[str, str] = {
+            "X-Sentinel-Agent-Name": agent_name,
+            "X-Sentinel-Agent-Version": manifest.version,
+            "X-Sentinel-Agent-Project": project,
         }
         if workflow_id:
             headers["X-Workflow-ID"] = workflow_id
         if tenant_id:
             headers["X-Sentinel-Tenant"] = tenant_id
+
+        # Local fixtures are explicit and can never be confused with a Google
+        # attested identity.  Managed mode intentionally sends no principal
+        # header from application code.
+        if cls.platform_mode() == "local":
+            headers["X-Sentinel-Test-Principal"] = cls.get_local_fixture_principal(agent_name)
 
         return headers
