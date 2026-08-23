@@ -28,7 +28,13 @@ Implemented truth gates:
 
 ## Required Local Closure Evidence
 
-Run these commands locally without weakening tests:
+Preferred one-command gate:
+
+```bash
+bash scripts/verify_p12_5.sh
+```
+
+Equivalent commands:
 
 ```bash
 cd gateway
