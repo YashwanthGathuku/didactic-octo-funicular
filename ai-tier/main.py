@@ -341,7 +341,7 @@ def orchestrate_agent_fleet(envelope: EvidenceEnvelope):
                 "MemoryAgent",
                 "EscalationAgent",
             ],
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             provider="Google Gemini",
             total_latency_ms=rec.audit.latency_ms,
             total_tokens=rec.audit.token_usage.get("total_tokens", 0),

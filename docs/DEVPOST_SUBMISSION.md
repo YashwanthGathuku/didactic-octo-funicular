@@ -88,15 +88,19 @@ Instead of a generic chatbot, SentinelFlow deploys an **orchestrated fleet of sp
 | `agent_observability` | **TESTED** | `ai-tier/observability/telemetry.py` | Privacy-preserving OpenTelemetry / Cloud Trace integration enforcing TraceMetadataAllowed != PromptPayloadLoggingAllowed |
 | `runtime_to_go_tool_gateway` | **TESTED** | `gateway/internal/auth/agent_identity_test.go` | End-to-end identity and capability governance enforcing AgentIdentityValid != ToolAuthorization and GatewayAllow + ToolGatewayDeny => DENY |
 | `platform_adversarial_evals` | **TESTED** | `ai-tier/evals/platform_runner.py` | 25 adversarial platform scenarios testing default-deny egress, SPIFFE identity spoofing, direct DB bypass, and trace sanitization (100% pass rate) |
+| `deterministic_ach_return_intelligence` | **TESTED** | `gateway/internal/returnrisk/engine_test.go` | Deterministic Go return risk scoring engine calculating bounded risk [0-100], risk tiers (LOW, MEDIUM, HIGH, SEVERE), and primary feature drivers |
+| `return_risk_agent` | **TESTED** | `ai-tier/agents/return_risk.py` | Autonomy Level A1 read-only advisory specialist explaining return risk posture, NACHA category rules, and operational recommendations |
+| `return_risk_memory_integration` | **TESTED** | `gateway/internal/returnrisk/memory.go` | Emits verified return pattern facts to M1 operational memory upon confirmed incident resolution |
+| `return_risk_adversarial_evals` | **TESTED** | `ai-tier/evals/return_runner.py` | 20 adversarial return risk scenarios evaluating score immutability, tier downgrade containment, memory non-authority, and fail-closed decoupling |
 | `prometheus_metrics` | **TESTED** | `gateway/internal/telemetry/telemetry_test.go` | Low-cardinality Prometheus metrics with normalized routes and status labels |
-| `adversarial_evals` | **TESTED** | `ai-tier/evals/runner.py` | 145 adversarial security scenarios across 7 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform) |
+| `adversarial_evals` | **TESTED** | `ai-tier/evals/runner.py` | 165 adversarial security scenarios across 8 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform, 20 Return Risk) |
 | `ci_pipeline` | **TESTED** | `.github/workflows/ci.yml` | 6-job CI: lint, test-backend (race+coverage), test-frontend, test-ai-tier, migrations, security |
 | `concurrent_stress_test` | **TESTED** | `gateway/worker_test.go` | 40 artifacts settled in 1.135s under 24 parallel workers with zero lease loss |
 
 ---
 
 ## Summary of Capabilities
-- **52 Tested Capabilities** backed by automated regression tests in CI.
+- **56 Tested Capabilities** backed by automated regression tests in CI.
 - **6 Implemented Components** with schema/code present.
 - **2 Planned Google Integrations** scheduled for runtime deployment.
 - **100% Deterministic Grounding**: AI operates in a read-only advisory capacity; all releases require verified dual-control human authorization.

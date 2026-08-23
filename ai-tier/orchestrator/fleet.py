@@ -21,6 +21,7 @@ from agents.commander import IncidentCommanderAgent
 from agents.diagnosis import DiagnosisAgent
 from agents.policy_sla import PolicySLAAgent
 from agents.remediation import RemediationAgent
+from agents.return_risk import ReturnRiskAgent
 from agents.verifier import VerifierAgent
 from contracts.diagnosis import DiagnosisOutput
 from contracts.manifests import FIXED_AGENT_ROSTER, validate_agent_roster_membership
@@ -36,6 +37,7 @@ from contracts.orchestration import (
 )
 from contracts.policy_sla import PolicySLAOutput
 from contracts.remediation import RemediationPlan
+from contracts.return_risk import ReturnRiskAssessment
 from contracts.verification import CriticAssessment
 from models.envelope import AgentContextEnvelope, RedactedFindingItem
 from persistence.store import NonAuthoritativeSessionStore
@@ -53,6 +55,7 @@ class MultiAgentWorkflowOrchestrator:
         policy_sla_agent: Optional[PolicySLAAgent] = None,
         remediation_agent: Optional[RemediationAgent] = None,
         verifier_agent: Optional[VerifierAgent] = None,
+        return_risk_agent: Optional[ReturnRiskAgent] = None,
         store: Optional[NonAuthoritativeSessionStore] = None,
     ):
         self.commander = commander or IncidentCommanderAgent()
@@ -60,6 +63,7 @@ class MultiAgentWorkflowOrchestrator:
         self.policy_sla_agent = policy_sla_agent or PolicySLAAgent()
         self.remediation_agent = remediation_agent or RemediationAgent()
         self.verifier_agent = verifier_agent or VerifierAgent()
+        self.return_risk_agent = return_risk_agent or ReturnRiskAgent()
         self.store = store or NonAuthoritativeSessionStore()
 
         # Real Google ADK ParallelAgent with distinct output keys
@@ -283,6 +287,20 @@ class MultiAgentWorkflowOrchestrator:
                 status="SUCCESS",
                 workflow_id=workflow_id,
                 critic_assessment=assessment.model_dump(),
+                evidence_refs=assessment.evidence_refs,
+                latency_ms=total_lat,
+                execution_source="LOCAL_ADK_DETERMINISTIC",
+            )
+
+        elif req.stage_type in ("RETURN_RISK_ANALYSIS", "STAGE_RETURN_RISK"):
+            ctx_payload = req.return_risk_context or req.model_dump()
+            assessment = self.return_risk_agent.run(ctx_payload)
+            total_lat = (time.time() - start_time) * 1000.0
+            return AgentStageResponse(
+                stage_type=req.stage_type,
+                status="SUCCESS",
+                workflow_id=workflow_id,
+                return_risk_assessment=assessment.model_dump(),
                 evidence_refs=assessment.evidence_refs,
                 latency_ms=total_lat,
                 execution_source="LOCAL_ADK_DETERMINISTIC",

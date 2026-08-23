@@ -15,7 +15,8 @@ import (
 
 var (
 	// Redaction and forbidden content detection patterns
-	reRawNACHARecord   = regexp.MustCompile(`^[156789][0-9A-Za-z\s]{80,100}$`)
+	reRawNACHARecord = regexp.MustCompile(`^[156789][0-9A-Za-z\s]{80,100}$`)
+	// secret-scan-allow: detection pattern for secrets in operational memory eligibility gate
 	reSecretKeyPattern = regexp.MustCompile(`(?i)(bearer\s+[a-z0-9_\-\.]{20,}|(ghp|gho|xoxb|xoxp|sk_live|secret|token)_[a-z0-9_\-]{16,}|BEGIN\s+(RSA|OPENSSH|PGP|EC)\s+PRIVATE\s+KEY)`)
 	reAccountNumber    = regexp.MustCompile(`\b\d{10,17}\b`)
 	reRoutingNumber    = regexp.MustCompile(`\b[0123678]\d{7}\d\b`)

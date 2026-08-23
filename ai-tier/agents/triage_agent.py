@@ -31,6 +31,6 @@ You are READ-ONLY. You cannot release, approve, or modify any file.
 
 triage_agent = Agent(
     name="TriageAgent",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     instruction=TRIAGE_INSTRUCTION,
 )

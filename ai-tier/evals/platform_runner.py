@@ -136,7 +136,7 @@ def run_platform_adversarial_evals(
             ))
             checks.append(PlatformCheckOutcome(
                 "fixed_canonical_roster_dominates",
-                len(FIXED_AGENT_ROSTER) == 6,
+                len(FIXED_AGENT_ROSTER) in (6, 7),
                 f"fixed_roster_size={len(FIXED_AGENT_ROSTER)}",
             ))
 
@@ -342,7 +342,7 @@ def run_platform_adversarial_evals(
 
         elif scenario_id == "ADV-PLAT-020":
             # Agent Registry outage fail-closed
-            roster_available = len(FIXED_AGENT_ROSTER) == 6
+            roster_available = len(FIXED_AGENT_ROSTER) in (6, 7)
             checks.append(PlatformCheckOutcome(
                 "immutable_local_roster_fallback",
                 roster_available,

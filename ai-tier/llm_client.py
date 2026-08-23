@@ -140,7 +140,7 @@ Deterministic Findings:
                 user_prompt += f"- ID: {f.id} | Code: {f.code} | Severity: {f.severity} | Description: {f.description} | Line: {f.line_number} | Expected: {f.expected_value} | Actual: {f.actual_value}\n"
 
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.5-flash',
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -190,7 +190,7 @@ Deterministic Findings:
                     recommended_actions=parsed.get("recommended_actions", []),
                     statement=parsed.get("statement", "The AI incident analyst operates in a read-only capacity and has made no system state changes."),
                     audit=AuditMetadata(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.5-flash",
                         provider="Google Gemini",
                         latency_ms=latency_ms,
                         token_usage={

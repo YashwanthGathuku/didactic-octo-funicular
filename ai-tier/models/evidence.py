@@ -110,7 +110,7 @@ class AgentResponse(BaseModel):
 
     # Audit
     agents_invoked: list[str] = Field(default_factory=list)
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3.5-flash"
     provider: str = "Google Gemini"
     total_latency_ms: float = 0.0
     total_tokens: int = 0

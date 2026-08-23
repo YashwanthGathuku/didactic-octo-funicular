@@ -180,6 +180,27 @@ var FixedCanonicalRoster = map[string]RegisteredAgentIdentity{
 			"remediation.candidate.create",
 		},
 	},
+	"ReturnRiskAgent": {
+		AgentName:     "ReturnRiskAgent",
+		Version:       "1.0.0",
+		AutonomyLevel: AutonomyA1,
+		AllowedCapabilities: []string{
+			"incident.get",
+			"workflow.get",
+			"memory.retrieve",
+			"returnrisk.result.get",
+		},
+		DeniedCapabilities: []string{
+			"artifact.release",
+			"incident.approve",
+			"ledger.mutate",
+			"database.raw_sql",
+			"system.shell",
+			"agent.create_dynamic",
+			"artifact.write_direct",
+			"remediation.candidate.create",
+		},
+	},
 }
 
 // AgentIdentityValidator validates Google Agent Identity and maps it to SentinelFlow's fixed roster.
@@ -299,6 +320,8 @@ func normalizeAgentName(raw string) string {
 		return "RemediationAgent"
 	case "verifier", "verifieragent", "critic", "criticagent":
 		return "VerifierAgent"
+	case "returnrisk", "returnriskagent", "return-risk", "return_risk":
+		return "ReturnRiskAgent"
 	default:
 		// Exact match check
 		for canonical := range FixedCanonicalRoster {

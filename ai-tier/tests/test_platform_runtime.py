@@ -17,6 +17,7 @@ def test_fixed_canonical_roster_membership():
         "MemoryAgent",
         "RemediationAgent",
         "VerifierAgent",
+        "ReturnRiskAgent",
     ]
     for agent_name in expected:
         manifest = validate_agent_roster_membership(agent_name)
@@ -27,11 +28,12 @@ def test_fixed_canonical_roster_membership():
 
 
 def test_adk_app_fleet_initialization():
-    """Verify SentinelFlowAdkApp initializes all 6 agents."""
+    """Verify SentinelFlowAdkApp initializes all 7 canonical agents."""
     app = SentinelFlowAdkApp(project_id="telos-agent")
-    assert len(app.agents) == 6
+    assert len(app.agents) == 7
     assert "IncidentCommanderAgent" in app.agents
     assert "VerifierAgent" in app.agents
+    assert "ReturnRiskAgent" in app.agents
 
     # Execution step returns proper envelope
     step_res = app.execute_agent_step(

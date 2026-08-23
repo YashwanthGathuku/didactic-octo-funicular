@@ -359,6 +359,31 @@ capabilities:
     description: "25 adversarial platform scenarios testing default-deny egress, SPIFFE identity spoofing, direct DB bypass, and trace sanitization (100% pass rate)"
     test_command: "python ai-tier/evals/platform_runner.py"
 
+  # --- Phase P12: Governed ACH Return Intelligence ---
+  deterministic_ach_return_intelligence:
+    status: TESTED
+    evidence: gateway/internal/returnrisk/engine_test.go
+    description: "Deterministic Go return risk scoring engine calculating bounded risk [0-100], risk tiers (LOW, MEDIUM, HIGH, SEVERE), and primary feature drivers"
+    test_command: "go test ./internal/returnrisk/... -v"
+
+  return_risk_agent:
+    status: TESTED
+    evidence: ai-tier/agents/return_risk.py
+    description: "Autonomy Level A1 read-only advisory specialist explaining return risk posture, NACHA category rules, and operational recommendations"
+    test_command: "pytest ai-tier/tests/test_return_risk_agent.py -v"
+
+  return_risk_memory_integration:
+    status: TESTED
+    evidence: gateway/internal/returnrisk/memory.go
+    description: "Emits verified return pattern facts to M1 operational memory upon confirmed incident resolution"
+    test_command: "go test ./internal/returnrisk/... -v"
+
+  return_risk_adversarial_evals:
+    status: TESTED
+    evidence: ai-tier/evals/return_runner.py
+    description: "20 adversarial return risk scenarios evaluating score immutability, tier downgrade containment, memory non-authority, and fail-closed decoupling"
+    test_command: "python ai-tier/evals/return_runner.py"
+
   # --- Observability, Telemetry & CI ---
   prometheus_metrics:
     status: TESTED
@@ -369,7 +394,7 @@ capabilities:
   adversarial_evals:
     status: TESTED
     evidence: ai-tier/evals/runner.py
-    description: "145 adversarial security scenarios across 7 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform)"
+    description: "165 adversarial security scenarios across 8 phases testing SGACA guardrail invariants (100% pass rate: 14 single-agent, 16 multi-agent, 20 remediation, 20 verification, 25 Model Armor, 25 Memory, 25 Platform, 20 Return Risk)"
     test_command: "python ai-tier/evals/runner.py"
 
   ci_pipeline:

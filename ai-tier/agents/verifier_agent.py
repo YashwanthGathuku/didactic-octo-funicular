@@ -33,6 +33,6 @@ validation path. Your assessment must be fully independent.
 
 verifier_agent = Agent(
     name="VerifierAgent",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     instruction=VERIFIER_INSTRUCTION,
 )

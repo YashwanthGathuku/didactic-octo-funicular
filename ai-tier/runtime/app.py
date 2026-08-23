@@ -27,6 +27,7 @@ from agents.diagnosis import DiagnosisAgent
 from agents.policy_sla import PolicySLAAgent
 from agents.memory_agent import MemoryAgent
 from agents.remediation import RemediationAgent
+from agents.return_risk import ReturnRiskAgent
 from agents.verifier import VerifierAgent
 from contracts.manifests import FIXED_AGENT_ROSTER, validate_agent_roster_membership
 from runtime.identity import AgentIdentityProvider
@@ -54,7 +55,7 @@ class SentinelFlowAdkApp:
         )
         self.tracer = get_tracer("sentinelflow.runtime")
 
-        # Initialize fixed 6-agent fleet
+        # Initialize fixed 7-agent fleet
         self.agents = {
             "IncidentCommanderAgent": IncidentCommanderAgent(),
             "DiagnosisAgent": DiagnosisAgent(),
@@ -62,6 +63,7 @@ class SentinelFlowAdkApp:
             "MemoryAgent": MemoryAgent(),
             "RemediationAgent": RemediationAgent(),
             "VerifierAgent": VerifierAgent(),
+            "ReturnRiskAgent": ReturnRiskAgent(),
         }
 
     def get_agent(self, agent_name: str) -> Any:

@@ -186,6 +186,8 @@ class AgentStageRequest(BaseModel):
         "REMEDIATION_PLAN",
         "VERIFIER_CRITIC",
         "STAGE_VERIFIER_CRITIC",
+        "RETURN_RISK_ANALYSIS",
+        "STAGE_RETURN_RISK",
     ]
     workflow_id: str
     tenant_id: str
@@ -213,6 +215,7 @@ class AgentStageRequest(BaseModel):
     policy_sla_result: Optional[Dict[str, Any]] = None
     authoritative_policy_decision: Optional[Dict[str, Any]] = None
     sla_context: Optional[Dict[str, Any]] = None
+    return_risk_context: Optional[Dict[str, Any]] = None
     max_elapsed_seconds: float = 30.0
 
 
@@ -225,6 +228,8 @@ class AgentStageResponse(BaseModel):
         "REMEDIATION_PLAN",
         "VERIFIER_CRITIC",
         "STAGE_VERIFIER_CRITIC",
+        "RETURN_RISK_ANALYSIS",
+        "STAGE_RETURN_RISK",
     ]
     status: Literal["SUCCESS", "FAILED"] = "SUCCESS"
     workflow_id: str
@@ -233,6 +238,7 @@ class AgentStageResponse(BaseModel):
     policy_sla_result: Optional[Dict[str, Any]] = None
     remediation_plan: Optional[Dict[str, Any]] = None
     critic_assessment: Optional[Dict[str, Any]] = None
+    return_risk_assessment: Optional[Dict[str, Any]] = None
     synthesis: Optional[Dict[str, Any]] = None
     outcome: Optional[str] = None
     evidence_refs: List[str] = Field(default_factory=list)

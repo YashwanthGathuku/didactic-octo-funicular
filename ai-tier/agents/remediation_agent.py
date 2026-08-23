@@ -34,6 +34,6 @@ human dual-control approval before execution.
 
 remediation_agent = Agent(
     name="RemediationAgent",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     instruction=REMEDIATION_INSTRUCTION,
 )

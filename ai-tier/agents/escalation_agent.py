@@ -32,6 +32,6 @@ You are READ-ONLY. You recommend escalation; you do not execute it.
 
 escalation_agent = Agent(
     name="EscalationAgent",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     instruction=ESCALATION_INSTRUCTION,
 )

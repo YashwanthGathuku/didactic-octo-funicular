@@ -43,7 +43,7 @@ NON-NEGOTIABLE CONSTRAINTS:
 
 sentinel_coordinator = Agent(
     name="SentinelCoordinator",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     instruction=COORDINATOR_INSTRUCTION,
     sub_agents=[
         triage_agent,

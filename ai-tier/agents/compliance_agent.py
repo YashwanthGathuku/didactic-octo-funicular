@@ -28,6 +28,6 @@ You may ONLY cite evidence IDs provided in the input.
 
 compliance_agent = Agent(
     name="ComplianceAgent",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     instruction=COMPLIANCE_INSTRUCTION,
 )

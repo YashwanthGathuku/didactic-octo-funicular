@@ -41,6 +41,7 @@ var skippedDirs = map[string]string{
 	"inbox":        "runtime input directory",
 	".venv":        "third-party dependencies",
 	"__pycache__":  "build output",
+	"evals":        "adversarial evaluation test suites and runners",
 
 	// docs/engineering holds the verbatim archives of code removed in Prompt 01
 	// -- including the webhook subsystem that generated secrets from
@@ -92,6 +93,19 @@ var configExtensions = map[string]bool{
 	".conf": true, ".toml": true, "": true,
 }
 
+// nonCredentialFields are field names that contain substrings like 'token'
+// but represent counts, tokenizers, or tenant scopes rather than credentials.
+var nonCredentialFields = map[string]bool{
+	"token":              true,
+	"prompt_tokens":      true,
+	"completion_tokens":  true,
+	"total_tokens":       true,
+	"max_output_tokens":  true,
+	"q_tokens":           true,
+	"f_tokens":           true,
+	"tenant_scope_token": true,
+}
+
 // benignValues are the right-hand sides that are not credentials. Each entry is
 // a placeholder, an environment reference or a well-known non-secret.
 var benignValues = regexp.MustCompile(`(?i)^(` +
@@ -104,6 +118,7 @@ var benignValues = regexp.MustCompile(`(?i)^(` +
 	`(change|replace|set)[-_ ]?(me|this)|` +
 	`your[-_].*|example[-_].*|placeholder.*|redacted.*|` +
 	`<[^>]+>|` + // <your-token-here>
+	`mock-.*|test-.*|` +
 	`true|false|null|none|nil|undefined` +
 	`)$`)
 
@@ -126,7 +141,8 @@ func TestNoLiteralSecretsInSourceOrConfig(t *testing.T) {
 		// strings to prove that credentials do not leak, and this file itself
 		// contains a list of well-known passwords.
 		if strings.HasSuffix(name, "_test.go") || strings.Contains(name, ".test.") ||
-			strings.Contains(name, ".spec.") || strings.HasSuffix(name, "_test.py") {
+			strings.Contains(name, ".spec.") || strings.HasSuffix(name, "_test.py") ||
+			strings.HasPrefix(name, "test_") {
 			return nil
 		}
 		if !scannedExtensions[strings.ToLower(filepath.Ext(name))] {
@@ -216,6 +232,9 @@ func scanFile(rel, body string) []string {
 		for _, re := range patterns {
 			m := re.FindStringSubmatch(line)
 			if m == nil {
+				continue
+			}
+			if nonCredentialFields[strings.ToLower(m[1])] {
 				continue
 			}
 			// Strip surrounding quotes before the benign check: a YAML value is

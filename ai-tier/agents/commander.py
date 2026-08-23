@@ -62,28 +62,42 @@ class IncidentCommanderAgent:
     ) -> CommanderPlan:
         """Generates a bounded, structured delegation plan for the operational incident."""
         has_blocking = any(f.severity == "BLOCKING" for f in envelope.findings)
-        workflow_class = "QUARANTINE_INVESTIGATION" if has_blocking else "FORMAT_ERROR"
+        is_return_risk = (
+            trigger_type in ("RETURN_RECEIVED", "RETURN_EVENT_OBSERVED", "RETURN_RISK_ANALYSIS", "RETURN_SURGE_DETECTED")
+            or "return_event_ref" in getattr(envelope, "metadata", {})
+            or getattr(envelope, "return_event_ref", None) is not None
+        )
+
+        if is_return_risk:
+            workflow_class = "RETURN_RISK_ANALYSIS"
+            default_specialists = ["DiagnosisAgent", "PolicySLAAgent", "ReturnRiskAgent"]
+        elif has_blocking:
+            workflow_class = "QUARANTINE_INVESTIGATION"
+            default_specialists = ["DiagnosisAgent", "PolicySLAAgent"]
+        else:
+            workflow_class = "FORMAT_ERROR"
+            default_specialists = ["DiagnosisAgent", "PolicySLAAgent"]
 
         def _fallback(env: AgentContextEnvelope, auth_set: Any) -> CommanderPlan:
             return CommanderPlan(
                 schema_version="1.0",
                 workflow_class=workflow_class,
-                selected_specialists=["DiagnosisAgent", "PolicySLAAgent"],
+                selected_specialists=default_specialists,
                 reason_codes=["EVENT_TRIGGERED_INVESTIGATION", "PRE_LEDGER_FINDINGS_DETECTED"],
                 evidence_requirements=["FINDING_IDS", "RUNBOOK_CITATIONS", "POLICY_DECISION_ID"],
                 parallelizable=True,
-                remediation_eligible=has_blocking,
+                remediation_eligible=has_blocking and not is_return_risk,
                 human_attention_required=False,
                 policy_bundle_hash=envelope.policy_version or "default/1",
                 artifact_sha256=envelope.artifact_sha256,
-                next_stage="READY_FOR_REMEDIATION" if has_blocking else "HUMAN_AUTHORIZATION_REQUIRED",
+                next_stage="READY_FOR_REMEDIATION" if (has_blocking and not is_return_risk) else "HUMAN_AUTHORIZATION_REQUIRED",
             )
 
         commander_instruction = (
             "ROLE SPECIFIC INSTRUCTION (IncidentCommanderAgent):\n"
             "You are the root Incident Commander. Classify this event and select specialist agents.\n"
             f"FIXED ROSTER ALLOWLIST: {list(FIXED_AGENT_ROSTER.keys())}\n"
-            "INVARIANT: You can ONLY delegate to 'DiagnosisAgent' and 'PolicySLAAgent'. Never invent agent names."
+            "INVARIANT: You can ONLY delegate to registered specialists ('DiagnosisAgent', 'PolicySLAAgent', 'ReturnRiskAgent'). Never invent agent names."
         )
 
         res = self.boundary.invoke(
@@ -101,7 +115,7 @@ class IncidentCommanderAgent:
             # Enforce roster membership validation
             valid_specialists = [s for s in plan.selected_specialists if validate_agent_roster_membership(s)]
             if not valid_specialists:
-                valid_specialists = ["DiagnosisAgent", "PolicySLAAgent"]
+                valid_specialists = default_specialists
             plan.selected_specialists = valid_specialists
             return plan
 
