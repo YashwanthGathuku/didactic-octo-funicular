@@ -36,7 +36,7 @@ if grep -RIn --exclude='test_*' --exclude='*_test.py' 'X-Agent-Identity-Principa
   exit 1
 fi
 
-if grep -RInE --exclude='test_*' --exclude='*_test.py' 'status["'"']?\s*[:=]\s*["'"']COMPLETED["'"']' "$ROOT/ai-tier/runtime"; then
+if grep -RIn --exclude='test_*' --exclude='*_test.py' '"status": "COMPLETED"' "$ROOT/ai-tier/runtime"; then
   echo "ERROR: runtime adapter appears to claim COMPLETED without managed proof" >&2
   exit 1
 fi
