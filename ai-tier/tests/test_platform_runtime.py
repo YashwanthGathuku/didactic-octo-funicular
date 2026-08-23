@@ -5,7 +5,7 @@ import pytest
 from contracts.manifests import FIXED_AGENT_ROSTER, validate_agent_roster_membership
 from observability.telemetry import sanitize_span_attributes
 from runtime.app import SentinelFlowAdkApp
-from runtime.gateway_client import AgentGatewayClient
+from runtime.gateway_client import AgentGatewayClient, DEFAULT_MANAGED_TOOL_PATH
 from runtime.identity import AgentIdentityProvider
 from runtime.managed_adk import MANAGED_MODEL, MANAGED_ROOT_NAME, build_managed_fleet
 
@@ -99,7 +99,7 @@ def test_gateway_client_default_deny_is_explicitly_local_policy(monkeypatch):
     monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "local")
     gw = AgentGatewayClient(project_id="telos-agent", mode="ENFORCE")
 
-    allowed = gw.evaluate_egress("IncidentCommanderAgent", "/internal/agent-tools", {})
+    allowed = gw.evaluate_egress("IncidentCommanderAgent", DEFAULT_MANAGED_TOOL_PATH, {})
     assert allowed.decision == "ALLOW"
     assert allowed.is_registered is True
     assert allowed.decision_source == "LOCAL_POLICY"
@@ -120,31 +120,34 @@ def test_gateway_client_default_deny_is_explicitly_local_policy(monkeypatch):
     assert dry_result.status_code == 200
 
 
-def test_gateway_managed_mode_requires_exact_registered_base(monkeypatch):
+def test_gateway_managed_mode_requires_exact_registered_url(monkeypatch):
     monkeypatch.setenv("SENTINEL_PLATFORM_MODE", "managed")
     monkeypatch.setenv(
         "SENTINEL_AGENT_IDENTITY_PRINCIPAL",
         "principal://agents.global.org-123.system.id.goog/resources/aiplatform/"
         "projects/456/locations/us-central1/reasoningEngines/789",
     )
+    registered = "https://gateway.example.internal/api/v1/internal/agent-tools"
     gw = AgentGatewayClient(
         project_id="telos-agent",
         mode="ENFORCE",
-        registered_endpoint_base_url="https://gateway.example.internal",
+        registered_endpoint_url=registered,
     )
-    allowed = gw.evaluate_egress(
-        "DiagnosisAgent",
-        "https://gateway.example.internal/internal/agent-tools",
-        {},
-    )
-    assert allowed.decision == "ALLOW"
+    allowed_absolute = gw.evaluate_egress("DiagnosisAgent", registered, {})
+    assert allowed_absolute.decision == "ALLOW"
+
+    allowed_relative = gw.evaluate_egress("DiagnosisAgent", DEFAULT_MANAGED_TOOL_PATH, {})
+    assert allowed_relative.decision == "ALLOW"
 
     suffix_attack = gw.evaluate_egress(
         "DiagnosisAgent",
-        "https://evil.example/internal/agent-tools",
+        "https://evil.example/api/v1/internal/agent-tools",
         {},
     )
     assert suffix_attack.decision == "DENY"
+
+    legacy_path = gw.evaluate_egress("DiagnosisAgent", "/internal/agent-tools", {})
+    assert legacy_path.decision == "DENY"
 
 
 def test_telemetry_financial_privacy_sanitization():
