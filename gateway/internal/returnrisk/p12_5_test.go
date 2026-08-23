@@ -10,16 +10,16 @@ import (
 
 type returnRiskSemanticsFixture struct {
 	Thresholds struct {
-		Unauthorized  float64 `json:"unauthorized"`
+		Unauthorized   float64 `json:"unauthorized"`
 		Administrative float64 `json:"administrative"`
-		Overall       float64 `json:"overall"`
+		Overall        float64 `json:"overall"`
 	} `json:"thresholds"`
 	UnauthorizedReturnRateCodes []string `json:"unauthorized_return_rate_codes"`
 	ReturnCodes                 map[string]struct {
-		Title              string `json:"title"`
-		NormalizedCategory string `json:"normalized_category"`
-		ReturnWindow       string `json:"return_window"`
-		ThresholdCategory  string `json:"threshold_category"`
+		Title               string `json:"title"`
+		NormalizedCategory  string `json:"normalized_category"`
+		ReturnWindow        string `json:"return_window"`
+		ThresholdCategory   string `json:"threshold_category"`
 		ThresholdApplicable *bool  `json:"threshold_applicable"`
 	} `json:"return_codes"`
 }
@@ -72,8 +72,8 @@ func TestP125_R10AndR11CurrentSemantics(t *testing.T) {
 	if r11.Title != fixture.ReturnCodes["R11"].Title {
 		t.Fatalf("R11 title drift: %q", r11.Title)
 	}
-	if r11.NormalizedCategory != CategoryAuthorizationTerms {
-		t.Fatalf("R11 category=%s, want %s", r11.NormalizedCategory, CategoryAuthorizationTerms)
+	if r11.NormalizedCategory != CategoryUnauthorized || fixture.ReturnCodes["R11"].NormalizedCategory != string(CategoryUnauthorized) {
+		t.Fatalf("R11 must remain in unauthorized operational category: go=%s fixture=%s", r11.NormalizedCategory, fixture.ReturnCodes["R11"].NormalizedCategory)
 	}
 	if r11.ReturnWindow != ReturnWindow60CalendarDays || r11.ThresholdCategory != ThresholdUnauthorized05Percent {
 		t.Fatalf("R11 must use extended window and unauthorized return-rate handling")
@@ -150,7 +150,13 @@ func TestP125_TaxonomyGuidanceIsOperationalNotAuthority(t *testing.T) {
 			t.Fatalf("%s has non-governed guidance type %q", code, def.OperationalGuidance)
 		}
 		lower := strings.ToLower(def.GuidanceSummary)
-		for _, forbidden := range []string{"strictly prohibited by federal law", "reinitiation is illegal", "cease all transaction activity", "approve the file", "authorize release"} {
+		for _, forbidden := range []string{
+			"strictly prohibited by federal law",
+			"reinitiation is illegal",
+			"cease all transaction activity",
+			"approve the file",
+			"authorize release",
+		} {
 			if strings.Contains(lower, forbidden) {
 				t.Fatalf("%s contains unsupported authority language %q", code, forbidden)
 			}
