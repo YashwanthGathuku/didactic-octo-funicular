@@ -376,6 +376,7 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 			CallerCapabilities:     capabilitiesForManagedAgent(identity),
 			CallerAutonomyLevel:    map[auth.AutonomyLevel]int{auth.AutonomyA1: 1, auth.AutonomyA2: 2}[identity.AutonomyLevel],
 			WorkflowID:             workflowID,
+			WorkflowState:          workflowState,
 			ArtifactID:             artifactID,
 			ArtifactSHA256:         artifactSHA,
 			ResourceVersion:        rowVersion,
