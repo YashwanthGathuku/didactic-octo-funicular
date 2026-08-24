@@ -35,14 +35,10 @@ echo "[4/8] Independent verification + candidate safety"
 )
 
 echo
-echo "[5/8] AI guardrail/provider regression"
+echo "[5/8] Full AI-tier unit/conformance regression"
 (
   cd "$ROOT"
-  python -m pytest \
-    ai-tier/tests/test_model_armor.py \
-    ai-tier/tests/test_guarded_model_boundary.py \
-    ai-tier/tests/test_platform_runtime.py \
-    -q
+  python -m pytest ai-tier/tests/ -q
 )
 
 echo
