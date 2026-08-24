@@ -10,11 +10,9 @@ import (
 )
 
 var (
-	// Defense-in-depth regex patterns for unstructured text leak detection
 	unmaskedSSNRegex = regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`)
 	nineDigitRegex   = regexp.MustCompile(`\b\d{9}\b`)
 
-	// Prohibited structured key names that must never cross the AI boundary
 	// secret-scan-allow: list of prohibited secret key names for leak detector
 	forbiddenSecretKeys = map[string]struct{}{
 		"api_key":      {},
@@ -38,7 +36,6 @@ var (
 	}
 )
 
-// ValidateInput verifies the raw input arguments against size and JSON constraints.
 func ValidateInput(args json.RawMessage, maxBytes int64) error {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxInputBytes
@@ -54,12 +51,10 @@ func ValidateInput(args json.RawMessage, maxBytes int64) error {
 	return nil
 }
 
-// ValidateOutput verifies tool output against schema classifications, forbidden keys, and defense-in-depth leak checks.
 func ValidateOutput(output json.RawMessage, manifest *ToolManifest, execCtx *TrustedExecutionContext) error {
 	if int64(len(output)) > manifest.MaxOutputBytes {
 		return fmt.Errorf("%w: output size %d exceeds max %d bytes", ErrOutputTooLarge, len(output), manifest.MaxOutputBytes)
 	}
-
 	if len(output) == 0 {
 		return nil
 	}
@@ -69,7 +64,6 @@ func ValidateOutput(output json.RawMessage, manifest *ToolManifest, execCtx *Tru
 		return fmt.Errorf("%w: tool output is not valid JSON: %v", ErrOutputValidationFailed, err)
 	}
 
-	// Permitted classifications set
 	allowedClassifications := make(map[DataClassification]struct{})
 	for _, c := range manifest.AllowedOutputClassifications {
 		allowedClassifications[c] = struct{}{}
@@ -80,29 +74,21 @@ func ValidateOutput(output json.RawMessage, manifest *ToolManifest, execCtx *Tru
 		}
 	}
 
-	// 1. Authoritative structured classification & forbidden key check
 	if err := inspectStructuredOutput(generic, allowedClassifications, execCtx); err != nil {
 		return err
 	}
 
-	// 2. Defense-in-depth regex & algorithmic verification
 	outputStr := string(output)
-
-	// SSN leak check
 	if unmaskedSSNRegex.MatchString(outputStr) {
 		return fmt.Errorf("%w: output contains unmasked SSN pattern", ErrOutputValidationFailed)
 	}
-
-	// Routing number leak check (valid 9-digit Mod-10 routing number)
 	for _, match := range nineDigitRegex.FindAllString(outputStr, -1) {
 		if isValidRoutingNumber(match) {
-			// If output is not classified as internal/raw financial, valid routing number in output is blocked
 			if _, ok := allowedClassifications[ClassificationFinancialSensitive]; !ok {
 				return fmt.Errorf("%w: output contains unmasked 9-digit routing transit number (%s)", ErrOutputValidationFailed, match)
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -111,28 +97,18 @@ func inspectStructuredOutput(v interface{}, allowed map[DataClassification]struc
 	case map[string]interface{}:
 		for k, item := range val {
 			kLower := strings.ToLower(k)
-
-			// Prohibit secret keys
 			if _, isSecret := forbiddenSecretKeys[kLower]; isSecret {
 				return fmt.Errorf("%w: output contains forbidden secret key %q", ErrOutputValidationFailed, k)
 			}
-
-			// Prohibit raw unredacted financial keys
 			if _, isRaw := forbiddenRawFinancialKeys[kLower]; isRaw {
 				return fmt.Errorf("%w: output contains unredacted financial key %q", ErrOutputValidationFailed, k)
 			}
-
-			// Check explicit data classification tag
 			if kLower == "data_classification" || kLower == "classification" || kLower == "confidentiality" {
 				if classStr, ok := item.(string); ok {
 					classUpper := DataClassification(strings.ToUpper(classStr))
-
-					// SECRET is never permitted across AI tier boundary
 					if classUpper == ClassificationSecret && (execCtx == nil || execCtx.CallerType == CallerTypeAgent) {
 						return fmt.Errorf("%w: field marked SECRET is strictly prohibited across AI boundary", ErrOutputValidationFailed)
 					}
-
-					// Verify classification is permitted by manifest
 					if len(allowed) > 0 {
 						if _, isAllowed := allowed[classUpper]; !isAllowed {
 							return fmt.Errorf("%w: output classification %s is not permitted by manifest", ErrOutputValidationFailed, classUpper)
@@ -140,7 +116,6 @@ func inspectStructuredOutput(v interface{}, allowed map[DataClassification]struc
 					}
 				}
 			}
-
 			if err := inspectStructuredOutput(item, allowed, execCtx); err != nil {
 				return err
 			}
@@ -155,7 +130,6 @@ func inspectStructuredOutput(v interface{}, allowed map[DataClassification]struc
 	return nil
 }
 
-// isValidRoutingNumber verifies an ABA routing number using the Federal Reserve Mod-10 checksum algorithm.
 func isValidRoutingNumber(s string) bool {
 	if len(s) != 9 {
 		return false
@@ -167,7 +141,6 @@ func isValidRoutingNumber(s string) bool {
 		}
 		d[i] = int(s[i] - '0')
 	}
-	// Prefix range check: US Fedwire/ACH routing numbers must start with 01-12, 21-32, 61-72, or 80
 	prefix := d[0]*10 + d[1]
 	validPrefix := (prefix >= 1 && prefix <= 12) ||
 		(prefix >= 21 && prefix <= 32) ||
@@ -181,23 +154,55 @@ func isValidRoutingNumber(s string) bool {
 	return sum%10 == 0
 }
 
-// VerifyResourcePreconditions verifies that TOCTOU constraints hold prior to execution.
+// VerifyResourcePreconditions enforces every declared TOCTOU constraint against
+// the server-generated TrustedExecutionContext immediately before a handler is
+// eligible to execute. A declared precondition with missing current context is
+// a refusal, not a skipped check.
 func VerifyResourcePreconditions(pre *ResourcePreconditions, execCtx *TrustedExecutionContext) error {
 	if pre == nil {
 		return nil
 	}
+	if execCtx == nil {
+		return fmt.Errorf("%w: trusted execution context missing", ErrPreconditionFailed)
+	}
 
-	if pre.ExpectedArtifactSHA256 != "" && execCtx.ArtifactSHA256 != "" {
+	if pre.ExpectedArtifactSHA256 != "" {
+		if execCtx.ArtifactSHA256 == "" {
+			return fmt.Errorf("%w: current artifact SHA-256 unavailable", ErrPreconditionFailed)
+		}
 		if pre.ExpectedArtifactSHA256 != execCtx.ArtifactSHA256 {
 			return fmt.Errorf("%w: artifact SHA-256 mismatch (expected %s, got %s)",
 				ErrPreconditionFailed, pre.ExpectedArtifactSHA256, execCtx.ArtifactSHA256)
 		}
 	}
 
-	if pre.ExpectedRowVersion > 0 && execCtx.ResourceVersion > 0 {
+	if pre.ExpectedRowVersion > 0 {
+		if execCtx.ResourceVersion <= 0 {
+			return fmt.Errorf("%w: current resource version unavailable", ErrPreconditionFailed)
+		}
 		if pre.ExpectedRowVersion != execCtx.ResourceVersion {
 			return fmt.Errorf("%w: resource version mismatch (expected %d, got %d)",
 				ErrPreconditionFailed, pre.ExpectedRowVersion, execCtx.ResourceVersion)
+		}
+	}
+
+	if pre.ExpectedWorkflowState != "" {
+		if execCtx.WorkflowState == "" {
+			return fmt.Errorf("%w: current workflow state unavailable", ErrPreconditionFailed)
+		}
+		if pre.ExpectedWorkflowState != execCtx.WorkflowState {
+			return fmt.Errorf("%w: workflow state mismatch (expected %s, got %s)",
+				ErrPreconditionFailed, pre.ExpectedWorkflowState, execCtx.WorkflowState)
+		}
+	}
+
+	if pre.ExpectedPolicyBundle != "" {
+		if execCtx.PolicyBundleHash == "" {
+			return fmt.Errorf("%w: current policy bundle hash unavailable", ErrPreconditionFailed)
+		}
+		if pre.ExpectedPolicyBundle != execCtx.PolicyBundleHash {
+			return fmt.Errorf("%w: policy bundle mismatch (expected %s, got %s)",
+				ErrPreconditionFailed, pre.ExpectedPolicyBundle, execCtx.PolicyBundleHash)
 		}
 	}
 
