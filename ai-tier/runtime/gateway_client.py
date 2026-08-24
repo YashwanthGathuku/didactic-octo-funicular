@@ -138,7 +138,7 @@ class AgentGatewayClient:
                     is_registered=False,
                     decision_source="LOCAL_POLICY",
                     details=(
-                        "SentinelFlow local egress policy would deny this destination. "
+                        "WOULD_DENY: SentinelFlow local egress policy would deny this destination. "
                         "This is not evidence of a live Google Agent Gateway decision."
                     ),
                     status_code=200,
