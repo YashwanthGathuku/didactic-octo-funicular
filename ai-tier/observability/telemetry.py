@@ -21,6 +21,7 @@ logger = logging.getLogger("sentinel.observability.telemetry")
 NACHA_94_REGEX = re.compile(r"[156789][0-9A-Za-z\s]{90,}")
 ACCOUNT_REGEX = re.compile(r"\b\d{10,17}\b")
 ROUTING_REGEX = re.compile(r"\b\d{9}\b")
+# secret-scan-allow: detector regex intentionally names credential shapes so telemetry can redact them
 SECRET_REGEX = re.compile(
     r"(?i)(bearer\s+[a-z0-9_\-\.]{20,}|"
     r"(ghp|gho|xoxb|xoxp|sk_live|secret|token)_[a-z0-9_\-]{16,}|"
