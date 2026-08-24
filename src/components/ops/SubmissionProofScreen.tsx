@@ -1,11 +1,9 @@
 /**
- * Submission Proof Screen
+ * Judge/demo proof surface.
  *
- * A judge/demo-oriented view of SentinelFlow's authority boundaries and the
- * evidence still required from live Google managed services.  The component is
- * intentionally conservative: managed-cloud capabilities default to NOT_RUN
- * unless a build-time VITE_SENTINEL_*_PROOF value is explicitly supplied after
- * real proof is captured.
+ * Local implementation/test evidence and live Google managed-service evidence
+ * are intentionally separate. A managed capability defaults to NOT_RUN until
+ * real cloud proof explicitly upgrades its VITE_SENTINEL_*_PROOF value.
  */
 
 import React from 'react';
@@ -30,7 +28,7 @@ import {
 
 type ProofState = 'TESTED' | 'IMPLEMENTED' | 'PASS_LIVE' | 'NOT_RUN' | 'FAIL';
 
-type ManagedProof = {
+type Proof = {
   label: string;
   state: ProofState;
   detail: string;
@@ -44,113 +42,117 @@ const readProof = (name: string, fallback: ProofState = 'NOT_RUN'): ProofState =
     : fallback;
 };
 
-const MANAGED_PROOFS: ManagedProof[] = [
+const LOCAL_PROOFS: Proof[] = [
   {
-    label: 'Gemini 3.5 Flash',
-    state: readProof('VITE_SENTINEL_GEMINI_PROOF', 'IMPLEMENTED'),
-    detail: 'Governed model path; live status upgrades only after a real provider invocation.',
-    Icon: BrainCircuit,
-  },
-  {
-    label: 'Google ADK',
+    label: 'Google ADK topology',
     state: 'TESTED',
-    detail: 'Fixed seven-agent topology with bounded A1/A2 specialists.',
+    detail: 'Fixed bounded specialist roster and orchestration are exercised by local tests/evals.',
     Icon: GitBranch,
   },
   {
+    label: 'Gemini 3.5 Flash path',
+    state: readProof('VITE_SENTINEL_GEMINI_PROOF', 'IMPLEMENTED'),
+    detail: 'Governed provider path is implemented; PASS_LIVE requires a real provider invocation.',
+    Icon: BrainCircuit,
+  },
+  {
+    label: 'Deterministic control plane',
+    state: 'TESTED',
+    detail: 'Go owns parser, policy, Tool Gateway, candidate derivation, verification, review and release state.',
+    Icon: ShieldCheck,
+  },
+];
+
+const MANAGED_PROOFS: Proof[] = [
+  {
     label: 'Agent Runtime',
     state: readProof('VITE_SENTINEL_AGENT_RUNTIME_PROOF'),
-    detail: 'Real AdkApp deployment path exists; managed resource proof is tracked separately.',
+    detail: 'Deployment packaging exists; managed runtime resource evidence is tracked separately.',
     Icon: Cloud,
   },
   {
     label: 'Agent Identity',
     state: readProof('VITE_SENTINEL_AGENT_IDENTITY_PROOF'),
-    detail: 'Managed ingress consumes system-attested identity; application-generated identity is forbidden.',
+    detail: 'Managed ingress is designed to consume system-attested identity; application-fabricated managed identity is forbidden.',
     Icon: Fingerprint,
   },
   {
     label: 'Agent Gateway',
     state: readProof('VITE_SENTINEL_AGENT_GATEWAY_PROOF'),
-    detail: 'Network reachability is separate from SentinelFlow Tool Gateway business authority.',
+    detail: 'Managed network/auth ingress stays separate from SentinelFlow Tool Gateway business authorization.',
     Icon: Network,
   },
   {
     label: 'Agent Registry',
     state: readProof('VITE_SENTINEL_AGENT_REGISTRY_PROOF'),
-    detail: 'Registry is inventory/discovery; it never expands the fixed application roster.',
+    detail: 'Registry is inventory/discovery only and cannot expand the fixed application roster.',
     Icon: DatabaseZap,
   },
   {
     label: 'Memory Bank',
     state: readProof('VITE_SENTINEL_MEMORY_BANK_PROOF'),
-    detail: 'Managed memory is advisory; Go source resolution is required before evidence is minted.',
+    detail: 'Managed memory remains advisory; authoritative Go source resolution is required before factual use.',
     Icon: History,
   },
   {
-    label: 'Model Armor',
-    state: readProof('VITE_SENTINEL_MODEL_ARMOR_PROOF', 'IMPLEMENTED'),
-    detail: 'Prompt/response content boundary; a pass is never authorization.',
+    label: 'Model Armor service',
+    state: readProof('VITE_SENTINEL_MODEL_ARMOR_PROOF'),
+    detail: 'Managed prompt/response screening is defense-in-depth. ModelArmorPass is never authorization.',
     Icon: ShieldCheck,
   },
   {
-    label: 'Agent Observability',
+    label: 'Cloud Trace / managed observability',
     state: readProof('VITE_SENTINEL_OBSERVABILITY_PROOF'),
-    detail: 'OpenTelemetry instrumentation excludes raw financial payloads by design.',
+    detail: 'Instrumentation excludes raw financial payloads; live managed trace evidence is a separate gate.',
     Icon: Activity,
   },
 ];
 
 const STORY = [
   {
-    title: 'Immutable ingress',
-    detail: 'Original payment file is hashed and preserved before any agent reasoning.',
+    title: 'Original preserved',
+    detail: 'The received payment artifact is hashed and preserved before agent reasoning begins.',
     Icon: FileLock2,
   },
   {
     title: 'Deterministic quarantine',
-    detail: 'Go parser and validators establish financial truth and quarantine invalid input.',
+    detail: 'Go parsing and validation establish financial truth and quarantine invalid input.',
     Icon: ScanSearch,
   },
   {
-    title: 'Bounded agent fleet',
-    detail: 'Commander delegates diagnosis, policy/SLA, memory and return-risk reasoning to a fixed roster.',
+    title: 'Bounded investigation',
+    detail: 'Commander delegates explanation and advisory reasoning to a fixed ADK roster.',
     Icon: BrainCircuit,
   },
   {
-    title: 'Memory as a pointer',
-    detail: 'Historical recall may locate prior evidence, but memory itself cannot become proof.',
+    title: 'Memory resolves to sources',
+    detail: 'Historical recall can locate prior context; memory itself cannot satisfy an evidence requirement.',
     Icon: History,
   },
   {
     title: 'Derived candidate only',
-    detail: 'RemediationAgent proposes intent; Go creates a new immutable candidate from the original.',
+    detail: 'The model proposes allowlisted intent; Go creates a new candidate from the original artifact.',
     Icon: GitBranch,
   },
   {
     title: 'Independent verification',
-    detail: 'Go re-reads bytes, hashes derivation, and reruns deterministic validation before VERIFIED.',
+    detail: 'Go re-reads candidate bytes, checks derivation integrity, and reruns deterministic validation.',
     Icon: BadgeCheck,
   },
   {
-    title: 'Human dual control',
-    detail: 'Verified is not approved or released. Distinct human reviewers authorize final release.',
+    title: 'Human authorization',
+    detail: 'VERIFIED is not APPROVED or RELEASED. Distinct authorized humans control irreversible release.',
     Icon: UsersRound,
   },
 ];
 
 const stateClass = (state: ProofState): string => {
   switch (state) {
-    case 'PASS_LIVE':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-800';
-    case 'TESTED':
-      return 'border-sky-200 bg-sky-50 text-sky-800';
-    case 'IMPLEMENTED':
-      return 'border-indigo-200 bg-indigo-50 text-indigo-800';
-    case 'FAIL':
-      return 'border-rose-200 bg-rose-50 text-rose-800';
-    default:
-      return 'border-slate-200 bg-slate-50 text-slate-600';
+    case 'PASS_LIVE': return 'badge-emerald';
+    case 'TESTED': return 'badge-sky';
+    case 'IMPLEMENTED': return 'badge-indigo';
+    case 'FAIL': return 'badge-rose';
+    default: return 'badge-slate';
   }
 };
 
@@ -161,121 +163,83 @@ const StateIcon: React.FC<{ state: ProofState }> = ({ state }) => {
 };
 
 export const SubmissionProofScreen: React.FC = () => {
-  const liveCount = MANAGED_PROOFS.filter((proof) => proof.state === 'PASS_LIVE').length;
+  const managedLive = MANAGED_PROOFS.filter((proof) => proof.state === 'PASS_LIVE').length;
 
   return (
-    <section aria-labelledby="submission-proof-heading" className="space-y-5">
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 px-5 py-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="max-w-3xl">
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-700">
-                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-                Fortified Enterprise Fleet
-              </div>
-              <h2 id="submission-proof-heading" className="text-xl font-black tracking-tight text-slate-950">
-                Autonomous remediation under deterministic financial control
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Gemini and Google ADK can investigate, remember, explain and propose. Go owns financial truth,
-                executable capability, verification, evidence, approvals and release.
-              </p>
+    <section aria-labelledby="submission-proof-heading" className="space-y-4">
+      <div className="surface-panel overflow-hidden">
+        <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="p-5 sm:p-6 lg:p-7">
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+              <ShieldCheck className="h-4 w-4" aria-hidden />
+              Fortified Enterprise Fleet · authority proof
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-right shadow-xs">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Managed live proofs</p>
-              <p className="mt-1 font-mono text-2xl font-black text-slate-900">
-                {liveCount}/{MANAGED_PROOFS.length}
-              </p>
-              <p className="text-[10px] text-slate-500">Defaults to NOT_RUN until real cloud evidence exists</p>
+            <h2 id="submission-proof-heading" className="mt-3 max-w-3xl text-2xl font-bold tracking-[-0.04em] text-slate-950 sm:text-[28px]">
+              Autonomous remediation under deterministic financial control
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+              SentinelFlow gives Gemini room to investigate and propose without transferring financial authority. The deterministic Go control plane decides what is valid and executable; humans authorize irreversible release.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2 text-xs font-semibold text-slate-800" aria-label="Authority chain">
+              <span className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5">AI proposes</span>
+              <span className="text-slate-300" aria-hidden>→</span>
+              <span className="rounded-md border border-slate-900 bg-slate-950 px-2.5 py-1.5 text-white">Deterministic core decides</span>
+              <span className="text-slate-300" aria-hidden>→</span>
+              <span className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5">Humans authorize</span>
             </div>
           </div>
-        </div>
 
-        <div className="grid gap-px bg-slate-200 md:grid-cols-3">
-          <AuthorityCard
-            title="AI may propose"
-            detail="Diagnosis, memory recall, SLA interpretation, return-risk explanation and allowlisted remediation intent."
-            tone="indigo"
-          />
-          <AuthorityCard
-            title="Deterministic systems decide"
-            detail="Parser, policy, Tool Gateway, candidate generation, source resolution and independent verification stay authoritative."
-            tone="emerald"
-          />
-          <AuthorityCard
-            title="Humans authorize"
-            detail="Irreversible release remains behind identity-bound separation of duties and exact artifact/policy integrity binding."
-            tone="amber"
-          />
+          <aside className="border-t border-slate-200 bg-slate-50/80 p-5 xl:border-l xl:border-t-0" aria-label="Managed Google proof status">
+            <p className="text-[10px] font-semibold tracking-wide text-slate-500">LIVE MANAGED PROOF</p>
+            <p className="mt-2 text-3xl font-bold tracking-[-0.05em] text-slate-950 tabular-nums">
+              {managedLive}<span className="text-sm font-medium text-slate-400"> / {MANAGED_PROOFS.length}</span>
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Managed services stay <strong className="font-semibold text-slate-800">NOT_RUN</strong> until real Google Cloud evidence is captured. Local code or mocks never upgrade this count.
+            </p>
+          </aside>
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
-        <div className="fintech-card p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">Killer demo authority path</h3>
-              <p className="text-xs text-slate-500">Every step narrows authority instead of transferring it to the model.</p>
-            </div>
-            <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-              Verified ≠ Approved ≠ Released
-            </span>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <section className="surface-panel overflow-hidden" aria-labelledby="authority-path-heading">
+          <div className="border-b border-slate-200 px-4 py-3.5 sm:px-5">
+            <h3 id="authority-path-heading" className="text-sm font-semibold text-slate-950">Demo authority path</h3>
+            <p className="mt-0.5 text-xs text-slate-500">Each transition narrows authority instead of moving it into the model.</p>
           </div>
-          <ol className="space-y-2">
+
+          <ol className="divide-y divide-slate-100">
             {STORY.map(({ title, detail, Icon }, index) => (
-              <li key={title} className="flex gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white font-mono text-xs font-black text-indigo-700 shadow-xs ring-1 ring-slate-200">
-                  {index + 1}
+              <li key={title} className="grid gap-3 px-4 py-3.5 sm:grid-cols-[34px_minmax(0,1fr)] sm:px-5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 font-mono text-[11px] font-semibold text-slate-600">
+                  {String(index + 1).padStart(2, '0')}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-indigo-600" aria-hidden />
-                    <p className="text-xs font-bold text-slate-900">{title}</p>
+                    <Icon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+                    <p className="text-xs font-semibold text-slate-900">{title}</p>
                   </div>
                   <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
                 </div>
               </li>
             ))}
           </ol>
-        </div>
+
+          <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-700 sm:px-5">
+            VERIFIED ≠ APPROVED ≠ RELEASED
+          </div>
+        </section>
 
         <div className="space-y-4">
-          <div className="fintech-card p-4">
-            <div className="mb-3">
-              <h3 className="text-sm font-bold text-slate-900">Google managed proof ledger</h3>
-              <p className="text-xs text-slate-500">
-                Local implementation and managed live proof are deliberately different states.
-              </p>
-            </div>
-            <div className="space-y-2">
-              {MANAGED_PROOFS.map(({ label, state, detail, Icon }) => (
-                <div key={label} className="rounded-lg border border-slate-200 bg-white p-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Icon className="h-4 w-4 shrink-0 text-slate-600" aria-hidden />
-                      <span className="truncate text-xs font-semibold text-slate-900">{label}</span>
-                    </div>
-                    <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-bold ${stateClass(state)}`}>
-                      <StateIcon state={state} />
-                      {state}
-                    </span>
-                  </div>
-                  <p className="mt-1 pl-6 text-[11px] leading-4 text-slate-500">{detail}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ProofLedger title="Local implementation / test evidence" proofs={LOCAL_PROOFS} />
+          <ProofLedger title="Google managed-service evidence" proofs={MANAGED_PROOFS} />
 
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-amber-900">Return intelligence is prioritization, not authority</h3>
-                <p className="mt-1 text-xs leading-5 text-amber-900/80">
-                  P12 computes a reproducible 0–100 score in Go from seven score-bearing features. ReturnRiskAgent may explain the score but cannot change it, reject a file, or authorize release.
-                </p>
-              </div>
-            </div>
+          <div className="border-l-2 border-amber-500 bg-amber-50 px-4 py-3">
+            <p className="text-xs font-semibold text-amber-950">Return intelligence prioritizes; it does not authorize.</p>
+            <p className="mt-1 text-xs leading-5 text-amber-900">
+              The return-risk score is reproducibly computed in Go. ReturnRiskAgent may explain that score but cannot change it, reject a file, satisfy deterministic verification, or authorize release.
+            </p>
           </div>
         </div>
       </div>
@@ -283,24 +247,27 @@ export const SubmissionProofScreen: React.FC = () => {
   );
 };
 
-const AuthorityCard: React.FC<{
-  title: string;
-  detail: string;
-  tone: 'indigo' | 'emerald' | 'amber';
-}> = ({ title, detail, tone }) => {
-  const classes = {
-    indigo: 'bg-indigo-50 text-indigo-700',
-    emerald: 'bg-emerald-50 text-emerald-700',
-    amber: 'bg-amber-50 text-amber-700',
-  }[tone];
-
-  return (
-    <div className="bg-white p-4">
-      <div className={`inline-flex rounded-lg p-2 ${classes}`}>
-        <ShieldCheck className="h-4 w-4" aria-hidden />
-      </div>
-      <p className="mt-2 text-xs font-black uppercase tracking-wider text-slate-900">{title}</p>
-      <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
+const ProofLedger: React.FC<{ title: string; proofs: Proof[] }> = ({ title, proofs }) => (
+  <section className="surface-panel overflow-hidden">
+    <div className="border-b border-slate-200 px-4 py-3">
+      <h3 className="text-xs font-semibold text-slate-900">{title}</h3>
     </div>
-  );
-};
+    <div className="divide-y divide-slate-100">
+      {proofs.map(({ label, state, detail, Icon }) => (
+        <div key={label} className="px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <Icon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+              <span className="text-xs font-semibold text-slate-900">{label}</span>
+            </div>
+            <span className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[9px] font-semibold ${stateClass(state)}`}>
+              <StateIcon state={state} />
+              {state}
+            </span>
+          </div>
+          <p className="mt-1.5 pl-6 text-[11px] leading-4 text-slate-500">{detail}</p>
+        </div>
+      ))}
+    </div>
+  </section>
+);
