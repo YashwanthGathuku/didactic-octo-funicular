@@ -110,10 +110,10 @@ class PromptTrustPartitioner:
 
             findings_xml.append(
                 f'  <finding id="{fid}" code="{fcode}" severity="{fsev}" line="{fline}">\n'
-                f'    <description>{fdesc}</description>\n'
-                f'    <expected_value>{fexp}</expected_value>\n'
-                f'    <actual_value>{fact}</actual_value>\n'
-                f'  </finding>'
+                f"    <description>{fdesc}</description>\n"
+                f"    <expected_value>{fexp}</expected_value>\n"
+                f"    <actual_value>{fact}</actual_value>\n"
+                f"  </finding>"
             )
 
         untrusted_xml = "\n".join(findings_xml) if findings_xml else "  <no_findings />"
@@ -126,10 +126,12 @@ class PromptTrustPartitioner:
             for t in tool_outputs:
                 tool_output_blocks.append(
                     f'  <tool_result tool_id="{t.get("tool_id")}" status="{t.get("status")}">\n'
-                    f'    {json.dumps(t.get("output", {}))}\n'
-                    f'  </tool_result>'
+                    f"    {json.dumps(t.get('output', {}))}\n"
+                    f"  </tool_result>"
                 )
-        tool_output_xml = "\n".join(tool_output_blocks) if tool_output_blocks else "  <no_tool_invocations />"
+        tool_output_xml = (
+            "\n".join(tool_output_blocks) if tool_output_blocks else "  <no_tool_invocations />"
+        )
 
         # Assemble the structured prompt
         user_prompt = f"""
@@ -154,7 +156,7 @@ class PromptTrustPartitioner:
 {tool_output_xml}
 </tool_output>
 
-Please generate the DiagnosisOutput JSON for Incident #{env_dict.get('incident_id')}.
+Please generate the DiagnosisOutput JSON for Incident #{env_dict.get("incident_id")}.
 """
         return PartitionedPrompt(
             system_instruction=SYSTEM_POLICY_PROMPT,

@@ -14,13 +14,15 @@ from pydantic import BaseModel, Field
 
 class GuardrailMode(str, Enum):
     """Operational mode for Model Armor AI Boundary Guardrails."""
+
     REQUIRED = "required"  # Strict fail-closed: if guardrail unavailable, AI calls fail closed
-    OBSERVE = "observe"    # Advisory/telemetry: logs violations without breaking fallback pipelines
+    OBSERVE = "observe"  # Advisory/telemetry: logs violations without breaking fallback pipelines
     DISABLED = "disabled"  # Bypassed completely (local offline test harness only)
 
 
 class GuardrailDecision(str, Enum):
     """Authoritative guardrail content-filtering decision."""
+
     ALLOW = "ALLOW"
     BLOCK = "BLOCK"
     SANITIZED = "SANITIZED"
@@ -29,6 +31,7 @@ class GuardrailDecision(str, Enum):
 
 class ModelArmorConfig(BaseModel):
     """Configuration specification for Google Cloud Model Armor integration."""
+
     mode: GuardrailMode = Field(
         default_factory=lambda: GuardrailMode(
             os.getenv("SENTINEL_MODEL_ARMOR_MODE", os.getenv("MODEL_ARMOR_MODE", "observe")).lower()
@@ -36,8 +39,7 @@ class ModelArmorConfig(BaseModel):
     )
     project_id: str = Field(
         default_factory=lambda: os.getenv(
-            "SENTINEL_MODEL_ARMOR_PROJECT",
-            os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent")
+            "SENTINEL_MODEL_ARMOR_PROJECT", os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent")
         )
     )
     location: str = Field(
@@ -45,8 +47,7 @@ class ModelArmorConfig(BaseModel):
     )
     template_id: str = Field(
         default_factory=lambda: os.getenv(
-            "SENTINEL_MODEL_ARMOR_TEMPLATE",
-            "sentinelflow-guardrail-template"
+            "SENTINEL_MODEL_ARMOR_TEMPLATE", "sentinelflow-guardrail-template"
         )
     )
     timeout_seconds: float = Field(

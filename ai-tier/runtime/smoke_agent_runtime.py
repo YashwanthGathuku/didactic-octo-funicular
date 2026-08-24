@@ -134,7 +134,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     specialists = sorted(
         author
         for author in authors
-        if author in {"DiagnosisAgent", "PolicySLAAgent", "MemoryAgent", "RemediationAgent", "VerifierAgent", "ReturnRiskAgent"}
+        if author
+        in {
+            "DiagnosisAgent",
+            "PolicySLAAgent",
+            "MemoryAgent",
+            "RemediationAgent",
+            "VerifierAgent",
+            "ReturnRiskAgent",
+        }
     )
 
     return {

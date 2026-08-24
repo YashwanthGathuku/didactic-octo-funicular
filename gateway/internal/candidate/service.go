@@ -132,7 +132,7 @@ func (s *Service) GenerateCandidate(ctx context.Context, scope repository.Scope,
 		if existingPlanHash != req.PlanHash {
 			return nil, fmt.Errorf("%w: attempt %d already executed with plan hash %s", ErrIdempotencyConflict, req.AttemptNumber, existingPlanHash)
 		}
-		
+
 		return &CandidateResult{
 			DerivationID:          existingDerivID,
 			WorkflowID:            req.WorkflowID,
@@ -455,18 +455,18 @@ func (s *Service) applyDeterministicOperations(
 
 	// Track batches and records
 	type batchData struct {
-		batchNumStr     string
-		batchNumber     int
-		headerIndex     int
-		controlIndex    int
-		serviceClass    string
-		companyID       string
-		originatingDFI  string
-		entryCount      int
-		addendaCount    int
-		totalDebits     int64
-		totalCredits    int64
-		routingHashSum  int64
+		batchNumStr    string
+		batchNumber    int
+		headerIndex    int
+		controlIndex   int
+		serviceClass   string
+		companyID      string
+		originatingDFI string
+		entryCount     int
+		addendaCount   int
+		totalDebits    int64
+		totalCredits   int64
+		routingHashSum int64
 	}
 
 	var batches []*batchData

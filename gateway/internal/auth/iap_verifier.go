@@ -70,9 +70,9 @@ type iapClaims struct {
 // JWK set and validates issuer, audience, signature and expiry.
 type IAPJWTVerifier struct {
 	ExpectedAudience string
-	JWKURL            string
-	HTTPClient        *http.Client
-	CacheTTL          time.Duration
+	JWKURL           string
+	HTTPClient       *http.Client
+	CacheTTL         time.Duration
 
 	mu         sync.RWMutex
 	keys       map[string]*ecdsa.PublicKey

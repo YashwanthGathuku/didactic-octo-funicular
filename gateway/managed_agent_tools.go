@@ -24,10 +24,10 @@ import (
 // decoded. Tenant authority is NOT accepted from this body or from a model
 // header; it is derived from the durable workflow row.
 type managedAgentToolRequest struct {
-	AgentName       string          `json:"agent_name"`
-	ToolName        string          `json:"tool_name"`
-	ToolVersion     string          `json:"tool_version,omitempty"`
-	ToolArgs        json.RawMessage `json:"tool_args"`
+	AgentName      string          `json:"agent_name"`
+	ToolName       string          `json:"tool_name"`
+	ToolVersion    string          `json:"tool_version,omitempty"`
+	ToolArgs       json.RawMessage `json:"tool_args"`
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 }
 
@@ -94,11 +94,11 @@ func (p *managedAgentDataProvider) ListRedactedFindings(ctx context.Context, ten
 			return nil, err
 		}
 		item := map[string]interface{}{
-			"finding_code":       code,
-			"severity":           severity,
-			"message":            description,
-			"tenant_id":          tenantID,
-			"artifact_id":        artifactID,
+			"finding_code":        code,
+			"severity":            severity,
+			"message":             description,
+			"tenant_id":           tenantID,
+			"artifact_id":         artifactID,
 			"data_classification": string(toolgateway.ClassificationRedactedFindings),
 		}
 		if line.Valid {
@@ -193,13 +193,13 @@ func (p *managedAgentDataProvider) GetWorkflow(ctx context.Context, tenantID, wo
 		return nil, err
 	}
 	return map[string]interface{}{
-		"workflow_id":        workflowID,
-		"tenant_id":          tenantID,
-		"state":              state,
-		"row_version":        rowVersion,
-		"attempt_count":      attempts,
+		"workflow_id":         workflowID,
+		"tenant_id":           tenantID,
+		"state":               state,
+		"row_version":         rowVersion,
+		"attempt_count":       attempts,
 		"data_classification": string(toolgateway.ClassificationMetadataOnly),
-		"updated_at":         updated,
+		"updated_at":          updated,
 	}, nil
 }
 
@@ -367,22 +367,22 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 		requestID := telemetryRequestID(req)
 		now := time.Now().UTC()
 		execCtx := &toolgateway.TrustedExecutionContext{
-			RequestID:           requestID,
-			IdempotencyKey:      idem,
-			CorrelationID:       requestID,
-			TenantID:            tenantID,
-			CallerType:          toolgateway.CallerTypeAgent,
-			CallerID:            identity.AgentName,
-			CallerCapabilities:  capabilitiesForManagedAgent(identity),
-			CallerAutonomyLevel: map[auth.AutonomyLevel]int{auth.AutonomyA1: 1, auth.AutonomyA2: 2}[identity.AutonomyLevel],
-			WorkflowID:          workflowID,
-			ArtifactID:          artifactID,
-			ArtifactSHA256:      artifactSHA,
-			ResourceVersion:     rowVersion,
-			AllowedTools:        append([]string(nil), identity.AllowedCapabilities...),
-			ExecutionMode:       "LIVE",
-			Timestamp:           now,
-			WorkflowStartedAt:   startedAt,
+			RequestID:              requestID,
+			IdempotencyKey:         idem,
+			CorrelationID:          requestID,
+			TenantID:               tenantID,
+			CallerType:             toolgateway.CallerTypeAgent,
+			CallerID:               identity.AgentName,
+			CallerCapabilities:     capabilitiesForManagedAgent(identity),
+			CallerAutonomyLevel:    map[auth.AutonomyLevel]int{auth.AutonomyA1: 1, auth.AutonomyA2: 2}[identity.AutonomyLevel],
+			WorkflowID:             workflowID,
+			ArtifactID:             artifactID,
+			ArtifactSHA256:         artifactSHA,
+			ResourceVersion:        rowVersion,
+			AllowedTools:           append([]string(nil), identity.AllowedCapabilities...),
+			ExecutionMode:          "LIVE",
+			Timestamp:              now,
+			WorkflowStartedAt:      startedAt,
 			MaxWorkflowDurationSec: 120,
 		}
 
@@ -409,24 +409,24 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 		resp, execErr := gateway.Execute(req.Context(), execCtx, toolReq, nil)
 		if execErr != nil {
 			writeJSON(w, managedToolErrorStatus(execErr), map[string]interface{}{
-				"error":        "tool_execution_denied",
-				"error_type":   fmt.Sprintf("%T", execErr),
+				"error":       "tool_execution_denied",
+				"error_type":  fmt.Sprintf("%T", execErr),
 				"workflow_id": workflowID,
 			})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"status":       resp.Status,
-			"tool_id":      resp.ToolID,
-			"tool_version": resp.ToolVersion,
-			"invocation_id": resp.InvocationID,
-			"output":       json.RawMessage(resp.Output),
-			"manifest_hash": resp.ManifestHash,
+			"status":               resp.Status,
+			"tool_id":              resp.ToolID,
+			"tool_version":         resp.ToolVersion,
+			"invocation_id":        resp.InvocationID,
+			"output":               json.RawMessage(resp.Output),
+			"manifest_hash":        resp.ManifestHash,
 			"policy_decision_hash": resp.PolicyDecisionHash,
-			"policy_bundle_hash": resp.PolicyBundleHash,
-			"output_hash": resp.OutputHash,
-			"workflow_id": workflowID,
-			"tenant_scope_source": "GO_WORKFLOW_REPOSITORY",
+			"policy_bundle_hash":   resp.PolicyBundleHash,
+			"output_hash":          resp.OutputHash,
+			"workflow_id":          workflowID,
+			"tenant_scope_source":  "GO_WORKFLOW_REPOSITORY",
 		})
 	})
 

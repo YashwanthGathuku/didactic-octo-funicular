@@ -296,13 +296,13 @@ func TestStore_GenericOutboxDecoupledFromAgentWorkflow(t *testing.T) {
 	}
 
 	decAborted := &PolicyDecision{
-		DecisionID:          "pdec-aborted-003",
-		RequestID:           "req-aborted-003",
-		Decision:            DecisionAllow,
-		Action:              "SOME_ACTION",
-		PolicyBundleHash:    "hash-bundle-1",
-		EvaluatedAt:         evalTime,
-		EvaluatorVersion:    EvaluatorVersion,
+		DecisionID:       "pdec-aborted-003",
+		RequestID:        "req-aborted-003",
+		Decision:         DecisionAllow,
+		Action:           "SOME_ACTION",
+		PolicyBundleHash: "hash-bundle-1",
+		EvaluatedAt:      evalTime,
+		EvaluatorVersion: EvaluatorVersion,
 	}
 
 	if err := store.RecordDecisionTx(ctx, tx, "TENANT-A", "", decAborted); err != nil {

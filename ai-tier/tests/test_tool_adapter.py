@@ -1,12 +1,10 @@
 """Unit tests for Tool Gateway Client and Tool Adapter (SGACA P05)."""
 
-import pytest
 from tools.gateway_client import (
     ToolExecutionRecord,
     ToolGatewayClient,
     ToolGatewayContext,
     ToolGatewayError,
-    ToolPolicyDeniedError,
 )
 from tools.tool_adapter import (
     ArtifactMetadataOutput,
@@ -20,11 +18,14 @@ from tools.tool_adapter import (
 
 class MockToolGatewayClient(ToolGatewayClient):
     """Mock client returning deterministic responses for testing."""
+
     def __init__(self):
         # Do not initialize real HTTP connection
         self.invocations = []
 
-    def execute_tool(self, tool_id: str, business_args: dict, context: ToolGatewayContext, **kwargs) -> ToolExecutionRecord:
+    def execute_tool(
+        self, tool_id: str, business_args: dict, context: ToolGatewayContext, **kwargs
+    ) -> ToolExecutionRecord:
         self.invocations.append({"tool_id": tool_id, "args": business_args, "context": context})
 
         if tool_id == "incident.get":

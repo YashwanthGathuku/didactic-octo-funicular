@@ -29,8 +29,8 @@ func TestIAPJWTVerifier_ValidSignedAssertion(t *testing.T) {
 				"alg": "ES256",
 				"use": "sig",
 				"kid": kid,
-				"x": base64.RawURLEncoding.EncodeToString(key.PublicKey.X.Bytes()),
-				"y": base64.RawURLEncoding.EncodeToString(key.PublicKey.Y.Bytes()),
+				"x":   base64.RawURLEncoding.EncodeToString(key.PublicKey.X.Bytes()),
+				"y":   base64.RawURLEncoding.EncodeToString(key.PublicKey.Y.Bytes()),
 			}},
 		})
 	}))

@@ -6,11 +6,12 @@ from pydantic import BaseModel, Field
 
 class PolicySLAOutput(BaseModel):
     """Structured, evidence-grounded interpretation of policy and SLA context.
-    
+
     Formal Invariant: PolicySLAAgentOpinion != PolicyDecision.
     The agent explains and interprets authoritative policy and SLA rules;
     it cannot override deterministic PolicyEngine decisions (ALLOW, DENY, REQUIRE_HUMAN).
     """
+
     schema_version: Literal["1.0"] = "1.0"
     authoritative_policy_decision_refs: List[str] = Field(
         default_factory=list,
@@ -32,9 +33,11 @@ class PolicySLAOutput(BaseModel):
         "ON_TRACK",
         description="Current SLA delivery status based on expectation timetable",
     )
-    cutoff_type: Literal["INSTITUTION_INTERNAL", "PARTNER_CONTRACT", "NETWORK_RULE", "UNKNOWN"] = Field(
-        "INSTITUTION_INTERNAL",
-        description="Provenance of the governing cutoff window (must not conflate internal with network)",
+    cutoff_type: Literal["INSTITUTION_INTERNAL", "PARTNER_CONTRACT", "NETWORK_RULE", "UNKNOWN"] = (
+        Field(
+            "INSTITUTION_INTERNAL",
+            description="Provenance of the governing cutoff window (must not conflate internal with network)",
+        )
     )
     time_remaining_seconds: Optional[int] = Field(
         None,

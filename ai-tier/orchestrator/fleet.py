@@ -9,11 +9,10 @@ event journals, and TOCTOU enforcement are owned strictly by the Go Control Plan
 from __future__ import annotations
 
 import concurrent.futures
-import hashlib
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
@@ -36,9 +35,6 @@ from contracts.orchestration import (
     WorkflowAuditMetadata,
 )
 from contracts.policy_sla import PolicySLAOutput
-from contracts.remediation import RemediationPlan
-from contracts.return_risk import ReturnRiskAssessment
-from contracts.verification import CriticAssessment
 from models.envelope import AgentContextEnvelope, RedactedFindingItem
 from persistence.store import NonAuthoritativeSessionStore
 
@@ -97,20 +93,24 @@ class MultiAgentWorkflowOrchestrator:
         finding_items: List[RedactedFindingItem] = []
         for idx, f in enumerate(req.findings):
             if isinstance(f, dict):
-                finding_items.append(RedactedFindingItem(
-                    id=f.get("id", f"FINDING-{idx+1}"),
-                    code=f.get("code", "0802"),
-                    severity=f.get("severity", "BLOCKING"),
-                    description=f.get("description", "Validation finding"),
-                    line_number=f.get("line_number"),
-                ))
+                finding_items.append(
+                    RedactedFindingItem(
+                        id=f.get("id", f"FINDING-{idx + 1}"),
+                        code=f.get("code", "0802"),
+                        severity=f.get("severity", "BLOCKING"),
+                        description=f.get("description", "Validation finding"),
+                        line_number=f.get("line_number"),
+                    )
+                )
             elif isinstance(f, str):
-                finding_items.append(RedactedFindingItem(
-                    id=f"FINDING-{idx+1}",
-                    code="0802",
-                    severity="BLOCKING",
-                    description=f,
-                ))
+                finding_items.append(
+                    RedactedFindingItem(
+                        id=f"FINDING-{idx + 1}",
+                        code="0802",
+                        severity="BLOCKING",
+                        description=f,
+                    )
+                )
 
         envelope = AgentContextEnvelope(
             tenant_id=tenant_id,
@@ -141,7 +141,7 @@ class MultiAgentWorkflowOrchestrator:
             )
 
         elif req.stage_type == "PARALLEL_SPECIALISTS":
-            diag_handoff = AgentHandoffEnvelope(
+            AgentHandoffEnvelope(
                 workflow_id=workflow_id,
                 tenant_id=tenant_id,
                 source_agent="IncidentCommanderAgent",
@@ -229,19 +229,27 @@ class MultiAgentWorkflowOrchestrator:
             )
 
         elif req.stage_type == "COMMANDER_SYNTHESIS":
-            plan = CommanderPlan.model_validate(req.plan) if req.plan else self.commander.create_plan(envelope)
-            
+            plan = (
+                CommanderPlan.model_validate(req.plan)
+                if req.plan
+                else self.commander.create_plan(envelope)
+            )
+
             diag_specialist = None
             if req.diagnosis_result:
                 try:
-                    diag_specialist = SpecialistResult[DiagnosisOutput].model_validate(req.diagnosis_result)
+                    diag_specialist = SpecialistResult[DiagnosisOutput].model_validate(
+                        req.diagnosis_result
+                    )
                 except Exception:
                     diag_specialist = None
 
             policy_specialist = None
             if req.policy_sla_result:
                 try:
-                    policy_specialist = SpecialistResult[PolicySLAOutput].model_validate(req.policy_sla_result)
+                    policy_specialist = SpecialistResult[PolicySLAOutput].model_validate(
+                        req.policy_sla_result
+                    )
                 except Exception:
                     policy_specialist = None
 
@@ -334,7 +342,6 @@ class MultiAgentWorkflowOrchestrator:
         trace_id = envelope.trace_id
 
         workflow_type = trigger_event.event_type if trigger_event else "ARTIFACT_QUARANTINED"
-        trigger_id = trigger_event.event_id if trigger_event else f"trig-{incident_id}"
 
         # Non-authoritative local session
         wf_record, created = self.store.get_or_create_workflow(
@@ -355,15 +362,22 @@ class MultiAgentWorkflowOrchestrator:
             try:
                 cached_synth_dict = json.loads(wf_record["synthesis_json"])
                 cached_synth = CommanderSynthesis.model_validate(cached_synth_dict)
-                policy_match = (not current_policy_bundle_hash) or (cached_synth.plan.policy_bundle_hash == current_policy_bundle_hash)
-                artifact_match = (not current_artifact_sha256) or (cached_synth.plan.artifact_sha256 == current_artifact_sha256)
-                
+                policy_match = (not current_policy_bundle_hash) or (
+                    cached_synth.plan.policy_bundle_hash == current_policy_bundle_hash
+                )
+                artifact_match = (not current_artifact_sha256) or (
+                    cached_synth.plan.artifact_sha256 == current_artifact_sha256
+                )
+
                 current_verdict = (authoritative_policy_decision or {}).get("decision", "").upper()
                 verdict_match = True
                 if current_verdict:
                     if current_verdict == "DENY" and cached_synth.outcome != "POLICY_BLOCKED":
                         verdict_match = False
-                    elif current_verdict == "ALLOW" and cached_synth.outcome not in ("READY_FOR_REMEDIATION", "COMPLETED"):
+                    elif current_verdict == "ALLOW" and cached_synth.outcome not in (
+                        "READY_FOR_REMEDIATION",
+                        "COMPLETED",
+                    ):
                         verdict_match = False
 
                 if policy_match and artifact_match and verdict_match:
@@ -372,12 +386,14 @@ class MultiAgentWorkflowOrchestrator:
                 pass
 
         self.store.transition_state(workflow_id, tenant_id, "INVESTIGATING")
-        
+
         # Plan
         plan = self.commander.create_plan(envelope, trigger_type=workflow_type)
         plan.policy_bundle_hash = policy_bundle_hash
         plan.artifact_sha256 = artifact_sha256
-        self.store.transition_state(workflow_id, tenant_id, "PLANNING", plan_json=plan.model_dump_json())
+        self.store.transition_state(
+            workflow_id, tenant_id, "PLANNING", plan_json=plan.model_dump_json()
+        )
 
         for specialist_name in plan.selected_specialists:
             validate_agent_roster_membership(specialist_name)
@@ -406,7 +422,9 @@ class MultiAgentWorkflowOrchestrator:
 
         policy_res = None
         if stage_resp.policy_sla_result:
-            policy_res = SpecialistResult[PolicySLAOutput].model_validate(stage_resp.policy_sla_result)
+            policy_res = SpecialistResult[PolicySLAOutput].model_validate(
+                stage_resp.policy_sla_result
+            )
 
         total_latency_ms = (time.time() - start_time) * 1000.0
 

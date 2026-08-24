@@ -7,12 +7,8 @@ Uses actual Google ADK Agent and Runner runtime primitives.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
-import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
@@ -26,8 +22,7 @@ from contracts.orchestration import (
 )
 from contracts.policy_sla import PolicySLAOutput
 from guardrails.boundary import GuardedModelBoundary
-from guardrails.evidence import AuthorizedEvidenceSet, EvidenceGroundingVerifier
-from guardrails.prompt import PromptTrustPartitioner
+from guardrails.evidence import AuthorizedEvidenceSet
 from models.envelope import AgentContextEnvelope
 
 logger = logging.getLogger("sentinel.ai.commander")
@@ -63,7 +58,13 @@ class IncidentCommanderAgent:
         """Generates a bounded, structured delegation plan for the operational incident."""
         has_blocking = any(f.severity == "BLOCKING" for f in envelope.findings)
         is_return_risk = (
-            trigger_type in ("RETURN_RECEIVED", "RETURN_EVENT_OBSERVED", "RETURN_RISK_ANALYSIS", "RETURN_SURGE_DETECTED")
+            trigger_type
+            in (
+                "RETURN_RECEIVED",
+                "RETURN_EVENT_OBSERVED",
+                "RETURN_RISK_ANALYSIS",
+                "RETURN_SURGE_DETECTED",
+            )
             or "return_event_ref" in getattr(envelope, "metadata", {})
             or getattr(envelope, "return_event_ref", None) is not None
         )
@@ -90,7 +91,9 @@ class IncidentCommanderAgent:
                 human_attention_required=False,
                 policy_bundle_hash=envelope.policy_version or "default/1",
                 artifact_sha256=envelope.artifact_sha256,
-                next_stage="READY_FOR_REMEDIATION" if (has_blocking and not is_return_risk) else "HUMAN_AUTHORIZATION_REQUIRED",
+                next_stage="READY_FOR_REMEDIATION"
+                if (has_blocking and not is_return_risk)
+                else "HUMAN_AUTHORIZATION_REQUIRED",
             )
 
         commander_instruction = (
@@ -113,7 +116,9 @@ class IncidentCommanderAgent:
             plan.policy_bundle_hash = envelope.policy_version or "default/1"
             plan.artifact_sha256 = envelope.artifact_sha256
             # Enforce roster membership validation
-            valid_specialists = [s for s in plan.selected_specialists if validate_agent_roster_membership(s)]
+            valid_specialists = [
+                s for s in plan.selected_specialists if validate_agent_roster_membership(s)
+            ]
             if not valid_specialists:
                 valid_specialists = default_specialists
             plan.selected_specialists = valid_specialists
@@ -149,7 +154,7 @@ class IncidentCommanderAgent:
         total_latency_ms: float = 0.0,
     ) -> CommanderSynthesis:
         """Synthesizes structured outputs from parallel specialists into an authoritative outcome.
-        
+
         Section 7 Invariants:
         - PolicyDecision == DENY -> outcome = POLICY_BLOCKED (human click cannot override DENY)
         - PolicyDecision == REQUIRE_HUMAN -> outcome = HUMAN_AUTHORIZATION_REQUIRED
@@ -157,7 +162,9 @@ class IncidentCommanderAgent:
         - Evidence-Union Grounding Invariant: Commander evidence must belong strictly to
           Union(WorkflowAuthorizedEvidence, VerifiedSpecialistEvidence).
         """
-        workflow_id = envelope.workflow_id or f"wf-synth-{envelope.tenant_id}-{envelope.incident_id}"
+        workflow_id = (
+            envelope.workflow_id or f"wf-synth-{envelope.tenant_id}-{envelope.incident_id}"
+        )
 
         # 1. Build Authorized Evidence Union
         evidence_set = AuthorizedEvidenceSet.from_envelope(envelope.model_dump())
@@ -170,7 +177,9 @@ class IncidentCommanderAgent:
 
         # 2. Check Disagreement between PolicySLAAgent and Authoritative Policy Engine
         disagreement_count = 0
-        policy_verdict = (authoritative_policy_decision or {}).get("decision", "REQUIRE_HUMAN").upper()
+        policy_verdict = (
+            (authoritative_policy_decision or {}).get("decision", "REQUIRE_HUMAN").upper()
+        )
 
         if policy_sla_result and policy_sla_result.output:
             if "ALLOW" in policy_sla_result.output.policy_summary and policy_verdict == "DENY":
@@ -181,8 +190,12 @@ class IncidentCommanderAgent:
                 )
 
         # 3. Determine Synthesized Outcome & Summary
-        has_diag_success = bool(diagnosis_result and diagnosis_result.status == "SUCCESS" and diagnosis_result.output)
-        has_policy_success = bool(policy_sla_result and policy_sla_result.status == "SUCCESS" and policy_sla_result.output)
+        has_diag_success = bool(
+            diagnosis_result and diagnosis_result.status == "SUCCESS" and diagnosis_result.output
+        )
+        has_policy_success = bool(
+            policy_sla_result and policy_sla_result.status == "SUCCESS" and policy_sla_result.output
+        )
 
         human_attention = False
 
@@ -200,7 +213,6 @@ class IncidentCommanderAgent:
             )
         else:
             diag_out = diagnosis_result.output  # type: ignore
-            policy_out = policy_sla_result.output  # type: ignore
 
             if policy_verdict == "DENY":
                 outcome = "POLICY_BLOCKED"
@@ -216,7 +228,10 @@ class IncidentCommanderAgent:
                     f"Incident #{envelope.incident_id} requires HUMAN_AUTHORIZATION_REQUIRED under governing policy rules. "
                     "Dual-control human approval is required before proceeding."
                 )
-            elif diag_out.remediation_eligibility and policy_verdict in ("ALLOW", "ALLOW_WITH_OBLIGATIONS"):
+            elif diag_out.remediation_eligibility and policy_verdict in (
+                "ALLOW",
+                "ALLOW_WITH_OBLIGATIONS",
+            ):
                 outcome = "READY_FOR_REMEDIATION"
                 synthesis_summary = (
                     f"Investigation complete for Incident #{envelope.incident_id}. Root cause identified as "
@@ -250,8 +265,10 @@ class IncidentCommanderAgent:
             workflow_id=workflow_id,
             execution_source=exec_source,
             total_latency_ms=total_latency_ms,
-            total_model_calls=(1 if diag_source == "LIVE_GEMINI" else 0) + (1 if policy_source == "LIVE_GEMINI" else 0),
-            total_tool_calls=len(diagnosis_result.tool_invocation_refs if diagnosis_result else []) + len(policy_sla_result.tool_invocation_refs if policy_sla_result else []),
+            total_model_calls=(1 if diag_source == "LIVE_GEMINI" else 0)
+            + (1 if policy_source == "LIVE_GEMINI" else 0),
+            total_tool_calls=len(diagnosis_result.tool_invocation_refs if diagnosis_result else [])
+            + len(policy_sla_result.tool_invocation_refs if policy_sla_result else []),
             agent_policy_disagreement_count=disagreement_count,
             trace_id=envelope.trace_id,
         )

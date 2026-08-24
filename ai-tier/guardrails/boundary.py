@@ -19,20 +19,19 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar, Union
+from typing import Any, Callable, Dict, Generic, List, Optional, Type, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from armor.config import GuardrailDecision, GuardrailMode, ModelArmorConfig
-from armor.provider import ArmorVerdict, GuardrailProvider, GuardrailResult
-from armor.client import GoogleModelArmorProvider, MockModelArmorProvider
+from armor.config import GuardrailDecision, ModelArmorConfig
+from armor.provider import ArmorVerdict, GuardrailProvider
+from armor.client import GoogleModelArmorProvider
 from guardrails.evidence import (
     AuthorizedEvidenceSet,
     EvidenceGroundingVerifier,
-    GroundingVerdict,
     GroundingViolationError,
 )
-from guardrails.prompt import PartitionedPrompt, PromptTrustPartitioner
+from guardrails.prompt import PromptTrustPartitioner
 from models.envelope import AgentContextEnvelope
 
 logger = logging.getLogger("sentinel.guardrails.boundary")
@@ -48,6 +47,7 @@ NACHA_94_RECORD_REGEX = re.compile(r"\b[156789][0-9A-Za-z\s]{93}\b")
 @dataclass
 class BoundaryAuditRecord:
     """Tamper-evident audit trail for model boundary invocation."""
+
     model_name: str
     provider: str
     execution_source: str  # LIVE_GEMINI | DETERMINISTIC_FALLBACK | NOT_RUN
@@ -70,6 +70,7 @@ class BoundaryAuditRecord:
 @dataclass
 class GuardedInvocationResult(Generic[T]):
     """Unified result container returned by GuardedModelBoundary."""
+
     success: bool
     output: Optional[T]
     audit: BoundaryAuditRecord
@@ -113,9 +114,15 @@ class GuardedModelBoundary:
             f_copy = f.model_copy(
                 update={
                     "description": cls.sanitize_financial_content(f.description),
-                    "expected_value": cls.sanitize_financial_content(f.expected_value or "") if f.expected_value else None,
-                    "actual_value": cls.sanitize_financial_content(f.actual_value or "") if f.actual_value else None,
-                    "evidence_redacted": cls.sanitize_financial_content(f.evidence_redacted or "") if f.evidence_redacted else None,
+                    "expected_value": cls.sanitize_financial_content(f.expected_value or "")
+                    if f.expected_value
+                    else None,
+                    "actual_value": cls.sanitize_financial_content(f.actual_value or "")
+                    if f.actual_value
+                    else None,
+                    "evidence_redacted": cls.sanitize_financial_content(f.evidence_redacted or "")
+                    if f.evidence_redacted
+                    else None,
                 }
             )
             sanitized_findings.append(f_copy)
@@ -142,7 +149,9 @@ class GuardedModelBoundary:
         """Executes a fully screened, evidence-grounded model call with fail-closed guarantees."""
         start_time = time.time()
         tenant_id = envelope.tenant_id
-        correlation_id = envelope.correlation_id or envelope.workflow_id or str(envelope.incident_id)
+        correlation_id = (
+            envelope.correlation_id or envelope.workflow_id or str(envelope.incident_id)
+        )
 
         # Raw input hash before minimization
         raw_dump = envelope.model_dump_json()
@@ -152,7 +161,9 @@ class GuardedModelBoundary:
         minimized_env = self.minimize_envelope(envelope)
 
         # 2. Step 2: Initialize Authorized Evidence Set
-        active_evidence_set = evidence_set or AuthorizedEvidenceSet.from_envelope(minimized_env.model_dump())
+        active_evidence_set = evidence_set or AuthorizedEvidenceSet.from_envelope(
+            minimized_env.model_dump()
+        )
 
         # 3. Step 3: 4-Domain Trust Partitioning
         partitioned = PromptTrustPartitioner.compile(minimized_env, tool_outputs=tool_outputs)
@@ -182,7 +193,9 @@ class GuardedModelBoundary:
             )
             logger.warning(
                 "Model Armor screening blocked prompt input for tenant %s (code=%s): %s",
-                tenant_id, error_code, prompt_screening.reason
+                tenant_id,
+                error_code,
+                prompt_screening.reason,
             )
             return GuardedInvocationResult(
                 success=False,
@@ -241,13 +254,17 @@ class GuardedModelBoundary:
 
                 # 6. Step 6: Post-Invocation Model Armor Screening
                 response_screening = self.guardrail.screen_response(
-                    raw_text, user_prompt=user_prompt, tenant_id=tenant_id, correlation_id=correlation_id
+                    raw_text,
+                    user_prompt=user_prompt,
+                    tenant_id=tenant_id,
+                    correlation_id=correlation_id,
                 )
 
                 if response_screening.is_blocked:
                     logger.error(
                         "Model Armor BLOCKED response output for tenant %s: %s",
-                        tenant_id, response_screening.reason
+                        tenant_id,
+                        response_screening.reason,
                     )
                     return GuardedInvocationResult(
                         success=False,
@@ -283,7 +300,9 @@ class GuardedModelBoundary:
                     parsed_json = json.loads(final_text)
                     validated_output = response_schema.model_validate(parsed_json)
                 except Exception as schema_err:
-                    logger.error("Structured schema validation failed on model output: %s", schema_err)
+                    logger.error(
+                        "Structured schema validation failed on model output: %s", schema_err
+                    )
                     return GuardedInvocationResult(
                         success=False,
                         output=None,
@@ -326,7 +345,9 @@ class GuardedModelBoundary:
                 candidates_tokens = 0
                 if hasattr(response, "usage_metadata") and response.usage_metadata:
                     prompt_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
-                    candidates_tokens = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                    candidates_tokens = (
+                        getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                    )
                 total_tokens = prompt_tokens + candidates_tokens
 
                 audit = BoundaryAuditRecord(
@@ -341,7 +362,8 @@ class GuardedModelBoundary:
                     prompt_tokens=prompt_tokens,
                     completion_tokens=candidates_tokens,
                     total_tokens=total_tokens,
-                    estimated_cost_usd=(prompt_tokens * 0.000000075) + (candidates_tokens * 0.0000003),
+                    estimated_cost_usd=(prompt_tokens * 0.000000075)
+                    + (candidates_tokens * 0.0000003),
                     guardrail_mode=self.config.mode.value,
                     guardrail_input_decision=prompt_screening.decision.value,
                     guardrail_output_decision=response_screening.decision.value,
@@ -373,7 +395,10 @@ class GuardedModelBoundary:
                         guardrail_input_decision=prompt_screening.decision.value,
                         guardrail_output_decision="ERROR",
                         grounding_verdict="UNGROUNDED_REJECTED",
-                        error_detail={"code": "GROUNDING_VIOLATION", "unauthorized": e.unauthorized_citations},
+                        error_detail={
+                            "code": "GROUNDING_VIOLATION",
+                            "unauthorized": e.unauthorized_citations,
+                        },
                     ),
                     error_code="GROUNDING_VIOLATION",
                     error_message=str(e),
@@ -430,7 +455,10 @@ class GuardedModelBoundary:
                             guardrail_input_decision=prompt_screening.decision.value,
                             guardrail_output_decision="ERROR",
                             grounding_verdict="UNGROUNDED_REJECTED",
-                            error_detail={"code": "GROUNDING_VIOLATION", "unauthorized": list(grounding_res.unauthorized_citations)},
+                            error_detail={
+                                "code": "GROUNDING_VIOLATION",
+                                "unauthorized": list(grounding_res.unauthorized_citations),
+                            },
                         ),
                         error_code="GROUNDING_VIOLATION",
                         error_message=grounding_res.error_message or "Fallback grounding failed",
@@ -476,7 +504,10 @@ class GuardedModelBoundary:
                 guardrail_mode=self.config.mode.value,
                 guardrail_input_decision=prompt_screening.decision.value,
                 guardrail_output_decision="ERROR",
-                error_detail={"code": "PROVIDER_UNAVAILABLE", "message": "No live provider or fallback available"},
+                error_detail={
+                    "code": "PROVIDER_UNAVAILABLE",
+                    "message": "No live provider or fallback available",
+                },
             ),
             error_code="PROVIDER_UNAVAILABLE",
             error_message="Live Gemini model unavailable and no fallback handler provided",

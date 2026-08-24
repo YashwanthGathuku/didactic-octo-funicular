@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"sentinel-gateway/internal/policy"
 	_ "modernc.org/sqlite"
+	"sentinel-gateway/internal/policy"
 )
 
 func newToolTestDB(t *testing.T) *sql.DB {
@@ -165,7 +165,7 @@ func TestToolGateway_UnregisteredToolDenied(t *testing.T) {
 		IdempotencyKey:      "idem-001",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -191,7 +191,7 @@ func TestToolGateway_UnknownVersionDenied(t *testing.T) {
 		IdempotencyKey:      "idem-002",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -247,10 +247,10 @@ func TestToolGateway_MissingTenantDenied(t *testing.T) {
 	ctx := context.Background()
 
 	execCtx := &TrustedExecutionContext{
-		RequestID:           "req-003",
-		IdempotencyKey:      "idem-003",
-		TenantID:            "", // Missing
-		CallerID:            "agent-01",
+		RequestID:          "req-003",
+		IdempotencyKey:     "idem-003",
+		TenantID:           "", // Missing
+		CallerID:           "agent-01",
 		CallerCapabilities: []ToolCapability{CapIncidentRead},
 	}
 
@@ -276,7 +276,7 @@ func TestToolGateway_UnauthorizedCapabilityDenied(t *testing.T) {
 		IdempotencyKey:      "idem-004",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{}, // Missing CapIncidentRead!
+		CallerCapabilities:  []ToolCapability{}, // Missing CapIncidentRead!
 		CallerAutonomyLevel: 2,
 	}
 
@@ -317,7 +317,7 @@ func TestToolGateway_AutonomyBoundsCheck(t *testing.T) {
 		IdempotencyKey:      "idem-005",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 4, // Autonomy 4 exceeds max 2!
 	}
 
@@ -375,7 +375,7 @@ func TestToolGateway_PolicyDenyBlocksExecution(t *testing.T) {
 		IdempotencyKey:      "idem-006",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -431,7 +431,7 @@ func TestToolGateway_RequireHumanBlocksExecution(t *testing.T) {
 		IdempotencyKey:      "idem-007",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -490,7 +490,7 @@ func TestToolGateway_FakeObligationProofRejected(t *testing.T) {
 		IdempotencyKey:      "idem-008",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -541,7 +541,7 @@ func TestToolGateway_IdempotencyReplayAndConflict(t *testing.T) {
 		IdempotencyKey:      "idem-fixed-009",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -618,7 +618,7 @@ func TestToolGateway_ConcurrentDuplicateRequestsSingleExecution(t *testing.T) {
 				IdempotencyKey:      "shared-concurrent-key",
 				TenantID:            "TENANT-A",
 				CallerID:            "agent-01",
-				CallerCapabilities: []ToolCapability{CapIncidentRead},
+				CallerCapabilities:  []ToolCapability{CapIncidentRead},
 				CallerAutonomyLevel: 2,
 			}
 			req := &ToolRequest{
@@ -679,7 +679,7 @@ func TestToolGateway_TimeoutBounded(t *testing.T) {
 		IdempotencyKey:      "idem-010",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -719,7 +719,7 @@ func TestToolGateway_PanicRecoveryIsolation(t *testing.T) {
 		IdempotencyKey:      "idem-011",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -760,7 +760,7 @@ func TestToolGateway_ShadowModeBlocksSideEffects(t *testing.T) {
 		IdempotencyKey:      "idem-012",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 		ExecutionMode:       "SHADOW", // In SHADOW mode!
 	}
@@ -825,7 +825,7 @@ func TestToolGateway_OutputRedactionValidation(t *testing.T) {
 		IdempotencyKey:      "idem-013",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -852,7 +852,7 @@ func TestToolGateway_DurablePersistenceAndOutboxJournaling(t *testing.T) {
 		IdempotencyKey:      "idem-014",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 		WorkflowID:          "wf-999",
 	}
@@ -925,7 +925,7 @@ func TestToolGateway_DurableRestartIdempotency_ProvesSingleExecution(t *testing.
 		IdempotencyKey:      "idem-restart-key-101",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -1001,7 +1001,7 @@ func TestToolGateway_OutputSecurity_ProhibitsSecretClassification(t *testing.T) 
 		TenantID:            "TENANT-A",
 		CallerType:          CallerTypeAgent,
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 	req := &ToolRequest{
@@ -1042,7 +1042,7 @@ func TestToolGateway_OutputSecurity_ProhibitsUnpermittedPII(t *testing.T) {
 		TenantID:            "TENANT-A",
 		CallerType:          CallerTypeAgent,
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 	req := &ToolRequest{
@@ -1083,7 +1083,7 @@ func TestToolGateway_OutputSecurity_ProhibitsForbiddenSecretKeys(t *testing.T) {
 		TenantID:            "TENANT-A",
 		CallerType:          CallerTypeAgent,
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 	req := &ToolRequest{
@@ -1125,7 +1125,7 @@ func TestToolGateway_OutputSecurity_ProhibitsUnmaskedRoutingNumber(t *testing.T)
 		TenantID:            "TENANT-A",
 		CallerType:          CallerTypeAgent,
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 	req := &ToolRequest{
@@ -1174,7 +1174,7 @@ func TestToolGateway_OutputSecurity_HarmlessNumericStringsPass(t *testing.T) {
 		TenantID:            "TENANT-A",
 		CallerType:          CallerTypeAgent,
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 	req := &ToolRequest{
@@ -1205,7 +1205,7 @@ func TestToolGateway_NonAgentCallerSemantics(t *testing.T) {
 		CallerType:          CallerTypeHuman,
 		CallerID:            "user-ops-analyst-42",
 		CallerRoles:         []string{"OPERATOR", "ANALYST"},
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 0, // Humans do not have agent autonomy levels
 	}
 	req := &ToolRequest{
@@ -1224,11 +1224,11 @@ func TestToolGateway_NonAgentCallerSemantics(t *testing.T) {
 
 	// 2. Service caller lacking capability still fails closed
 	unauthorizedServiceCtx := &TrustedExecutionContext{
-		RequestID:           "req-svc-01",
-		IdempotencyKey:      "idem-svc-01",
-		TenantID:            "TENANT-A",
-		CallerType:          CallerTypeService,
-		CallerID:            "cron-worker-01",
+		RequestID:          "req-svc-01",
+		IdempotencyKey:     "idem-svc-01",
+		TenantID:           "TENANT-A",
+		CallerType:         CallerTypeService,
+		CallerID:           "cron-worker-01",
 		CallerCapabilities: []ToolCapability{}, // Missing CapIncidentRead
 	}
 	_, err = gw.Execute(ctx, unauthorizedServiceCtx, req, nil)
@@ -1236,4 +1236,3 @@ func TestToolGateway_NonAgentCallerSemantics(t *testing.T) {
 		t.Errorf("expected ErrUnauthorizedCapability for service caller lacking capability, got: %v", err)
 	}
 }
-

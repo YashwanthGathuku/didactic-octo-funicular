@@ -13,24 +13,24 @@ import (
 type AgentWorkflowState string
 
 const (
-	WorkflowPending             AgentWorkflowState = "PENDING"
-	WorkflowContextBuilding     AgentWorkflowState = "CONTEXT_BUILDING"
-	WorkflowInvestigating       AgentWorkflowState = "INVESTIGATING"
-	WorkflowPlanning            AgentWorkflowState = "PLANNING"
-	WorkflowRemediating         AgentWorkflowState = "REMEDIATING"
-	WorkflowValidatingCandidate AgentWorkflowState = "VALIDATING_CANDIDATE"
+	WorkflowPending              AgentWorkflowState = "PENDING"
+	WorkflowContextBuilding      AgentWorkflowState = "CONTEXT_BUILDING"
+	WorkflowInvestigating        AgentWorkflowState = "INVESTIGATING"
+	WorkflowPlanning             AgentWorkflowState = "PLANNING"
+	WorkflowRemediating          AgentWorkflowState = "REMEDIATING"
+	WorkflowValidatingCandidate  AgentWorkflowState = "VALIDATING_CANDIDATE"
 	WorkflowAwaitingVerification AgentWorkflowState = "AWAITING_VERIFICATION"
-	WorkflowVerifying           AgentWorkflowState = "VERIFYING"
-	WorkflowRetrying            AgentWorkflowState = "RETRYING"
-	WorkflowVerified            AgentWorkflowState = "VERIFIED"
-	WorkflowUnresolved          AgentWorkflowState = "UNRESOLVED"
-	WorkflowHumanReview         AgentWorkflowState = "HUMAN_REVIEW"
-	WorkflowCompleted           AgentWorkflowState = "COMPLETED"
-	WorkflowAgentUnavailable    AgentWorkflowState = "AGENT_UNAVAILABLE"
-	WorkflowPolicyDenied        AgentWorkflowState = "POLICY_DENIED"
-	WorkflowBudgetExhausted     AgentWorkflowState = "BUDGET_EXHAUSTED"
-	WorkflowCancelled           AgentWorkflowState = "CANCELLED"
-	WorkflowFailed              AgentWorkflowState = "FAILED"
+	WorkflowVerifying            AgentWorkflowState = "VERIFYING"
+	WorkflowRetrying             AgentWorkflowState = "RETRYING"
+	WorkflowVerified             AgentWorkflowState = "VERIFIED"
+	WorkflowUnresolved           AgentWorkflowState = "UNRESOLVED"
+	WorkflowHumanReview          AgentWorkflowState = "HUMAN_REVIEW"
+	WorkflowCompleted            AgentWorkflowState = "COMPLETED"
+	WorkflowAgentUnavailable     AgentWorkflowState = "AGENT_UNAVAILABLE"
+	WorkflowPolicyDenied         AgentWorkflowState = "POLICY_DENIED"
+	WorkflowBudgetExhausted      AgentWorkflowState = "BUDGET_EXHAUSTED"
+	WorkflowCancelled            AgentWorkflowState = "CANCELLED"
+	WorkflowFailed               AgentWorkflowState = "FAILED"
 )
 
 var agentWorkflowTransitions = map[AgentWorkflowState][]AgentWorkflowState{
@@ -181,26 +181,26 @@ func IsTerminalAgentWorkflow(s AgentWorkflowState) bool {
 
 // AgentWorkflow represents a persistent multi-agent orchestration session.
 type AgentWorkflow struct {
-	ID                         string             `json:"id"`
-	TenantID                   string             `json:"tenantId"`
-	IncidentID                 int64              `json:"incidentId"`
-	ArtifactID                 int64              `json:"artifactId"`
-	ArtifactSHA256             string             `json:"artifactSha256"`
-	State                      AgentWorkflowState `json:"state"`
-	AgentName                  string             `json:"agentName"`
-	AgentVersion               string             `json:"agentVersion"`
-	WorkflowType               string             `json:"workflowType"`
-	TriggerEventID             string             `json:"triggerEventId,omitempty"`
-	PolicyBundleHash           string             `json:"policyBundleHash,omitempty"`
-	AuthorizedEvidenceSetHash  string             `json:"authorizedEvidenceSetHash,omitempty"`
-	CorrelationID              string             `json:"correlationId"`
-	TraceID                    string             `json:"traceId,omitempty"`
-	RowVersion                 int                `json:"rowVersion"`
-	ErrorDetail                string             `json:"errorDetail,omitempty"`
-	CreatedAt                  time.Time          `json:"createdAt"`
-	UpdatedAt                  time.Time          `json:"updatedAt"`
-	StartedAt                  *time.Time         `json:"startedAt,omitempty"`
-	CompletedAt                *time.Time         `json:"completedAt,omitempty"`
+	ID                        string             `json:"id"`
+	TenantID                  string             `json:"tenantId"`
+	IncidentID                int64              `json:"incidentId"`
+	ArtifactID                int64              `json:"artifactId"`
+	ArtifactSHA256            string             `json:"artifactSha256"`
+	State                     AgentWorkflowState `json:"state"`
+	AgentName                 string             `json:"agentName"`
+	AgentVersion              string             `json:"agentVersion"`
+	WorkflowType              string             `json:"workflowType"`
+	TriggerEventID            string             `json:"triggerEventId,omitempty"`
+	PolicyBundleHash          string             `json:"policyBundleHash,omitempty"`
+	AuthorizedEvidenceSetHash string             `json:"authorizedEvidenceSetHash,omitempty"`
+	CorrelationID             string             `json:"correlationId"`
+	TraceID                   string             `json:"traceId,omitempty"`
+	RowVersion                int                `json:"rowVersion"`
+	ErrorDetail               string             `json:"errorDetail,omitempty"`
+	CreatedAt                 time.Time          `json:"createdAt"`
+	UpdatedAt                 time.Time          `json:"updatedAt"`
+	StartedAt                 *time.Time         `json:"startedAt,omitempty"`
+	CompletedAt               *time.Time         `json:"completedAt,omitempty"`
 }
 
 // AgentWorkflowEvent records an immutable, idempotent state transition event.
@@ -243,16 +243,16 @@ type AgentRun struct {
 type StepType string
 
 const (
-	StepContextBuild     StepType = "CONTEXT_BUILD"
-	StepModelInvocation  StepType = "MODEL_INVOCATION"
-	StepDecision         StepType = "DECISION"
-	StepToolRequest      StepType = "TOOL_REQUEST"
-	StepToolResult       StepType = "TOOL_RESULT"
-	StepHandoff          StepType = "HANDOFF"
-	StepPolicyCheck      StepType = "POLICY_CHECK"
-	StepValidation       StepType = "VALIDATION"
-	StepVerification     StepType = "VERIFICATION"
-	StepHumanReview      StepType = "HUMAN_REVIEW"
+	StepContextBuild    StepType = "CONTEXT_BUILD"
+	StepModelInvocation StepType = "MODEL_INVOCATION"
+	StepDecision        StepType = "DECISION"
+	StepToolRequest     StepType = "TOOL_REQUEST"
+	StepToolResult      StepType = "TOOL_RESULT"
+	StepHandoff         StepType = "HANDOFF"
+	StepPolicyCheck     StepType = "POLICY_CHECK"
+	StepValidation      StepType = "VALIDATION"
+	StepVerification    StepType = "VERIFICATION"
+	StepHumanReview     StepType = "HUMAN_REVIEW"
 )
 
 // AgentStep records a discrete structured execution step without CoT.

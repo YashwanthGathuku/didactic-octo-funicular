@@ -1,10 +1,8 @@
 """Unit tests for DiagnosisAgent (SGACA P05.5)."""
 
-import os
-import pytest
 from agents.diagnosis import DiagnosisAgent
-from contracts.diagnosis import DiagnosisOutput, DiagnosisRunResponse
-from models.envelope import AgentBudget, AgentContextEnvelope, RedactedFindingItem
+from contracts.diagnosis import DiagnosisRunResponse
+from models.envelope import AgentContextEnvelope, RedactedFindingItem
 
 
 def test_diagnosis_agent_batch_hash_mismatch():
@@ -41,7 +39,10 @@ def test_diagnosis_agent_batch_hash_mismatch():
     assert "FINDING-001" in resp.output.evidence_refs
     assert "RUNBOOK-RB-05" in resp.output.evidence_refs
     assert resp.output.remediation_eligibility is True
-    assert resp.output.statement == "The AI incident analyst operates in a read-only capacity and has made no system state changes."
+    assert (
+        resp.output.statement
+        == "The AI incident analyst operates in a read-only capacity and has made no system state changes."
+    )
     assert resp.audit.execution_source in ["DETERMINISTIC_FALLBACK", "LIVE_GEMINI"]
     assert resp.audit.provider in ["deterministic", "google"]
 
@@ -94,7 +95,10 @@ def test_diagnosis_agent_empty_findings_calibrated_uncertainty():
     assert len(resp.output.hypotheses) > 0
     assert resp.output.hypotheses[0].confidence == "LOW"
     assert len(resp.output.unknowns) > 0
-    assert resp.output.statement == "The AI incident analyst operates in a read-only capacity and has made no system state changes."
+    assert (
+        resp.output.statement
+        == "The AI incident analyst operates in a read-only capacity and has made no system state changes."
+    )
 
 
 def test_diagnosis_agent_mandatory_read_only_invariant():
@@ -120,7 +124,10 @@ def test_diagnosis_agent_mandatory_read_only_invariant():
 
     assert resp.status == "SUCCESS"
     assert resp.output is not None
-    assert resp.output.statement == "The AI incident analyst operates in a read-only capacity and has made no system state changes."
+    assert (
+        resp.output.statement
+        == "The AI incident analyst operates in a read-only capacity and has made no system state changes."
+    )
 
 
 def test_diagnosis_agent_live_mode_without_credentials_fails_fast(monkeypatch):

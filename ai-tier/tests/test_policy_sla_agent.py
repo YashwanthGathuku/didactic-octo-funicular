@@ -1,6 +1,5 @@
 """Unit tests for PolicySLAAgent (SGACA Phase P06)."""
 
-import pytest
 from agents.policy_sla import PolicySLAAgent
 from contracts.policy_sla import PolicySLAOutput
 from models.envelope import AgentContextEnvelope, RedactedFindingItem
@@ -51,7 +50,10 @@ def test_policy_sla_agent_deterministic_baseline():
     assert result.output.cutoff_type == "INSTITUTION_INTERNAL"
     assert result.output.sla_status == "ON_TRACK"
     assert result.output.time_remaining_seconds == 2400
-    assert result.output.statement == "The AI Policy/SLA analyst operates in a read-only capacity and has made no system state changes."
+    assert (
+        result.output.statement
+        == "The AI Policy/SLA analyst operates in a read-only capacity and has made no system state changes."
+    )
     assert result.execution_source in ["DETERMINISTIC_FALLBACK", "LIVE_GEMINI"]
 
 

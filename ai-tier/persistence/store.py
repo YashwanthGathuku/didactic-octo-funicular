@@ -18,12 +18,13 @@ import json
 import logging
 import os
 import sqlite3
-import time
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("sentinel.ai.non_authoritative_session")
 
-DEFAULT_DB_PATH = os.getenv("SENTINEL_SESSION_DB_PATH", os.path.join(os.path.dirname(__file__), "sessions.db"))
+DEFAULT_DB_PATH = os.getenv(
+    "SENTINEL_SESSION_DB_PATH", os.path.join(os.path.dirname(__file__), "sessions.db")
+)
 
 
 class NonAuthoritativeSessionStore:

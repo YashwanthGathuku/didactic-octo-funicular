@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 class DiagnosisHypothesis(BaseModel):
     """Structured root cause hypothesis with explicit evidence grounding."""
+
     hypothesis_id: str = Field(description="Unique hypothesis identifier, e.g. HYP-1")
     description: str = Field(description="Clear explanation of the probable root cause")
     evidence_refs: List[str] = Field(
@@ -31,13 +32,10 @@ class DiagnosisHypothesis(BaseModel):
 
 class DiagnosisOutput(BaseModel):
     """Canonical structured diagnosis output schema emitted by DiagnosisAgent."""
+
     schema_version: Literal["1.0"] = "1.0"
-    classification: str = Field(
-        description="High-level incident failure taxonomy classification"
-    )
-    summary: str = Field(
-        description="Concise summary of observed anomaly and diagnostic reasoning"
-    )
+    classification: str = Field(description="High-level incident failure taxonomy classification")
+    summary: str = Field(description="Concise summary of observed anomaly and diagnostic reasoning")
     hypotheses: List[DiagnosisHypothesis] = Field(
         default_factory=list,
         description="Ranked root cause hypotheses supported by authorized evidence",
@@ -74,8 +72,14 @@ class DiagnosisOutput(BaseModel):
 
 class AuditMetadata(BaseModel):
     """Audit provenance and execution metadata for model invocations."""
-    model: str = Field(..., description="Model identifier, e.g. gemini-3.5-flash or deterministic-baseline")
-    provider: str = Field(..., description="Provider name: 'google' for live model or 'deterministic' for in-tree rules")
+
+    model: str = Field(
+        ..., description="Model identifier, e.g. gemini-3.5-flash or deterministic-baseline"
+    )
+    provider: str = Field(
+        ...,
+        description="Provider name: 'google' for live model or 'deterministic' for in-tree rules",
+    )
     prompt_version: str = "1.0.0"
     schema_version: str = "1.0.0"
     latency_ms: float = 0.0
@@ -83,7 +87,9 @@ class AuditMetadata(BaseModel):
         default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     )
     estimated_cost_usd: float = 0.0
-    execution_source: Literal["LIVE_GEMINI", "DETERMINISTIC_FALLBACK", "NOT_RUN"] = "DETERMINISTIC_FALLBACK"
+    execution_source: Literal["LIVE_GEMINI", "DETERMINISTIC_FALLBACK", "NOT_RUN"] = (
+        "DETERMINISTIC_FALLBACK"
+    )
     adk_version: Optional[str] = None
     genai_version: Optional[str] = None
     request_id: Optional[str] = None
@@ -94,15 +100,24 @@ class AuditMetadata(BaseModel):
 
 class DiagnosisRunRequest(BaseModel):
     """Execution request containing server-injected AgentContextEnvelope."""
+
     envelope: Dict[str, Any] = Field(..., description="Validated AgentContextEnvelope dictionary")
 
 
 class DiagnosisRunResponse(BaseModel):
     """Top-level response returned by AI Tier to Go Gateway bridge."""
+
     workflow_id: str
     incident_id: int
     tenant_id: str
-    status: Literal["SUCCESS", "UNAVAILABLE", "PROVIDER_UNAVAILABLE", "POLICY_DENIED", "GROUNDING_VIOLATION", "FAILED"]
+    status: Literal[
+        "SUCCESS",
+        "UNAVAILABLE",
+        "PROVIDER_UNAVAILABLE",
+        "POLICY_DENIED",
+        "GROUNDING_VIOLATION",
+        "FAILED",
+    ]
     output: Optional[DiagnosisOutput] = None
     audit: AuditMetadata
     error: Optional[Dict[str, Any]] = None

@@ -1,9 +1,8 @@
 """Proof of ADK Tool Gateway Trajectory, Parameter Segregation, and Prohibited Action Denial (P05.5)."""
 
 import pytest
-from contracts.diagnosis import DiagnosisOutput, DiagnosisRunResponse
+from contracts.diagnosis import DiagnosisOutput
 from guardrails.evidence import AuthorizedEvidenceSet, EvidenceGroundingVerifier
-from models.envelope import AgentContextEnvelope, RedactedFindingItem
 from tools.gateway_client import (
     ToolExecutionRecord,
     ToolGatewayClient,
@@ -20,31 +19,44 @@ from tools.tool_adapter import (
 
 class TrajectoryTrackingToolGateway(ToolGatewayClient):
     """Tracking Tool Gateway client that records full invocation provenance."""
+
     def __init__(self):
         self.invocation_records = []
         self.policy_evaluations = []
 
-    def execute_tool(self, tool_id: str, business_args: dict, context: ToolGatewayContext, **kwargs) -> ToolExecutionRecord:
+    def execute_tool(
+        self, tool_id: str, business_args: dict, context: ToolGatewayContext, **kwargs
+    ) -> ToolExecutionRecord:
         # Record whether model attempted to supply security context
         model_supplied_tenant = "tenant_id" in business_args
         model_supplied_caller = "caller_id" in business_args
         model_supplied_autonomy = "caller_autonomy_level" in business_args
 
         # Policy evaluation simulation
-        is_allowed = tool_id in ["incident.get", "validation.findings.list_redacted", "artifact.metadata.get", "workflow.get"]
+        is_allowed = tool_id in [
+            "incident.get",
+            "validation.findings.list_redacted",
+            "artifact.metadata.get",
+            "workflow.get",
+        ]
         decision = "ALLOW" if is_allowed else "DENY"
-        self.policy_evaluations.append({
-            "tool_id": tool_id,
-            "decision": decision,
-            "tenant_id": context.tenant_id,
-            "caller_id": context.caller_id,
-            "caller_autonomy_level": context.caller_autonomy_level,
-        })
+        self.policy_evaluations.append(
+            {
+                "tool_id": tool_id,
+                "decision": decision,
+                "tenant_id": context.tenant_id,
+                "caller_id": context.caller_id,
+                "caller_autonomy_level": context.caller_autonomy_level,
+            }
+        )
 
         if not is_allowed:
             raise ToolPolicyDeniedError(
                 f"Policy denied execution of prohibited tool '{tool_id}' for caller '{context.caller_id}'",
-                details={"policy_decision": "DENY", "reason": "PROHIBITED_ACTION_ZERO_RELEASE_AUTHORITY"},
+                details={
+                    "policy_decision": "DENY",
+                    "reason": "PROHIBITED_ACTION_ZERO_RELEASE_AUTHORITY",
+                },
             )
 
         if tool_id == "incident.get":
@@ -88,14 +100,16 @@ class TrajectoryTrackingToolGateway(ToolGatewayClient):
                 output={"status": "OK", "data_classification": "METADATA_ONLY"},
             )
 
-        self.invocation_records.append({
-            "record": rec,
-            "model_supplied_tenant": model_supplied_tenant,
-            "model_supplied_caller": model_supplied_caller,
-            "model_supplied_autonomy": model_supplied_autonomy,
-            "server_injected_tenant": context.tenant_id,
-            "server_injected_caller": context.caller_id,
-        })
+        self.invocation_records.append(
+            {
+                "record": rec,
+                "model_supplied_tenant": model_supplied_tenant,
+                "model_supplied_caller": model_supplied_caller,
+                "model_supplied_autonomy": model_supplied_autonomy,
+                "server_injected_tenant": context.tenant_id,
+                "server_injected_caller": context.caller_id,
+            }
+        )
         return rec
 
 
@@ -125,7 +139,9 @@ def test_live_adk_tool_gateway_trajectory_and_parameter_segregation():
 
     # Expand evidence set monotonically
     evidence_set.expand_from_tool_result("incident.get", {"incident_id": "INC-P05-LIVE-001"})
-    assert evidence_set.contains("INC-P05-LIVE-001") or evidence_set.contains("INCIDENT-INC-P05-LIVE-001")
+    assert evidence_set.contains("INC-P05-LIVE-001") or evidence_set.contains(
+        "INCIDENT-INC-P05-LIVE-001"
+    )
 
     # 3. Execute ADK tool request for redacted findings
     findings = adapter.list_redacted_findings("501")
@@ -135,7 +151,9 @@ def test_live_adk_tool_gateway_trajectory_and_parameter_segregation():
     assert findings[0].rule_citation == "RULE-ACH-0802"
     assert findings[0].data_classification == "REDACTED_FINDINGS"
 
-    evidence_set.expand_from_tool_result("validation.findings.list_redacted", findings[0].model_dump())
+    evidence_set.expand_from_tool_result(
+        "validation.findings.list_redacted", findings[0].model_dump()
+    )
     assert evidence_set.contains("RULE-ACH-0802")
     assert evidence_set.contains("0802")
 

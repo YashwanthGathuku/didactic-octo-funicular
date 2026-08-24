@@ -1,7 +1,6 @@
 """Unit Tests for SentinelFlow P10.5 Memory Context Filtering."""
 
 from datetime import datetime, timezone, timedelta
-import pytest
 
 from contracts.memory import (
     AdvisoryMemoryContext,

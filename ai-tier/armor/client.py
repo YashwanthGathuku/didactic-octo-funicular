@@ -9,12 +9,11 @@ Provides:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import requests
 
@@ -187,14 +186,12 @@ class GoogleModelArmorProvider(GuardrailProvider):
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
-        body = {
-            "userPromptData": {
-                "text": prompt
-            }
-        }
+        body = {"userPromptData": {"text": prompt}}
 
         try:
-            resp = requests.post(url, headers=headers, json=body, timeout=self.config.timeout_seconds)
+            resp = requests.post(
+                url, headers=headers, json=body, timeout=self.config.timeout_seconds
+            )
             latency_ms = (time.time() - start_time) * 1000.0
 
             if resp.status_code == 200:
@@ -211,7 +208,9 @@ class GoogleModelArmorProvider(GuardrailProvider):
                     for f_name in filter_results.keys():
                         violations.append(f"VIOLATION_{f_name.upper()}")
 
-                    logger.warning("Model Armor MATCH_FOUND on prompt for tenant %s: %s", tenant_id, violations)
+                    logger.warning(
+                        "Model Armor MATCH_FOUND on prompt for tenant %s: %s", tenant_id, violations
+                    )
                     return GuardrailResult(
                         decision=GuardrailDecision.BLOCK,
                         verdict=ArmorVerdict.BLOCKED,
@@ -355,10 +354,16 @@ class GoogleModelArmorProvider(GuardrailProvider):
             if re.search(pattern, response):
                 latency_ms = (time.time() - start_time) * 1000.0
                 msg = f"Unredacted sensitive PII ({pii_name}) detected in output"
-                logger.warning("Model Armor FLAGGED model response for tenant %s: %s", tenant_id, msg)
+                logger.warning(
+                    "Model Armor FLAGGED model response for tenant %s: %s", tenant_id, msg
+                )
                 return GuardrailResult(
-                    decision=GuardrailDecision.BLOCK if pii_name in ("US_SSN", "CREDIT_CARD_NUMBER") else GuardrailDecision.ALLOW,
-                    verdict=ArmorVerdict.BLOCKED if pii_name in ("US_SSN", "CREDIT_CARD_NUMBER") else ArmorVerdict.FLAGGED,
+                    decision=GuardrailDecision.BLOCK
+                    if pii_name in ("US_SSN", "CREDIT_CARD_NUMBER")
+                    else GuardrailDecision.ALLOW,
+                    verdict=ArmorVerdict.BLOCKED
+                    if pii_name in ("US_SSN", "CREDIT_CARD_NUMBER")
+                    else ArmorVerdict.FLAGGED,
                     reason=msg,
                     pii_detected=True,
                     violations=[f"PII_LEAKAGE_{pii_name}"],
@@ -526,7 +531,6 @@ class ModelArmorClient:
     def screen_input(self, prompt: str, tenant_id: str) -> Any:
         res = self._provider.screen_prompt(prompt, tenant_id)
         # Adapt to legacy ScreeningResult format
-        from armor.provider import ArmorVerdict
         from pydantic import BaseModel
 
         class LegacyResult(BaseModel):
@@ -548,7 +552,6 @@ class ModelArmorClient:
 
     def screen_output(self, response: str, tenant_id: str) -> Any:
         res = self._provider.screen_response(response, "", tenant_id)
-        from armor.provider import ArmorVerdict
         from pydantic import BaseModel
 
         class LegacyResult(BaseModel):

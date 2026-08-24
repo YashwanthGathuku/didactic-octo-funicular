@@ -150,7 +150,9 @@ class ReturnRiskAgent:
 
         historical_patterns: List[str] = []
         if env.historical_summary:
-            historical_patterns.append(self.boundary.sanitize_financial_content(env.historical_summary))
+            historical_patterns.append(
+                self.boundary.sanitize_financial_content(env.historical_summary)
+            )
 
         code = env.return_code.upper()
         recommendations: List[str] = []
@@ -172,7 +174,9 @@ class ReturnRiskAgent:
                 "Review and correct account information before considering a subsequent entry."
             )
         elif code == "R08":
-            recommendations.append("Review the stop-payment context before any subsequent processing decision.")
+            recommendations.append(
+                "Review the stop-payment context before any subsequent processing decision."
+            )
         elif code == "R16":
             recommendations.append(
                 "Route for compliance review; no percentage threshold or sanctions/legal determination is produced by this agent."
@@ -194,9 +198,13 @@ class ReturnRiskAgent:
             )
 
         if not env.partner_ref:
-            uncertainties.append("Partner profile reference is not linked to the return event context.")
+            uncertainties.append(
+                "Partner profile reference is not linked to the return event context."
+            )
         if not env.historical_summary:
-            uncertainties.append("No historical return-pattern context is available for this assessment.")
+            uncertainties.append(
+                "No historical return-pattern context is available for this assessment."
+            )
 
         canonical_input = {
             "tenant_scope": env.tenant_scope,
@@ -314,7 +322,9 @@ class ReturnRiskAgent:
 
         fallback_fn = None
         if ai_mode == "auto":
-            fallback_fn = lambda _boundary_env, _auth_set: self._deterministic_fallback(env)
+
+            def fallback_fn(_boundary_env, _auth_set):
+                return self._deterministic_fallback(env)
 
         result = self.boundary.invoke(
             envelope=boundary_envelope,
@@ -337,7 +347,9 @@ class ReturnRiskAgent:
             output.execution_source = "LOCAL_ADK_DETERMINISTIC"
             output.input_context_hash = result.audit.post_guardrail_input_hash
             output.output_hash = ""
-            output.output_hash = hashlib.sha256(output.model_dump_json().encode("utf-8")).hexdigest()
+            output.output_hash = hashlib.sha256(
+                output.model_dump_json().encode("utf-8")
+            ).hexdigest()
             return output
 
         if result.audit.execution_source != "LIVE_GEMINI":

@@ -1,22 +1,25 @@
 """Fixed Agent Roster and Canonical Manifests for SentinelFlow Phase P10."""
 
 import hashlib
-import json
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal
 from pydantic import BaseModel, Field
 
 
 class AgentManifest(BaseModel):
     """Immutable, versioned capability declaration for an agent in the fixed roster."""
+
     name: str = Field(..., description="Canonical agent name")
     version: str = Field(..., description="Semantic version string")
     autonomy_level: Literal["A1", "A2", "A3", "A4", "A5"] = Field(
-        "A1", description="Autonomy tier (All agents are A1-A2: Investigate, Plan, or Generate Candidate)"
+        "A1",
+        description="Autonomy tier (All agents are A1-A2: Investigate, Plan, or Generate Candidate)",
     )
     provider: str = Field("google", description="Model provider ('google' or 'deterministic')")
     model: str = Field("gemini-3.5-flash", description="Configured target model")
     triggers: List[str] = Field(default_factory=list, description="Supported trigger event types")
-    allowed_tools: List[str] = Field(default_factory=list, description="Allowlist of tool identifiers")
+    allowed_tools: List[str] = Field(
+        default_factory=list, description="Allowlist of tool identifiers"
+    )
     denied_capabilities: List[str] = Field(
         default_factory=lambda: [
             "artifact.release",
@@ -32,14 +35,20 @@ class AgentManifest(BaseModel):
     max_tool_calls: int = Field(10, le=10, description="Maximum tool invocations per turn")
     timeout_seconds: float = Field(15.0, le=30.0, description="Execution timeout ceiling")
     memory_read: bool = Field(False, description="Read access to persistent memory")
-    memory_write: bool = Field(False, description="Write access to persistent memory (False across all agents)")
+    memory_write: bool = Field(
+        False, description="Write access to persistent memory (False across all agents)"
+    )
     output_schema_name: str = Field(..., description="Name of the canonical Pydantic output schema")
     data_classifications: List[str] = Field(
         default_factory=lambda: ["METADATA_ONLY", "REDACTED_FINDINGS"],
         description="Allowed data classifications in output",
     )
-    guardrail_required: bool = Field(True, description="Whether Model Armor guardrail screening is required")
-    guardrail_provider: str = Field("google_model_armor", description="Configured guardrail provider")
+    guardrail_required: bool = Field(
+        True, description="Whether Model Armor guardrail screening is required"
+    )
+    guardrail_provider: str = Field(
+        "google_model_armor", description="Configured guardrail provider"
+    )
     guardrail_template_ref: str = Field(
         "projects/telos-agent/locations/us-central1/templates/sentinelflow-guardrail-template",
         description="Model Armor template resource path",

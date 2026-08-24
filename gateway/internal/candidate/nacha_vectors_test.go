@@ -96,14 +96,14 @@ func TestVector_LargeEntryHash_10DigitTruncation(t *testing.T) {
 	// routing sum > 10,000,000,000
 	h := "101 121000358 0210000212603011200A094101" + pad("DEST", 23) + pad("ORIG", 23) + pad("", 8)
 	bh := "5200" + pad("ORIG", 16) + pad("", 20) + pad("1234567890", 10) + "PPD" + pad("PAY", 10) + "260301260302   1021000020000001"
-	
+
 	// Create 15 entries with routing 99999999
 	var entries []string
 	for i := 0; i < 15; i++ {
 		e := "622999999999" + pad("1", 17) + padInt(10, 10) + pad("ID", 15) + pad("N", 22) + "  0021000020000001"
 		entries = append(entries, e)
 	}
-	
+
 	bc := "8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 	fc := "9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 
@@ -141,7 +141,7 @@ func TestVector_AddendaCounts(t *testing.T) {
 	e2 := "622011000015" + pad("2", 17) + padInt(200, 10) + pad("ID", 15) + pad("N2", 22) + "  0021000020000002"
 	a3 := "705" + pad("ADDENDA3", 80) + "00010000002"
 	bc := "8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-	
+
 	nacha := strings.Join([]string{h, bh, e1, a1, a2, e2, a3, bc}, "\n") + "\n"
 	ops := []RemediationOperation{
 		{OperationType: OpRecomputeBatchControlTotal, TargetRef: "BATCH-1"},
@@ -161,7 +161,7 @@ func TestVector_DebitOnlyBatch(t *testing.T) {
 	e1 := "627121000358" + pad("1", 17) + padInt(100, 10) + pad("ID", 15) + pad("N1", 22) + "  0021000020000001"
 	e2 := "627121000358" + pad("1", 17) + padInt(200, 10) + pad("ID", 15) + pad("N1", 22) + "  0021000020000001"
 	bc := "8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-	
+
 	nacha := strings.Join([]string{h, bh, e1, e2, bc}, "\n") + "\n"
 	ops := []RemediationOperation{
 		{OperationType: OpRecomputeBatchControlTotal, TargetRef: "BATCH-1"},
@@ -183,7 +183,7 @@ func TestVector_CreditOnlyBatch(t *testing.T) {
 	e1 := "622121000358" + pad("1", 17) + padInt(150, 10) + pad("ID", 15) + pad("N1", 22) + "  0021000020000001"
 	e2 := "622121000358" + pad("1", 17) + padInt(250, 10) + pad("ID", 15) + pad("N1", 22) + "  0021000020000001"
 	bc := "8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-	
+
 	nacha := strings.Join([]string{h, bh, e1, e2, bc}, "\n") + "\n"
 	ops := []RemediationOperation{
 		{OperationType: OpRecomputeBatchControlTotal, TargetRef: "BATCH-1"},
@@ -205,7 +205,7 @@ func TestVector_MixedBatch(t *testing.T) {
 	e1 := "622121000358" + pad("1", 17) + padInt(150, 10) + pad("ID", 15) + pad("N1", 22) + "  0021000020000001"
 	e2 := "627121000358" + pad("1", 17) + padInt(250, 10) + pad("ID", 15) + pad("N1", 22) + "  0021000020000001"
 	bc := "8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-	
+
 	nacha := strings.Join([]string{h, bh, e1, e2, bc}, "\n") + "\n"
 	ops := []RemediationOperation{
 		{OperationType: OpRecomputeBatchControlTotal, TargetRef: "BATCH-1"},
@@ -240,7 +240,7 @@ func TestVector_FilePaddingAndBlockCount(t *testing.T) {
 	if fileControl[7:13] != "000001" {
 		t.Errorf("Expected block count 1, got %s", fileControl[7:13])
 	}
-	
+
 	// Add 5 padding lines to make it 11 -> block count = 2
 	all := []string{h, bh, e1, e2, bc, fc}
 	for i := 0; i < 5; i++ {

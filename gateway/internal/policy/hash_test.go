@@ -11,14 +11,14 @@ import (
 // and MUST sort BEFORE high BMP characters like \uffff (FFFF).
 func TestCanonicalJSON_RFC8785_OfficialPropertySorting(t *testing.T) {
 	input := map[string]interface{}{
-		"\uffff":         "high_bmp",
-		"\U0001f600":     "astral_plane_emoji", // U+1F600 -> UTF-16: 0xD83D, 0xDE00
-		"\u20ac":         "euro_sign",          // U+20AC -> UTF-16: 0x20AC
-		"\r":             "carriage_return",    // U+000D -> UTF-16: 0x000D
-		"\n":             "newline",            // U+000A -> UTF-16: 0x000A
-		"1":              "digit_one",          // U+0031 -> UTF-16: 0x0031
-		"\u00e9":         "e_acute",            // U+00E9 -> UTF-16: 0x00E9
-		"a":              "letter_a",           // U+0061 -> UTF-16: 0x0061
+		"\uffff":     "high_bmp",
+		"\U0001f600": "astral_plane_emoji", // U+1F600 -> UTF-16: 0xD83D, 0xDE00
+		"\u20ac":     "euro_sign",          // U+20AC -> UTF-16: 0x20AC
+		"\r":         "carriage_return",    // U+000D -> UTF-16: 0x000D
+		"\n":         "newline",            // U+000A -> UTF-16: 0x000A
+		"1":          "digit_one",          // U+0031 -> UTF-16: 0x0031
+		"\u00e9":     "e_acute",            // U+00E9 -> UTF-16: 0x00E9
+		"a":          "letter_a",           // U+0061 -> UTF-16: 0x0061
 	}
 
 	b, err := CanonicalJSON(input)
@@ -231,4 +231,3 @@ func TestCanonicalJSON_RFC8785_NumericGoldenVectors(t *testing.T) {
 		})
 	}
 }
-

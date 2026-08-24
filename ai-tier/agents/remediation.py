@@ -11,9 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
-import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
@@ -27,14 +25,8 @@ from contracts.remediation import (
 from guardrails.boundary import GuardedModelBoundary
 from guardrails.evidence import (
     AuthorizedEvidenceSet,
-    EvidenceGroundingVerifier,
-    GroundingVerdict,
-    GroundingViolationError,
 )
-from guardrails.prompt import PromptTrustPartitioner
 from models.envelope import AgentContextEnvelope
-from tools.gateway_client import ToolGatewayClient, ToolGatewayContext
-from tools.tool_adapter import SentinelToolAdapter
 
 logger = logging.getLogger("sentinel.ai.remediation")
 
@@ -124,7 +116,9 @@ class RemediationAgent:
         evidence_set = AuthorizedEvidenceSet(initial_refs=set(evidence_refs))
 
         # Define deterministic fallback callback
-        def _fallback(env: AgentContextEnvelope, auth_set: AuthorizedEvidenceSet) -> RemediationPlan:
+        def _fallback(
+            env: AgentContextEnvelope, auth_set: AuthorizedEvidenceSet
+        ) -> RemediationPlan:
             return self._deterministic_fallback(
                 tenant_id=tenant_id,
                 workflow_id=workflow_id,
@@ -167,7 +161,14 @@ class RemediationAgent:
 
         # Return fallback on failure
         return self._deterministic_fallback(
-            tenant_id, workflow_id, incident_id, artifact_id, artifact_sha, attempt_number, findings, evidence_refs
+            tenant_id,
+            workflow_id,
+            incident_id,
+            artifact_id,
+            artifact_sha,
+            attempt_number,
+            findings,
+            evidence_refs,
         )
 
     def _deterministic_fallback(

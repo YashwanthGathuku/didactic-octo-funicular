@@ -8,7 +8,7 @@ Invariants:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 from contracts.diagnosis import DiagnosisOutput
@@ -22,8 +22,11 @@ class GroundingVerdict(str, Enum):
 
 class GroundingViolationError(Exception):
     """Raised when an AI diagnosis cites unauthorized or fabricated evidence references."""
+
     def __init__(self, message: str, unauthorized_citations: List[str]):
-        super().__init__(f"[GROUNDING_VIOLATION] {message} (unauthorized: {unauthorized_citations})")
+        super().__init__(
+            f"[GROUNDING_VIOLATION] {message} (unauthorized: {unauthorized_citations})"
+        )
         self.unauthorized_citations = unauthorized_citations
 
 
@@ -259,7 +262,9 @@ class EvidenceGroundingVerifier:
         # Non-strict / Pruning mode: filter out unauthorized citations and demote confidence
         updates: Dict[str, Any] = {}
         if hasattr(output, "evidence_refs"):
-            updates["evidence_refs"] = [r for r in output.evidence_refs if str(r).strip() in auth_set]
+            updates["evidence_refs"] = [
+                r for r in output.evidence_refs if str(r).strip() in auth_set
+            ]
 
         if hasattr(output, "hypotheses") and output.hypotheses:
             pruned_hypotheses = []
@@ -268,7 +273,9 @@ class EvidenceGroundingVerifier:
                 conf = hyp.confidence
                 if len(valid_refs) < len(hyp.evidence_refs):
                     conf = "LOW"
-                pruned_hyp = hyp.model_copy(update={"evidence_refs": valid_refs, "confidence": conf})
+                pruned_hyp = hyp.model_copy(
+                    update={"evidence_refs": valid_refs, "confidence": conf}
+                )
                 pruned_hypotheses.append(pruned_hyp)
             updates["hypotheses"] = pruned_hypotheses
 
@@ -312,7 +319,9 @@ class EvidenceGroundingVerifier:
             )
 
         return GroundingVerificationResult(
-            verdict=GroundingVerdict.UNGROUNDED_REJECTED if strict else GroundingVerdict.PARTIALLY_GROUNDED,
+            verdict=GroundingVerdict.UNGROUNDED_REJECTED
+            if strict
+            else GroundingVerdict.PARTIALLY_GROUNDED,
             is_valid=not strict,
             claimed_citations=claimed,
             authorized_set=auth_set,

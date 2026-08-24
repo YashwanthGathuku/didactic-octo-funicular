@@ -12,6 +12,7 @@ T = TypeVar("T")
 
 class AgentTriggerEvent(BaseModel):
     """Normalized trigger event initiating an autonomous investigation workflow."""
+
     event_id: str = Field(..., min_length=1, description="Unique event identifier")
     event_type: Literal[
         "ARTIFACT_QUARANTINED",
@@ -21,30 +22,39 @@ class AgentTriggerEvent(BaseModel):
         "RETURN_RECEIVED",
         "RETURN_RATE_THRESHOLD_APPROACHING",
     ] = Field(..., description="Normalized trigger classification")
-    tenant_id: str = Field(..., min_length=1, description="Authenticated tenant ID (infrastructure-controlled)")
+    tenant_id: str = Field(
+        ..., min_length=1, description="Authenticated tenant ID (infrastructure-controlled)"
+    )
     subject_refs: List[str] = Field(default_factory=list, description="Referenced entity IDs")
     artifact_ref: Optional[str] = None
     incident_ref: Optional[str] = None
     occurred_at: str = Field(..., description="ISO 8601 timestamp")
     correlation_id: str = Field(..., min_length=1, description="Distributed correlation ID")
-    event_hash: str = Field(..., min_length=64, max_length=64, description="SHA-256 digest of event payload")
+    event_hash: str = Field(
+        ..., min_length=64, max_length=64, description="SHA-256 digest of event payload"
+    )
 
 
 class AgentHandoffEnvelope(BaseModel):
     """Structured handoff envelope passed between Commander and Specialist agents.
-    
+
     Messages are structured DATA, not executable prompt instructions.
     Tenant identity is strictly infrastructure-injected.
     """
+
     schema_version: Literal["1.0"] = "1.0"
     workflow_id: str = Field(..., min_length=1)
     tenant_id: str = Field(..., min_length=1)
-    source_agent: str = Field(..., description="Name of delegating agent (e.g. IncidentCommanderAgent)")
+    source_agent: str = Field(
+        ..., description="Name of delegating agent (e.g. IncidentCommanderAgent)"
+    )
     target_agent: str = Field(..., description="Name of delegated specialist (e.g. DiagnosisAgent)")
     trigger_event_id: str = Field(default="")
     incident_id: int = Field(..., gt=0)
     artifact_id: int = Field(0, ge=0)
-    artifact_sha256: str = Field(default="0000000000000000000000000000000000000000000000000000000000000000")
+    artifact_sha256: str = Field(
+        default="0000000000000000000000000000000000000000000000000000000000000000"
+    )
     policy_bundle_hash: str = Field(default="")
     authorized_evidence_refs: List[str] = Field(default_factory=list)
     allowed_tools: List[str] = Field(default_factory=list)
@@ -59,12 +69,15 @@ class AgentHandoffEnvelope(BaseModel):
         if self.delegation_depth > 2:
             raise ValueError(f"Delegation depth {self.delegation_depth} exceeds maximum limit of 2")
         if self.source_agent == self.target_agent:
-            raise ValueError(f"Recursive self-delegation detected: {self.source_agent} -> {self.target_agent}")
+            raise ValueError(
+                f"Recursive self-delegation detected: {self.source_agent} -> {self.target_agent}"
+            )
         return self
 
 
 class CommanderPlan(BaseModel):
     """Structured investigation and delegation plan produced by IncidentCommanderAgent."""
+
     schema_version: Literal["1.0"] = "1.0"
     workflow_class: Literal[
         "QUARANTINE_INVESTIGATION",
@@ -79,10 +92,18 @@ class CommanderPlan(BaseModel):
     reason_codes: List[str] = Field(default_factory=list)
     evidence_requirements: List[str] = Field(default_factory=list)
     parallelizable: bool = Field(True, description="Whether specialists may run in parallel")
-    remediation_eligible: bool = Field(False, description="Initial assessment of remediation feasibility")
-    human_attention_required: bool = Field(False, description="Whether immediate human escalation is necessary")
-    policy_bundle_hash: str = Field(default="", description="Binding hash of governing policy bundle when plan was formed")
-    artifact_sha256: str = Field(default="", description="Binding hash of quarantined artifact when plan was formed")
+    remediation_eligible: bool = Field(
+        False, description="Initial assessment of remediation feasibility"
+    )
+    human_attention_required: bool = Field(
+        False, description="Whether immediate human escalation is necessary"
+    )
+    policy_bundle_hash: str = Field(
+        default="", description="Binding hash of governing policy bundle when plan was formed"
+    )
+    artifact_sha256: str = Field(
+        default="", description="Binding hash of quarantined artifact when plan was formed"
+    )
     next_stage: Literal[
         "READY_FOR_REMEDIATION",
         "HUMAN_AUTHORIZATION_REQUIRED",
@@ -104,15 +125,22 @@ class CommanderPlan(BaseModel):
 
 class SpecialistResult(BaseModel, Generic[T]):
     """Generic wrapper capturing execution provenance, timing, output, and protected binding hashes."""
+
     agent_name: str
     agent_version: str = "1.0.0"
     manifest_hash: str = Field(default="", description="SHA-256 of canonical AgentManifest")
-    input_context_hash: str = Field(default="", description="SHA-256 of serialized input prompt/context")
+    input_context_hash: str = Field(
+        default="", description="SHA-256 of serialized input prompt/context"
+    )
     artifact_sha256: str = Field(default="", description="SHA-256 of target artifact")
     policy_bundle_hash: str = Field(default="", description="SHA-256 of governing policy bundle")
-    authorized_evidence_set_hash: str = Field(default="", description="SHA-256 of authorized evidence set")
+    authorized_evidence_set_hash: str = Field(
+        default="", description="SHA-256 of authorized evidence set"
+    )
     tool_manifest_hash: str = Field(default="", description="SHA-256 of allowed tools schema")
-    execution_source: Literal["LIVE_GEMINI", "DETERMINISTIC_FALLBACK", "NOT_RUN"] = "DETERMINISTIC_FALLBACK"
+    execution_source: Literal["LIVE_GEMINI", "DETERMINISTIC_FALLBACK", "NOT_RUN"] = (
+        "DETERMINISTIC_FALLBACK"
+    )
     status: Literal["SUCCESS", "FAILED", "TIMEOUT", "POLICY_DENIED", "GROUNDING_VIOLATION", "STALE"]
     output: Optional[T] = None
     evidence_refs: List[str] = Field(default_factory=list)
@@ -126,8 +154,11 @@ class SpecialistResult(BaseModel, Generic[T]):
 
 class WorkflowAuditMetadata(BaseModel):
     """Aggregate workflow-level execution audit and billing telemetry."""
+
     workflow_id: str
-    execution_source: Literal["LIVE_GEMINI", "DETERMINISTIC_FALLBACK", "MIXED_NOT_LIVE", "NOT_RUN"] = "DETERMINISTIC_FALLBACK"
+    execution_source: Literal[
+        "LIVE_GEMINI", "DETERMINISTIC_FALLBACK", "MIXED_NOT_LIVE", "NOT_RUN"
+    ] = "DETERMINISTIC_FALLBACK"
     total_latency_ms: float = 0.0
     total_model_calls: int = 0
     total_tool_calls: int = 0
@@ -139,7 +170,7 @@ class WorkflowAuditMetadata(BaseModel):
 
 class CommanderSynthesis(BaseModel):
     """Authoritative synthesized investigation outcome produced by IncidentCommanderAgent.
-    
+
     Section 7 Distinct Outcomes:
     - READY_FOR_REMEDIATION: Policy engine allows + diagnosis is eligible + obligations satisfiable
     - HUMAN_AUTHORIZATION_REQUIRED: Policy decision requires human review/waiver
@@ -147,6 +178,7 @@ class CommanderSynthesis(BaseModel):
     - PARTIAL_SPECIALIST_FAILURE: One or more parallel specialists failed/timed out
     - UNRESOLVED: Investigation unable to conclude (e.g. TOCTOU stale context or all specialists failed)
     """
+
     schema_version: Literal["1.0"] = "1.0"
     workflow_id: str
     incident_id: int
@@ -179,6 +211,7 @@ class CommanderSynthesis(BaseModel):
 
 class AgentStageRequest(BaseModel):
     """Typed stage execution request from Go Control Plane to Python ADK Tier."""
+
     stage_type: Literal[
         "COMMANDER_PLAN",
         "PARALLEL_SPECIALISTS",
@@ -221,6 +254,7 @@ class AgentStageRequest(BaseModel):
 
 class AgentStageResponse(BaseModel):
     """Structured response returned by Python ADK Tier to Go Control Plane."""
+
     stage_type: Literal[
         "COMMANDER_PLAN",
         "PARALLEL_SPECIALISTS",

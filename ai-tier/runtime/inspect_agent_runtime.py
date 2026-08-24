@@ -43,7 +43,9 @@ def _get(data: dict[str, Any], *path: str) -> Any:
 
 
 def inspect(project: str, location: str, engine_id: str) -> dict[str, Any]:
-    credentials, adc_project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    credentials, adc_project = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
     credentials.refresh(Request())
     token = getattr(credentials, "token", None)
     if not token:
@@ -62,7 +64,9 @@ def inspect(project: str, location: str, engine_id: str) -> dict[str, Any]:
     iam_principal = ""
     if isinstance(effective_identity, str) and effective_identity.startswith("agents."):
         iam_principal = f"principal://{effective_identity}"
-    elif isinstance(effective_identity, str) and effective_identity.startswith("principal://agents."):
+    elif isinstance(effective_identity, str) and effective_identity.startswith(
+        "principal://agents."
+    ):
         iam_principal = effective_identity
 
     gateway_config = _get(data, "spec", "deploymentSpec", "agentGatewayConfig")
@@ -87,7 +91,9 @@ def inspect(project: str, location: str, engine_id: str) -> dict[str, Any]:
 
 def main() -> None:
     args = _args()
-    print(json.dumps(inspect(args.project, args.location, args.engine_id), indent=2, sort_keys=True))
+    print(
+        json.dumps(inspect(args.project, args.location, args.engine_id), indent=2, sort_keys=True)
+    )
 
 
 if __name__ == "__main__":

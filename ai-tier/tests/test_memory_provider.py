@@ -1,7 +1,6 @@
 """Unit and Conformance Tests for SentinelFlow P10 Memory Providers and Ranking."""
 
 from datetime import datetime, timezone, timedelta
-import pytest
 
 from contracts.memory import (
     MemoryEventEnvelope,

@@ -20,14 +20,7 @@ from models.policy import (
     PolicyStatus,
     ObligationType,
     Obligation,
-    ProhibitionType,
-    Prohibition,
     PolicyDefinition,
-    PolicyEvaluationRequest,
-    PolicySubject,
-    PolicyResource,
-    PolicyWorkflowContext,
-    PolicyEnvironment,
     canonical_json_bytes,
     compute_policy_content_hash,
 )
@@ -101,7 +94,13 @@ def test_python_typed_obligation_content_hash():
         status=PolicyStatus.ACTIVE,
         effective_from=datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
         action="CREATE_CANDIDATE",
-        subject_constraints={"type": "AGENT", "id": "*", "roles": [], "min_autonomy": 0, "max_autonomy": 0},
+        subject_constraints={
+            "type": "AGENT",
+            "id": "*",
+            "roles": [],
+            "min_autonomy": 0,
+            "max_autonomy": 0,
+        },
         resource_constraints={"type": "ARTIFACT", "id": "*", "states": [], "classification": ""},
         conditions={},
         effect=Decision.ALLOW_WITH_OBLIGATIONS,
@@ -155,4 +154,3 @@ def test_python_rfc8785_numeric_golden_vectors():
     for inp, expected in cases:
         b = canonical_json_bytes(inp)
         assert b == expected, f"Failed for {inp}: got {b}, expected {expected}"
-

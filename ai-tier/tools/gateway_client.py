@@ -14,14 +14,20 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 logger = logging.getLogger("sentinel.tools.gateway_client")
 
 
 class ToolGatewayError(Exception):
     """Base exception for all Tool Gateway errors."""
-    def __init__(self, message: str, code: str = "TOOL_GATEWAY_ERROR", details: Optional[Dict[str, Any]] = None):
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "TOOL_GATEWAY_ERROR",
+        details: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(f"[{code}] {message}")
         self.code = code
         self.message = message
@@ -50,6 +56,7 @@ class ToolIdempotencyConflictError(ToolGatewayError):
 
 class ToolExecutionRecord(BaseModel):
     """Authoritative tool execution response from Go Tool Gateway."""
+
     invocation_id: str
     tool_id: str
     tool_version: str = "1.0.0"
@@ -68,6 +75,7 @@ class ToolExecutionRecord(BaseModel):
 @dataclass
 class ToolGatewayContext:
     """Security and distributed tracing context injected from authenticated agent envelope."""
+
     tenant_id: str
     correlation_id: str
     trace_id: Optional[str] = None
@@ -121,10 +129,14 @@ class ToolGatewayClient:
     ) -> ToolExecutionRecord:
         """Executes a tool on Go Tool Gateway with strict tracing & tenant isolation."""
         if not context.tenant_id:
-            raise ToolGatewayError("tenant_id must be provided by server execution context", "MISSING_TENANT_ID")
+            raise ToolGatewayError(
+                "tenant_id must be provided by server execution context", "MISSING_TENANT_ID"
+            )
 
         req_id = f"tool-req-{uuid.uuid4().hex[:12]}"
-        idem_key = idempotency_key or f"ik-{tool_id}-{context.correlation_id}-{uuid.uuid4().hex[:8]}"
+        idem_key = (
+            idempotency_key or f"ik-{tool_id}-{context.correlation_id}-{uuid.uuid4().hex[:8]}"
+        )
 
         headers = {
             "Content-Type": "application/json",
@@ -202,9 +214,7 @@ class ToolGatewayClient:
                     )
 
                 if resp.status_code == 504:
-                    raise ToolTimeoutError(
-                        f"Tool execution timed out: {resp.text}", "TIMEOUT"
-                    )
+                    raise ToolTimeoutError(f"Tool execution timed out: {resp.text}", "TIMEOUT")
 
                 # Transient 5xx errors retryable
                 if resp.status_code >= 500:

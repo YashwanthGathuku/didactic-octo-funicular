@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	ErrNonFiniteNumber     = errors.New("canonical JSON: non-finite number (NaN or Infinity) is prohibited")
-	ErrDuplicateObjectKey  = errors.New("canonical JSON: duplicate object key detected in JSON input")
-	ErrInvalidUTF8         = errors.New("canonical JSON: invalid UTF-8 string")
-	ErrLoneSurrogate       = errors.New("canonical JSON: lone surrogate code point is prohibited")
+	ErrNonFiniteNumber    = errors.New("canonical JSON: non-finite number (NaN or Infinity) is prohibited")
+	ErrDuplicateObjectKey = errors.New("canonical JSON: duplicate object key detected in JSON input")
+	ErrInvalidUTF8        = errors.New("canonical JSON: invalid UTF-8 string")
+	ErrLoneSurrogate      = errors.New("canonical JSON: lone surrogate code point is prohibited")
 )
 
 // UTF16KeyLess compares two strings according to RFC 8785 Section 3.2.3:
@@ -340,4 +340,3 @@ func normalizeExponent(s string) string {
 	}
 	return prefix + "e" + string(sign) + expStr
 }
-

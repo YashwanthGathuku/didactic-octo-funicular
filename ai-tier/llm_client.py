@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import time
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -49,6 +48,7 @@ Respond strictly in JSON matching the AnalystRecommendation schema:
 }
 """
 
+
 class FindingItem(BaseModel):
     id: str
     code: str
@@ -58,6 +58,7 @@ class FindingItem(BaseModel):
     evidence_redacted: Optional[str] = None
     expected_value: Optional[str] = None
     actual_value: Optional[str] = None
+
 
 class IncidentInput(BaseModel):
     incident_id: int
@@ -72,12 +73,14 @@ class IncidentInput(BaseModel):
     telemetry_summary: Dict[str, Any] = Field(default_factory=dict)
     prior_occurrences: int = 0
 
+
 class Hypothesis(BaseModel):
     rank: int
     hypothesis: str
-    confidence: str # HIGH, MEDIUM, LOW
+    confidence: str  # HIGH, MEDIUM, LOW
     rationale: str
     evidence_citations: List[str] = Field(default_factory=list)
+
 
 class AuditMetadata(BaseModel):
     model: str
@@ -87,6 +90,7 @@ class AuditMetadata(BaseModel):
     latency_ms: float
     token_usage: Dict[str, int] = Field(default_factory=dict)
     estimated_cost_usd: float = 0.0
+
 
 class AnalystRecommendation(BaseModel):
     incident_id: int
@@ -123,6 +127,7 @@ def generate_ai_analysis(input_data: IncidentInput) -> AnalystRecommendation:
         try:
             from google import genai
             from google.genai import types
+
             client = genai.Client(api_key=google_key)
 
             user_prompt = f"""
@@ -140,13 +145,13 @@ Deterministic Findings:
                 user_prompt += f"- ID: {f.id} | Code: {f.code} | Severity: {f.severity} | Description: {f.description} | Line: {f.line_number} | Expected: {f.expected_value} | Actual: {f.actual_value}\n"
 
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model="gemini-3.5-flash",
                 contents=user_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
                     temperature=0.1,
-                    response_mime_type='application/json',
-                )
+                    response_mime_type="application/json",
+                ),
             )
 
             raw_content = response.text
@@ -158,8 +163,12 @@ Deterministic Findings:
                 hypotheses_validated = []
                 for h in parsed.get("hypotheses", []):
                     citations = [
-                        c for c in h.get("evidence_citations", [])
-                        if c in valid_evidence_ids or c.startswith("FINDING-") or c.startswith("RUNBOOK-") or c.startswith("METRIC-")
+                        c
+                        for c in h.get("evidence_citations", [])
+                        if c in valid_evidence_ids
+                        or c.startswith("FINDING-")
+                        or c.startswith("RUNBOOK-")
+                        or c.startswith("METRIC-")
                     ]
                     hypotheses_validated.append(
                         Hypothesis(
@@ -167,16 +176,20 @@ Deterministic Findings:
                             hypothesis=h.get("hypothesis", ""),
                             confidence=h.get("confidence", "MEDIUM"),
                             rationale=h.get("rationale", ""),
-                            evidence_citations=citations if citations else [f.id for f in input_data.findings],
+                            evidence_citations=citations
+                            if citations
+                            else [f.id for f in input_data.findings],
                         )
                     )
 
                 # Token usage from Gemini response metadata
                 prompt_tokens = 0
                 candidates_tokens = 0
-                if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                    prompt_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0) or 0
-                    candidates_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0) or 0
+                if hasattr(response, "usage_metadata") and response.usage_metadata:
+                    prompt_tokens = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+                    candidates_tokens = (
+                        getattr(response.usage_metadata, "candidates_token_count", 0) or 0
+                    )
                 total_tokens = prompt_tokens + candidates_tokens
 
                 return AnalystRecommendation(
@@ -188,7 +201,10 @@ Deterministic Findings:
                     missing_evidence=parsed.get("missing_evidence", []),
                     runbook_passage_ids=parsed.get("runbook_passage_ids", ["RB-01"]),
                     recommended_actions=parsed.get("recommended_actions", []),
-                    statement=parsed.get("statement", "The AI incident analyst operates in a read-only capacity and has made no system state changes."),
+                    statement=parsed.get(
+                        "statement",
+                        "The AI incident analyst operates in a read-only capacity and has made no system state changes.",
+                    ),
                     audit=AuditMetadata(
                         model="gemini-3.5-flash",
                         provider="Google Gemini",
@@ -198,8 +214,9 @@ Deterministic Findings:
                             "completion_tokens": candidates_tokens,
                             "total_tokens": total_tokens,
                         },
-                        estimated_cost_usd=(prompt_tokens * 0.000000075) + (candidates_tokens * 0.0000003),
-                    )
+                        estimated_cost_usd=(prompt_tokens * 0.000000075)
+                        + (candidates_tokens * 0.0000003),
+                    ),
                 )
         except Exception as e:
             # When configured provider fails, fail closed rather than pretending deterministic fallback was an AI execution
@@ -210,8 +227,15 @@ Deterministic Findings:
     all_findings_str = " ".join([f.code + " " + f.description for f in input_data.findings]).upper()
 
     has_hash_mismatch = "HASH" in all_findings_str or "0802" in all_findings_str
-    has_routing_invalid = "ROUTING" in all_findings_str or "ABA" in all_findings_str or "0602" in all_findings_str
-    has_length_truncation = "LENGTH" in all_findings_str or "RECORDLENGTH" in all_findings_str or "TRUNCAT" in all_findings_str or "0001" in all_findings_str
+    has_routing_invalid = (
+        "ROUTING" in all_findings_str or "ABA" in all_findings_str or "0602" in all_findings_str
+    )
+    has_length_truncation = (
+        "LENGTH" in all_findings_str
+        or "RECORDLENGTH" in all_findings_str
+        or "TRUNCAT" in all_findings_str
+        or "0001" in all_findings_str
+    )
 
     hypotheses = []
     runbook_ids = []
@@ -222,14 +246,18 @@ Deterministic Findings:
     if has_hash_mismatch:
         runbook_ids.append("RB-05")
         evidence_citations.append("RUNBOOK-RB-05")
-        hypotheses.append(Hypothesis(
-            rank=1,
-            hypothesis="Batch control entry hash calculation mismatch during counterparty file compilation.",
-            confidence="HIGH",
-            rationale="Batch entry hash sum does not match the accumulated 10-digit modulo sum in batch control record.",
-            evidence_citations=evidence_citations
-        ))
-        actions.append("Contact counterparty originators to request re-transmission of corrected ACH file with reconciled batch control.")
+        hypotheses.append(
+            Hypothesis(
+                rank=1,
+                hypothesis="Batch control entry hash calculation mismatch during counterparty file compilation.",
+                confidence="HIGH",
+                rationale="Batch entry hash sum does not match the accumulated 10-digit modulo sum in batch control record.",
+                evidence_citations=evidence_citations,
+            )
+        )
+        actions.append(
+            "Contact counterparty originators to request re-transmission of corrected ACH file with reconciled batch control."
+        )
         actions.append("Keep artifact quarantined in dead-letter state pending manual review.")
         missing_evidence.append("Did the counterparty deploy a batch compilation update recently?")
         summary = f"Quarantined File #{input_data.file_id} due to deterministic Batch Entry Hash accumulator failure."
@@ -237,43 +265,53 @@ Deterministic Findings:
     elif has_routing_invalid:
         runbook_ids.append("RB-05")
         evidence_citations.append("RUNBOOK-RB-05")
-        hypotheses.append(Hypothesis(
-            rank=1,
-            hypothesis="Transit routing number failed Federal Reserve Modulo-10 checksum validation.",
-            confidence="HIGH",
-            rationale="RDFI routing number check digit in entry detail record is invalid.",
-            evidence_citations=evidence_citations
-        ))
+        hypotheses.append(
+            Hypothesis(
+                rank=1,
+                hypothesis="Transit routing number failed Federal Reserve Modulo-10 checksum validation.",
+                confidence="HIGH",
+                rationale="RDFI routing number check digit in entry detail record is invalid.",
+                evidence_citations=evidence_citations,
+            )
+        )
         actions.append("Notify originating financial institution of invalid ABA routing number.")
         actions.append("Require dual-control operator review before any correction derivation.")
-        missing_evidence.append("Verify if receiving routing number is an active FedACH participant.")
+        missing_evidence.append(
+            "Verify if receiving routing number is an active FedACH participant."
+        )
         summary = f"Quarantined File #{input_data.file_id} due to invalid Receiving DFI routing number check digit."
 
     elif has_length_truncation:
         runbook_ids.append("RB-05")
         evidence_citations.append("RUNBOOK-RB-05")
-        hypotheses.append(Hypothesis(
-            rank=1,
-            hypothesis="Fixed-width record length truncation or missing newline delimiters.",
-            confidence="HIGH",
-            rationale="Record does not conform to the strict 94-character fixed-width NACHA standard.",
-            evidence_citations=evidence_citations
-        ))
+        hypotheses.append(
+            Hypothesis(
+                rank=1,
+                hypothesis="Fixed-width record length truncation or missing newline delimiters.",
+                confidence="HIGH",
+                rationale="Record does not conform to the strict 94-character fixed-width NACHA standard.",
+                evidence_citations=evidence_citations,
+            )
+        )
         actions.append("Request originator verify line endings (LF vs CRLF) and record padding.")
         actions.append("Do not attempt automated release.")
         missing_evidence.append("Inspect transmission channel encoding settings.")
-        summary = f"Quarantined File #{input_data.file_id} due to fixed-width record length truncation."
+        summary = (
+            f"Quarantined File #{input_data.file_id} due to fixed-width record length truncation."
+        )
 
     else:
         runbook_ids.append("RB-01")
         evidence_citations.append("RUNBOOK-RB-01")
-        hypotheses.append(Hypothesis(
-            rank=1,
-            hypothesis="Unclassified pre-ledger validation exception or expectation violation.",
-            confidence="LOW" if len(input_data.findings) == 0 else "MEDIUM",
-            rationale="Deterministic validation encountered non-zero findings during ingest processing.",
-            evidence_citations=evidence_citations
-        ))
+        hypotheses.append(
+            Hypothesis(
+                rank=1,
+                hypothesis="Unclassified pre-ledger validation exception or expectation violation.",
+                confidence="LOW" if len(input_data.findings) == 0 else "MEDIUM",
+                rationale="Deterministic validation encountered non-zero findings during ingest processing.",
+                evidence_citations=evidence_citations,
+            )
+        )
         actions.append("Assign incident ticket to Treasury Operations supervisor.")
         missing_evidence.append("Require full finding payload review by Tier-2 operator.")
         summary = f"Incident investigation for File #{input_data.file_id} completed with {len(evidence_citations)} findings."
@@ -293,6 +331,6 @@ Deterministic Findings:
             provider="In-Tree Rules",
             latency_ms=latency_ms,
             token_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            estimated_cost_usd=0.0
-        )
+            estimated_cost_usd=0.0,
+        ),
     )

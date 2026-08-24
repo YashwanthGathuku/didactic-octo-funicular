@@ -6,7 +6,6 @@ using Google Application Default Credentials (ADC) bearer tokens.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
@@ -96,13 +95,18 @@ class GoogleMemoryBankProvider(ManagedMemoryProvider):
                     return resp
                 logger.warning(
                     "Memory Bank 5xx error (status=%d, attempt=%d/%d): %s",
-                    resp.status_code, attempt, self.max_retries, resp.text,
+                    resp.status_code,
+                    attempt,
+                    self.max_retries,
+                    resp.text,
                 )
             except (requests.Timeout, requests.ConnectionError) as exc:
                 last_err = exc
                 logger.warning(
                     "Memory Bank network error (attempt=%d/%d): %s",
-                    attempt, self.max_retries, exc,
+                    attempt,
+                    self.max_retries,
+                    exc,
                 )
 
             # Exponential backoff with jitter

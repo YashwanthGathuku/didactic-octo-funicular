@@ -68,8 +68,7 @@ class AgentIdentityProvider:
                 "deployed Google Agent Runtime resource"
             )
         if not (
-            principal.startswith("principal://agents.")
-            or principal.startswith("spiffe://agents.")
+            principal.startswith("principal://agents.") or principal.startswith("spiffe://agents.")
         ):
             raise RuntimeError("managed Agent Identity principal has an unexpected format")
         return principal

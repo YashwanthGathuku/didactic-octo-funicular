@@ -14,20 +14,20 @@ type RevalidationStatus string
 
 const (
 	RevalidationAuthoritativeVerified RevalidationStatus = "AUTHORITATIVE_VERIFIED"
-	RevalidationUnverifiedMemory       RevalidationStatus = "UNVERIFIED_MEMORY"
+	RevalidationUnverifiedMemory      RevalidationStatus = "UNVERIFIED_MEMORY"
 	RevalidationStaleExpired          RevalidationStatus = "STALE_EXPIRED"
-	RevalidationTamperedRejected       RevalidationStatus = "TAMPERED_REJECTED"
+	RevalidationTamperedRejected      RevalidationStatus = "TAMPERED_REJECTED"
 )
 
 // RevalidationReport details the cryptographic and source revalidation result.
 type RevalidationReport struct {
-	MemoryID               string             `json:"memory_id"`
-	TenantID               string             `json:"tenant_id"`
-	Status                 RevalidationStatus `json:"status"`
-	Detail                 string             `json:"detail"`
-	RevalidatedSourcesCount int               `json:"revalidated_sources_count"`
-	FailedSourcesCount     int                `json:"failed_sources_count"`
-	RevalidatedAt          time.Time          `json:"revalidated_at"`
+	MemoryID                string             `json:"memory_id"`
+	TenantID                string             `json:"tenant_id"`
+	Status                  RevalidationStatus `json:"status"`
+	Detail                  string             `json:"detail"`
+	RevalidatedSourcesCount int                `json:"revalidated_sources_count"`
+	FailedSourcesCount      int                `json:"failed_sources_count"`
+	RevalidatedAt           time.Time          `json:"revalidated_at"`
 }
 
 // Revalidator executes cryptographic and source revalidation of operational memories.

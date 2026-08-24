@@ -6,10 +6,7 @@ Enforces that:
 3. Candidate generation and arithmetic are owned strictly by the Go Control Plane.
 """
 
-import inspect
-import re
 from pathlib import Path
-from agents.remediation import RemediationAgent
 from contracts.remediation import RemediationPlan
 
 
@@ -29,8 +26,12 @@ def test_no_python_file_writing_in_agents():
     for py_file in agents_dir.glob("*.py"):
         content = py_file.read_text(encoding="utf-8")
         # Check for direct file write operations
-        assert "open(" not in content or "rb" in content or "encoding" in content, f"Direct open() write found in {py_file}"
+        assert "open(" not in content or "rb" in content or "encoding" in content, (
+            f"Direct open() write found in {py_file}"
+        )
         assert ".write(" not in content, f"Direct .write() found in {py_file}"
         assert "shutil.copy" not in content, f"Direct shutil.copy found in {py_file}"
         assert "os.remove" not in content, f"Direct os.remove found in {py_file}"
-        assert "sqlite3.connect" not in content, f"Direct sqlite3 database access found in {py_file}"
+        assert "sqlite3.connect" not in content, (
+            f"Direct sqlite3 database access found in {py_file}"
+        )

@@ -6,7 +6,6 @@ Permission comes strictly from DeterministicPolicyEngine.
 """
 
 import hashlib
-import json
 import math
 from datetime import datetime, timezone
 from enum import Enum
@@ -189,18 +188,18 @@ def _format_canonical_jcs(val: Any) -> str:
         if 1e-6 <= abs_v < 1e21 and val.is_integer():
             return str(int(val))
         s = str(val)
-        if 'e' in s:
-            idx = s.find('e')
+        if "e" in s:
+            idx = s.find("e")
             prefix = s[:idx]
-            sign = s[idx+1]
-            exp_val = int(s[idx+2:])
+            sign = s[idx + 1]
+            exp_val = int(s[idx + 2 :])
             # If in the range [1e-6, 1e-4), Python outputs scientific notation, but ECMAScript requires standard decimal
-            if sign == '-' and 4 <= exp_val <= 6 and 1e-6 <= abs_v < 1e21:
-                neg = prefix.startswith('-')
+            if sign == "-" and 4 <= exp_val <= 6 and 1e-6 <= abs_v < 1e21:
+                neg = prefix.startswith("-")
                 if neg:
                     prefix = prefix[1:]
-                digits = prefix.replace('.', '')
-                zeros = '0' * (exp_val - 1)
+                digits = prefix.replace(".", "")
+                zeros = "0" * (exp_val - 1)
                 res = f"0.{zeros}{digits}"
                 return f"-{res}" if neg else res
             return f"{prefix}e{sign}{exp_val}"
@@ -211,35 +210,35 @@ def _format_canonical_jcs(val: Any) -> str:
             cp = ord(ch)
             if ch == '"':
                 out.append('\\"')
-            elif ch == '\\':
-                out.append('\\\\')
-            elif ch == '\b':
-                out.append('\\b')
-            elif ch == '\f':
-                out.append('\\f')
-            elif ch == '\n':
-                out.append('\\n')
-            elif ch == '\r':
-                out.append('\\r')
-            elif ch == '\t':
-                out.append('\\t')
+            elif ch == "\\":
+                out.append("\\\\")
+            elif ch == "\b":
+                out.append("\\b")
+            elif ch == "\f":
+                out.append("\\f")
+            elif ch == "\n":
+                out.append("\\n")
+            elif ch == "\r":
+                out.append("\\r")
+            elif ch == "\t":
+                out.append("\\t")
             elif cp < 0x20:
-                out.append(f'\\u{cp:04x}')
+                out.append(f"\\u{cp:04x}")
             else:
                 out.append(ch)
-        return '"' + ''.join(out) + '"'
+        return '"' + "".join(out) + '"'
     if isinstance(val, (list, tuple)):
         items = [_format_canonical_jcs(elem) for elem in val]
-        return '[' + ','.join(items) + ']'
+        return "[" + ",".join(items) + "]"
     if isinstance(val, dict):
         # Sort keys strictly by UTF-16-BE bytes (RFC 8785 Section 3.2.3)
-        sorted_keys = sorted(val.keys(), key=lambda k: str(k).encode('utf-16-be'))
+        sorted_keys = sorted(val.keys(), key=lambda k: str(k).encode("utf-16-be"))
         pairs = []
         for k in sorted_keys:
             key_str = _format_canonical_jcs(str(k))
             val_str = _format_canonical_jcs(val[k])
             pairs.append(f"{key_str}:{val_str}")
-        return '{' + ','.join(pairs) + '}'
+        return "{" + ",".join(pairs) + "}"
     if hasattr(val, "model_dump"):
         return _format_canonical_jcs(val.model_dump(exclude_none=True))
     return _format_canonical_jcs(str(val))
@@ -247,15 +246,17 @@ def _format_canonical_jcs(val: Any) -> str:
 
 def canonical_json_bytes(obj: Any) -> bytes:
     """Format any object into RFC 8785 JSON Canonicalization Scheme (JCS) UTF-8 bytes."""
-    return _format_canonical_jcs(obj).encode('utf-8')
+    return _format_canonical_jcs(obj).encode("utf-8")
 
 
 def compute_policy_content_hash(p: PolicyDefinition) -> str:
-    eff_to_str = p.effective_to.strftime('%Y-%m-%dT%H:%M:%SZ') if p.effective_to else None
-    eff_from_str = p.effective_from.strftime('%Y-%m-%dT%H:%M:%SZ')
+    eff_to_str = p.effective_to.strftime("%Y-%m-%dT%H:%M:%SZ") if p.effective_to else None
+    eff_from_str = p.effective_from.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    obls = sorted([o.model_dump(exclude_none=True) for o in p.obligations], key=lambda x: x['type'])
-    prohs = sorted([pr.model_dump(exclude_none=True) for pr in p.prohibitions], key=lambda x: x['type'])
+    obls = sorted([o.model_dump(exclude_none=True) for o in p.obligations], key=lambda x: x["type"])
+    prohs = sorted(
+        [pr.model_dump(exclude_none=True) for pr in p.prohibitions], key=lambda x: x["type"]
+    )
 
     payload = {
         "schema_version": "1.0",

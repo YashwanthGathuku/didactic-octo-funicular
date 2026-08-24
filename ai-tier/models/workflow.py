@@ -7,7 +7,7 @@ Private model chain-of-thought is never persisted.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -112,9 +112,7 @@ LEGAL_TRANSITIONS: Dict[AgentWorkflowState, List[AgentWorkflowState]] = {
 }
 
 
-def can_transition_workflow(
-    from_state: AgentWorkflowState, to_state: AgentWorkflowState
-) -> bool:
+def can_transition_workflow(from_state: AgentWorkflowState, to_state: AgentWorkflowState) -> bool:
     if from_state == to_state:
         return True
     return to_state in LEGAL_TRANSITIONS.get(from_state, [])

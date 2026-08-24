@@ -15,6 +15,7 @@ from contracts.memory import AdvisoryMemoryContext
 
 class AgentBudget(BaseModel):
     """Resource constraints for agent execution."""
+
     max_tokens: int = 4096
     max_seconds: int = 15
     max_cost_usd: float = 0.05
@@ -22,6 +23,7 @@ class AgentBudget(BaseModel):
 
 class RedactedFindingItem(BaseModel):
     """Pre-redacted validation finding excerpt."""
+
     id: str
     code: str
     severity: Literal["INFO", "WARNING", "BLOCKING"]
@@ -40,13 +42,16 @@ class RedactedFindingItem(BaseModel):
 
 class AgentContextEnvelope(BaseModel):
     """Canonical immutable context envelope passed from Go gateway to AI tier."""
+
     schema_version: Literal["1.0"] = "1.0"
     workflow_id: str = ""
     tenant_id: str = Field(..., min_length=1)
     trigger_event_id: str = ""
     incident_id: int = Field(..., gt=0)
     artifact_id: int = Field(0, ge=0)
-    artifact_sha256: str = Field(default="0000000000000000000000000000000000000000000000000000000000000000")
+    artifact_sha256: str = Field(
+        default="0000000000000000000000000000000000000000000000000000000000000000"
+    )
     validation_run_id: str = ""
     policy_version: str = "default/1"
     correlation_id: str = Field(..., min_length=1)

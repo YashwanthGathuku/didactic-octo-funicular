@@ -8,32 +8,32 @@ import (
 
 // Common domain errors for operational memory.
 var (
-	ErrNilRecord                 = errors.New("memory record is nil")
-	ErrMissingTenantID           = errors.New("tenant_id is required")
-	ErrMissingMemoryID           = errors.New("memory_id is required")
-	ErrMissingSubjectRef         = errors.New("subject_ref is required")
-	ErrEmptyStructuredValue      = errors.New("structured_value cannot be empty")
-	ErrInvalidMemoryType         = errors.New("invalid memory_type")
-	ErrInvalidSubjectType        = errors.New("invalid subject_type")
-	ErrInvalidFactType           = errors.New("invalid fact_type")
-	ErrInvalidConfidenceSource   = errors.New("invalid confidence_source")
-	ErrInvalidClassification     = errors.New("invalid data classification")
-	ErrInvalidStatus             = errors.New("invalid memory status")
-	ErrHashMismatch              = errors.New("computed memory_hash does not match record memory_hash")
-	ErrIneligibleMemory          = errors.New("memory record failed deterministic eligibility gate")
-	ErrPIIDetected               = errors.New("unredacted PII or raw financial identifier detected in memory payload")
-	ErrSecretDetected            = errors.New("secret or credential pattern detected in memory payload")
-	ErrMemoryNotFound            = errors.New("operational memory record not found")
-	ErrMemoryExpired             = errors.New("operational memory record has expired")
-	ErrMemorySuperseded          = errors.New("operational memory record is superseded")
-	ErrMemoryInvalidated         = errors.New("operational memory record is invalidated")
-	ErrSourceTampered            = errors.New("memory source hash does not match underlying record")
-	ErrSourceNotFound            = errors.New("memory source reference not found")
-	ErrSourceInvalidated         = errors.New("memory source reference has been invalidated")
-	ErrSourceSuperseded          = errors.New("memory source reference has been superseded")
-	ErrSourceExpired             = errors.New("memory source reference has expired under freshness policy")
-	ErrClassificationForbidden   = errors.New("memory data classification forbids agent disclosure")
-	ErrIdempotencyConflict       = errors.New("idempotency conflict: memory event ID exists with different event hash")
+	ErrNilRecord               = errors.New("memory record is nil")
+	ErrMissingTenantID         = errors.New("tenant_id is required")
+	ErrMissingMemoryID         = errors.New("memory_id is required")
+	ErrMissingSubjectRef       = errors.New("subject_ref is required")
+	ErrEmptyStructuredValue    = errors.New("structured_value cannot be empty")
+	ErrInvalidMemoryType       = errors.New("invalid memory_type")
+	ErrInvalidSubjectType      = errors.New("invalid subject_type")
+	ErrInvalidFactType         = errors.New("invalid fact_type")
+	ErrInvalidConfidenceSource = errors.New("invalid confidence_source")
+	ErrInvalidClassification   = errors.New("invalid data classification")
+	ErrInvalidStatus           = errors.New("invalid memory status")
+	ErrHashMismatch            = errors.New("computed memory_hash does not match record memory_hash")
+	ErrIneligibleMemory        = errors.New("memory record failed deterministic eligibility gate")
+	ErrPIIDetected             = errors.New("unredacted PII or raw financial identifier detected in memory payload")
+	ErrSecretDetected          = errors.New("secret or credential pattern detected in memory payload")
+	ErrMemoryNotFound          = errors.New("operational memory record not found")
+	ErrMemoryExpired           = errors.New("operational memory record has expired")
+	ErrMemorySuperseded        = errors.New("operational memory record is superseded")
+	ErrMemoryInvalidated       = errors.New("operational memory record is invalidated")
+	ErrSourceTampered          = errors.New("memory source hash does not match underlying record")
+	ErrSourceNotFound          = errors.New("memory source reference not found")
+	ErrSourceInvalidated       = errors.New("memory source reference has been invalidated")
+	ErrSourceSuperseded        = errors.New("memory source reference has been superseded")
+	ErrSourceExpired           = errors.New("memory source reference has expired under freshness policy")
+	ErrClassificationForbidden = errors.New("memory data classification forbids agent disclosure")
+	ErrIdempotencyConflict     = errors.New("idempotency conflict: memory event ID exists with different event hash")
 )
 
 // MemoryType represents the 4-tier memory hierarchy.
@@ -237,8 +237,8 @@ func DefaultMemoryFreshnessPolicies() map[FactType]MemoryFreshnessPolicy {
 
 // ManagedMemoryExportPolicy defines eligibility rules for exporting M1 facts to M2/M3.
 type ManagedMemoryExportPolicy struct {
-	TenantID            string           `json:"tenant_id"`
-	AllowedFactTypes    []FactType       `json:"allowed_fact_types"`
-	MaxClassification   Classification   `json:"max_classification"`
-	RequireSanitization bool             `json:"require_sanitization"`
+	TenantID            string         `json:"tenant_id"`
+	AllowedFactTypes    []FactType     `json:"allowed_fact_types"`
+	MaxClassification   Classification `json:"max_classification"`
+	RequireSanitization bool           `json:"require_sanitization"`
 }

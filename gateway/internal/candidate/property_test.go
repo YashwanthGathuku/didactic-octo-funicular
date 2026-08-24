@@ -53,7 +53,7 @@ func TestProperty_OriginalImmutability(t *testing.T) {
 	rc.Read(buf)
 	afterSHABytes := sha256.Sum256(buf)
 	afterSHAHex := hex.EncodeToString(afterSHABytes[:])
-	
+
 	if parentSHAHex != afterSHAHex {
 		t.Errorf("Property_OriginalImmutability violated: %s != %s", parentSHAHex, afterSHAHex)
 	}
@@ -178,7 +178,7 @@ func TestProperty_IdempotentReplay(t *testing.T) {
 
 	res2, err := svc.GenerateCandidate(ctx, makeTestScope(tenantID), req)
 	if err != nil {
-		// If idempotency isn't natively returning the same object, and instead throws an error, 
+		// If idempotency isn't natively returning the same object, and instead throws an error,
 		// we might need to handle it. The prompt says "returns identical CandidateResult".
 		// But in typical DB constraints, this might just fail on insert.
 		// If it fails on insert, I will just let it fail and then the test will catch it.
@@ -234,7 +234,7 @@ func TestProperty_IdempotencyConflict(t *testing.T) {
 		},
 	}
 	_, err := svc.GenerateCandidate(ctx, makeTestScope(tenantID), req2)
-	
+
 	if err == nil {
 		t.Errorf("Property_IdempotencyConflict violated: expected error, got nil")
 	} else if err != ErrIdempotencyConflict {

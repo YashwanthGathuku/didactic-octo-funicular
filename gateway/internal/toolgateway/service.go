@@ -240,11 +240,11 @@ func (s *ToolGatewayService) Execute(
 	defer cancel()
 
 	var (
-		rawOutput   json.RawMessage
-		execErr     error
-		execStatus  = StatusSucceeded
-		errCode     string
-		errMessage  string
+		rawOutput  json.RawMessage
+		execErr    error
+		execStatus = StatusSucceeded
+		errCode    string
+		errMessage string
 	)
 
 	func() {

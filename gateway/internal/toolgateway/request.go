@@ -48,19 +48,19 @@ func (e *ToolError) Error() string {
 
 // ToolResponse represents the complete, verified outcome of a tool execution.
 type ToolResponse struct {
-	InvocationID        string           `json:"invocation_id"`
-	ToolID              string           `json:"tool_id"`
-	ToolVersion         string           `json:"tool_version"`
-	Status              InvocationStatus `json:"status"`
-	Output              json.RawMessage  `json:"output,omitempty"`
-	Error               *ToolError       `json:"error,omitempty"`
-	OutputBytes         int              `json:"output_bytes"`
-	Duration            time.Duration    `json:"duration"`
-	PolicyDecisionHash  string           `json:"policy_decision_hash,omitempty"`
-	PolicyBundleHash    string           `json:"policy_bundle_hash,omitempty"`
-	ManifestHash        string           `json:"manifest_hash,omitempty"`
-	OutputHash          string           `json:"output_hash,omitempty"`
-	Timestamp           time.Time        `json:"timestamp"`
+	InvocationID       string           `json:"invocation_id"`
+	ToolID             string           `json:"tool_id"`
+	ToolVersion        string           `json:"tool_version"`
+	Status             InvocationStatus `json:"status"`
+	Output             json.RawMessage  `json:"output,omitempty"`
+	Error              *ToolError       `json:"error,omitempty"`
+	OutputBytes        int              `json:"output_bytes"`
+	Duration           time.Duration    `json:"duration"`
+	PolicyDecisionHash string           `json:"policy_decision_hash,omitempty"`
+	PolicyBundleHash   string           `json:"policy_bundle_hash,omitempty"`
+	ManifestHash       string           `json:"manifest_hash,omitempty"`
+	OutputHash         string           `json:"output_hash,omitempty"`
+	Timestamp          time.Time        `json:"timestamp"`
 }
 
 // ComputeOutputHash computes the RFC 8785 canonical hash of the tool output.

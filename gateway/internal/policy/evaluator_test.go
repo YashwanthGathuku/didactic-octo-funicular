@@ -246,8 +246,8 @@ func TestPolicyEngine_ExactImmutableBundleReplay(t *testing.T) {
 		ResourceConstraints: ResourceConstraint{
 			Type: "ARTIFACT",
 		},
-		Effect:      DecisionDeny, // Attempts to deny candidate creation
-		ReasonCode:  "LATER_ADDED_DENY",
+		Effect:     DecisionDeny, // Attempts to deny candidate creation
+		ReasonCode: "LATER_ADDED_DENY",
 	}
 
 	policiesB2 := append(SeedSafetyPolicies(), backdatedPolicy)

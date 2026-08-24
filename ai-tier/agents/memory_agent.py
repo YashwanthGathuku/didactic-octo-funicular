@@ -11,11 +11,7 @@ Formal Invariants:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
-import os
-import re
 import time
 from typing import Any, Dict, List, Optional, Set, Union
 
@@ -25,11 +21,8 @@ from google.adk import Agent
 from contracts.manifests import FIXED_AGENT_ROSTER
 from contracts.memory import (
     AdvisoryMemoryContext,
-    MemoryEventEnvelope,
-    MemoryHit,
     MemoryQuery,
     PartnerOperationalProfile,
-    sanitize_text,
 )
 from memory.mock_provider import MockManagedMemoryProvider
 from memory.provider import ManagedMemoryProvider
@@ -131,7 +124,9 @@ class MemoryAgent:
         )
 
         if reval_report.overall_status in ("TAMPERED_REJECTED", "CROSS_TENANT_REJECTED"):
-            logger.warning("Advisory memory context failed revalidation: %s", reval_report.rejection_reasons)
+            logger.warning(
+                "Advisory memory context failed revalidation: %s", reval_report.rejection_reasons
+            )
             # Fail-closed: strip unverified/tampered hits
             advisory_ctx.retrieved_hits = []
             if not reval_report.partner_profile_verified:
@@ -152,7 +147,12 @@ class MemoryAgent:
         else:
             ctx_dict = vars(context)
 
-        tenant = tenant_id or ctx_dict.get("tenant_id") or ctx_dict.get("tenant_scope_token") or "DEFAULT_TENANT"
+        tenant = (
+            tenant_id
+            or ctx_dict.get("tenant_id")
+            or ctx_dict.get("tenant_scope_token")
+            or "DEFAULT_TENANT"
+        )
         subject_ref = ctx_dict.get("subject_ref") or ctx_dict.get("partner_id") or "PARTNER-UNKNOWN"
         query_text = ctx_dict.get("query_text") or ctx_dict.get("incident_description") or ""
         partner_ref = ctx_dict.get("partner_ref") or ctx_dict.get("partner_id")

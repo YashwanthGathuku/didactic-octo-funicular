@@ -126,7 +126,9 @@ def create_app() -> FastAPI:
 
     @app.get("/api/roster")
     async def get_roster() -> Dict[str, Any]:
-        return {"roster": {name: manifest.model_dump() for name, manifest in FIXED_AGENT_ROSTER.items()}}
+        return {
+            "roster": {name: manifest.model_dump() for name, manifest in FIXED_AGENT_ROSTER.items()}
+        }
 
     @app.post("/api/agents/{agent_name}/describe")
     async def describe_agent(agent_name: str) -> JSONResponse:

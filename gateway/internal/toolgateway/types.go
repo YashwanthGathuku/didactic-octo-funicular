@@ -39,12 +39,12 @@ var (
 type SideEffectClass string
 
 const (
-	SideEffectReadOnly               SideEffectClass = "READ_ONLY"
-	SideEffectInternalStateWrite      SideEffectClass = "INTERNAL_STATE_WRITE"
-	SideEffectCandidateSandboxWrite  SideEffectClass = "CANDIDATE_SANDBOX_WRITE"
-	SideEffectReversibleExternal     SideEffectClass = "REVERSIBLE_EXTERNAL"
-	SideEffectIrreversibleExternal   SideEffectClass = "IRREVERSIBLE_EXTERNAL"
-	SideEffectIrreversibleFinancial  SideEffectClass = "IRREVERSIBLE_FINANCIAL"
+	SideEffectReadOnly              SideEffectClass = "READ_ONLY"
+	SideEffectInternalStateWrite    SideEffectClass = "INTERNAL_STATE_WRITE"
+	SideEffectCandidateSandboxWrite SideEffectClass = "CANDIDATE_SANDBOX_WRITE"
+	SideEffectReversibleExternal    SideEffectClass = "REVERSIBLE_EXTERNAL"
+	SideEffectIrreversibleExternal  SideEffectClass = "IRREVERSIBLE_EXTERNAL"
+	SideEffectIrreversibleFinancial SideEffectClass = "IRREVERSIBLE_FINANCIAL"
 )
 
 // ManifestStatus represents the lifecycle of a ToolManifest.
@@ -75,12 +75,12 @@ type ToolCapability string
 
 const (
 	// Implemented P04 Capabilities
-	CapIncidentRead            ToolCapability = "INCIDENT_READ"
-	CapArtifactMetadataRead    ToolCapability = "ARTIFACT_METADATA_READ"
-	CapFindingsReadRedacted    ToolCapability = "FINDINGS_READ_REDACTED"
-	CapRunbookRead             ToolCapability = "RUNBOOK_READ"
-	CapWorkflowRead            ToolCapability = "WORKFLOW_READ"
-	CapTelemetryRead           ToolCapability = "TELEMETRY_READ"
+	CapIncidentRead         ToolCapability = "INCIDENT_READ"
+	CapArtifactMetadataRead ToolCapability = "ARTIFACT_METADATA_READ"
+	CapFindingsReadRedacted ToolCapability = "FINDINGS_READ_REDACTED"
+	CapRunbookRead          ToolCapability = "RUNBOOK_READ"
+	CapWorkflowRead         ToolCapability = "WORKFLOW_READ"
+	CapTelemetryRead        ToolCapability = "TELEMETRY_READ"
 
 	// Reserved future capabilities
 	CapCandidateCreate         ToolCapability = "CANDIDATE_CREATE"
@@ -114,9 +114,9 @@ const (
 
 // Default constants for Tool Gateway
 const (
-	DefaultToolTimeout     = 10 * time.Second
-	MaxToolTimeout         = 60 * time.Second
-	DefaultMaxOutputBytes  = 1024 * 1024       // 1 MB
-	DefaultMaxInputBytes   = 256 * 1024        // 256 KB
-	ToolGatewayVersion     = "1.0.0"
+	DefaultToolTimeout    = 10 * time.Second
+	MaxToolTimeout        = 60 * time.Second
+	DefaultMaxOutputBytes = 1024 * 1024 // 1 MB
+	DefaultMaxInputBytes  = 256 * 1024  // 256 KB
+	ToolGatewayVersion    = "1.0.0"
 )

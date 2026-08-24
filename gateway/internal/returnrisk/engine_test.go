@@ -114,9 +114,9 @@ func TestDeterministicRiskEngine_TenantIsolation(t *testing.T) {
 
 	event := ReturnEvent{
 		ReturnEventID: "ret-002",
-		TenantID:     "TENANT-BETA", // Mismatch
-		ReturnCode:   "R01",
-		AmountCents:  5000,
+		TenantID:      "TENANT-BETA", // Mismatch
+		ReturnCode:    "R01",
+		AmountCents:   5000,
 	}
 
 	_, err = engine.CalculateRisk(ctx, scope, event, HistoricalReturnContext{}, SLAContext{})
@@ -136,9 +136,9 @@ func TestDeterministicRiskEngine_UnknownReturnCode(t *testing.T) {
 
 	event := ReturnEvent{
 		ReturnEventID: "ret-003",
-		TenantID:     "TENANT-ACME",
-		ReturnCode:   "R999_INVALID",
-		AmountCents:  5000,
+		TenantID:      "TENANT-ACME",
+		ReturnCode:    "R999_INVALID",
+		AmountCents:   5000,
 	}
 
 	_, err = engine.CalculateRisk(ctx, scope, event, HistoricalReturnContext{}, SLAContext{})
@@ -158,9 +158,9 @@ func TestDeterministicRiskEngine_Repeatability(t *testing.T) {
 
 	event := ReturnEvent{
 		ReturnEventID: "ret-repeat",
-		TenantID:     "TENANT-ACME",
-		ReturnCode:   "R03",
-		AmountCents:  1500000,
+		TenantID:      "TENANT-ACME",
+		ReturnCode:    "R03",
+		AmountCents:   1500000,
 	}
 	hist := HistoricalReturnContext{
 		TotalReturns7d:  5,

@@ -8,10 +8,10 @@ import (
 type Decision string
 
 const (
-	DecisionAllow               Decision = "ALLOW"
-	DecisionDeny                Decision = "DENY"
+	DecisionAllow                Decision = "ALLOW"
+	DecisionDeny                 Decision = "DENY"
 	DecisionAllowWithObligations Decision = "ALLOW_WITH_OBLIGATIONS"
-	DecisionRequireHuman        Decision = "REQUIRE_HUMAN"
+	DecisionRequireHuman         Decision = "REQUIRE_HUMAN"
 )
 
 // PolicyDomain defines the functional scope of a policy.
@@ -89,13 +89,13 @@ type Obligation struct {
 type ProhibitionType string
 
 const (
-	ProhibitionMutateOriginal                ProhibitionType = "MUTATE_ORIGINAL"
-	ProhibitionRelease                       ProhibitionType = "RELEASE"
-	ProhibitionApprove                       ProhibitionType = "APPROVE"
-	ProhibitionExecuteSQL                    ProhibitionType = "EXECUTE_SQL"
+	ProhibitionMutateOriginal ProhibitionType = "MUTATE_ORIGINAL"
+	ProhibitionRelease        ProhibitionType = "RELEASE"
+	ProhibitionApprove        ProhibitionType = "APPROVE"
+	ProhibitionExecuteSQL     ProhibitionType = "EXECUTE_SQL"
 	// secret-scan-allow: standard policy prohibition identifier
-	ProhibitionAccessSecret                  ProhibitionType = "ACCESS_SECRET"
-	ProhibitionCrossTenantAccess             ProhibitionType = "CROSS_TENANT_ACCESS"
+	ProhibitionAccessSecret                   ProhibitionType = "ACCESS_SECRET"
+	ProhibitionCrossTenantAccess              ProhibitionType = "CROSS_TENANT_ACCESS"
 	ProhibitionIrreversibleFinancialAuthority ProhibitionType = "IRREVERSIBLE_FINANCIAL_AUTHORITY"
 )
 
@@ -121,8 +121,8 @@ const (
 	CapabilityApproveRelease     ToolCapability = "approve_release"
 	CapabilityExecuteSQL         ToolCapability = "execute_sql"
 	// secret-scan-allow: standard capability identifier
-	CapabilityAccessSecret       ToolCapability = "access_secret"
-	CapabilityCrossTenantAccess  ToolCapability = "cross_tenant_access"
+	CapabilityAccessSecret      ToolCapability = "access_secret"
+	CapabilityCrossTenantAccess ToolCapability = "cross_tenant_access"
 )
 
 // Standard Actions
@@ -134,12 +134,12 @@ const (
 	ActionExecuteTool            = "EXECUTE_TOOL"
 	ActionQueryDatabase          = "QUERY_DATABASE"
 	// secret-scan-allow: standard policy action identifier
-	ActionAccessSecret           = "ACCESS_SECRET"
-	ActionCrossTenantQuery       = "CROSS_TENANT_QUERY"
-	ActionGetIncident            = "GET_INCIDENT"
-	ActionListFindings           = "LIST_FINDINGS"
-	ActionGetArtifactMetadata    = "GET_ARTIFACT_METADATA"
-	ActionGetWorkflow            = "GET_WORKFLOW"
+	ActionAccessSecret        = "ACCESS_SECRET"
+	ActionCrossTenantQuery    = "CROSS_TENANT_QUERY"
+	ActionGetIncident         = "GET_INCIDENT"
+	ActionListFindings        = "LIST_FINDINGS"
+	ActionGetArtifactMetadata = "GET_ARTIFACT_METADATA"
+	ActionGetWorkflow         = "GET_WORKFLOW"
 )
 
 // CapabilityProhibitions maps tool capabilities to the prohibition types that block them.
@@ -185,27 +185,27 @@ type PolicyBundleManifest struct {
 
 // PolicyDefinition defines a versioned, immutable rule in the deterministic policy engine.
 type PolicyDefinition struct {
-	PolicyID            string              `json:"policy_id"`
-	Version             int                 `json:"version"`
-	Domain              PolicyDomain        `json:"domain"`
-	Layer               PolicyLayer         `json:"layer"`
-	Priority            int                 `json:"priority"` // Higher number = higher priority within same layer
-	Status              PolicyStatus        `json:"status"`
-	EffectiveFrom       time.Time           `json:"effective_from"`
-	EffectiveTo         *time.Time          `json:"effective_to,omitempty"`
-	TenantID            *string             `json:"tenant_id,omitempty"`  // Nil = global
-	PartnerID           *string             `json:"partner_id,omitempty"` // Nil = all partners
-	SubjectConstraints  SubjectConstraint   `json:"subject_constraints"`
-	ResourceConstraints ResourceConstraint  `json:"resource_constraints"`
-	Action              string              `json:"action"`
-	Conditions          map[string]string   `json:"conditions,omitempty"`
-	Effect              Decision            `json:"effect"` // ALLOW, DENY, ALLOW_WITH_OBLIGATIONS, REQUIRE_HUMAN
-	Obligations         []Obligation        `json:"obligations,omitempty"`
-	Prohibitions        []Prohibition       `json:"prohibitions,omitempty"`
-	ReasonCode          string              `json:"reason_code"`
-	SourceReference     string              `json:"source_reference,omitempty"`
-	CreatedAt           time.Time           `json:"created_at"`
-	ContentHash         string              `json:"content_hash"`
+	PolicyID            string             `json:"policy_id"`
+	Version             int                `json:"version"`
+	Domain              PolicyDomain       `json:"domain"`
+	Layer               PolicyLayer        `json:"layer"`
+	Priority            int                `json:"priority"` // Higher number = higher priority within same layer
+	Status              PolicyStatus       `json:"status"`
+	EffectiveFrom       time.Time          `json:"effective_from"`
+	EffectiveTo         *time.Time         `json:"effective_to,omitempty"`
+	TenantID            *string            `json:"tenant_id,omitempty"`  // Nil = global
+	PartnerID           *string            `json:"partner_id,omitempty"` // Nil = all partners
+	SubjectConstraints  SubjectConstraint  `json:"subject_constraints"`
+	ResourceConstraints ResourceConstraint `json:"resource_constraints"`
+	Action              string             `json:"action"`
+	Conditions          map[string]string  `json:"conditions,omitempty"`
+	Effect              Decision           `json:"effect"` // ALLOW, DENY, ALLOW_WITH_OBLIGATIONS, REQUIRE_HUMAN
+	Obligations         []Obligation       `json:"obligations,omitempty"`
+	Prohibitions        []Prohibition      `json:"prohibitions,omitempty"`
+	ReasonCode          string             `json:"reason_code"`
+	SourceReference     string             `json:"source_reference,omitempty"`
+	CreatedAt           time.Time          `json:"created_at"`
+	ContentHash         string             `json:"content_hash"`
 }
 
 // SubjectConstraint specifies matching criteria for the acting entity.

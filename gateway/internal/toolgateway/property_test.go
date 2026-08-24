@@ -34,7 +34,7 @@ func TestProperty_AddingProhibitionNeverIncreasesAuthority(t *testing.T) {
 		IdempotencyKey:      "prop-idem-001",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -98,7 +98,7 @@ func TestProperty_ToolRequestCannotAlterTrustedContext(t *testing.T) {
 		IdempotencyKey:      "prop-idem-002",
 		TenantID:            "TENANT-A",
 		CallerID:            "agent-01",
-		CallerCapabilities: []ToolCapability{CapIncidentRead},
+		CallerCapabilities:  []ToolCapability{CapIncidentRead},
 		CallerAutonomyLevel: 2,
 	}
 
@@ -148,7 +148,7 @@ func FuzzToolRequestArgs(f *testing.F) {
 			IdempotencyKey:      "fuzz-idem-" + string(rune(len(args))),
 			TenantID:            "TENANT-A",
 			CallerID:            "agent-01",
-			CallerCapabilities: []ToolCapability{CapIncidentRead},
+			CallerCapabilities:  []ToolCapability{CapIncidentRead},
 			CallerAutonomyLevel: 2,
 		}
 

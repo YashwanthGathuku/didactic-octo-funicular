@@ -14,14 +14,15 @@ Invariants:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional
+from pydantic import BaseModel
 from .gateway_client import ToolGatewayClient, ToolGatewayContext, ToolGatewayError
 
 
 # ============================================================================
 # Strongly Typed Output Models (Reflecting Go Tool Gateway Contracts)
 # ============================================================================
+
 
 class IncidentMetadataOutput(BaseModel):
     incident_id: str
@@ -67,6 +68,7 @@ class WorkflowStatusOutput(BaseModel):
 # High-Level Tool Adapter
 # ============================================================================
 
+
 class SentinelToolAdapter:
     """Provides strongly-typed, security-governed tool methods for Agent execution."""
 
@@ -83,7 +85,9 @@ class SentinelToolAdapter:
             context=self.context,
         )
         if rec.status != "SUCCEEDED" or not rec.output:
-            raise ToolGatewayError(f"incident.get failed with status {rec.status}", "EXECUTION_FAILED")
+            raise ToolGatewayError(
+                f"incident.get failed with status {rec.status}", "EXECUTION_FAILED"
+            )
         return IncidentMetadataOutput(**rec.output)
 
     def list_redacted_findings(self, artifact_id: str) -> List[RedactedFindingOutput]:
@@ -95,7 +99,10 @@ class SentinelToolAdapter:
             context=self.context,
         )
         if rec.status != "SUCCEEDED" or rec.output is None:
-            raise ToolGatewayError(f"validation.findings.list_redacted failed with status {rec.status}", "EXECUTION_FAILED")
+            raise ToolGatewayError(
+                f"validation.findings.list_redacted failed with status {rec.status}",
+                "EXECUTION_FAILED",
+            )
 
         items = rec.output if isinstance(rec.output, list) else [rec.output]
         return [RedactedFindingOutput(**item) for item in items]
@@ -109,7 +116,9 @@ class SentinelToolAdapter:
             context=self.context,
         )
         if rec.status != "SUCCEEDED" or not rec.output:
-            raise ToolGatewayError(f"artifact.metadata.get failed with status {rec.status}", "EXECUTION_FAILED")
+            raise ToolGatewayError(
+                f"artifact.metadata.get failed with status {rec.status}", "EXECUTION_FAILED"
+            )
         return ArtifactMetadataOutput(**rec.output)
 
     def get_workflow(self, workflow_id: str) -> WorkflowStatusOutput:
@@ -121,7 +130,9 @@ class SentinelToolAdapter:
             context=self.context,
         )
         if rec.status != "SUCCEEDED" or not rec.output:
-            raise ToolGatewayError(f"workflow.get failed with status {rec.status}", "EXECUTION_FAILED")
+            raise ToolGatewayError(
+                f"workflow.get failed with status {rec.status}", "EXECUTION_FAILED"
+            )
         return WorkflowStatusOutput(**rec.output)
 
 

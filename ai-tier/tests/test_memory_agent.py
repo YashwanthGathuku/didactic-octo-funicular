@@ -1,7 +1,5 @@
 """Unit Tests for SentinelFlow P10 MemoryAgent."""
 
-import pytest
-
 from agents.memory_agent import MemoryAgent
 from contracts.manifests import FIXED_AGENT_ROSTER
 from contracts.memory import (

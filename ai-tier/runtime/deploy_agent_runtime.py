@@ -132,9 +132,7 @@ def _build_config(args: argparse.Namespace, identity_type: Any) -> dict[str, Any
                 "for the hackathon single-project deployment, --agent-gateway must be in "
                 f"the same project/region and start with {expected_prefix!r}"
             )
-        config["agent_gateway_config"] = {
-            "agent_to_anywhere_config": {"agent_gateway": gateway}
-        }
+        config["agent_gateway_config"] = {"agent_to_anywhere_config": {"agent_gateway": gateway}}
         # Current Agent Runtime guidance requires this opt-out when routing
         # Google service calls through Agent Gateway with Agent Identity. It is
         # deliberately scoped to managed Runtime, not local development.

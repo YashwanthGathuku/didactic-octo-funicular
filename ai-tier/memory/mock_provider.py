@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from contracts.memory import (
     MemoryEventEnvelope,
     MemoryHit,
@@ -16,7 +16,9 @@ from memory.ranking import DeterministicMemoryRanker
 
 logger = logging.getLogger("sentinel.memory.mock")
 
-FaultType = Literal["NONE", "TIMEOUT", "UNAVAILABLE", "POISONED_MEMORIES", "CROSS_TENANT", "CONFLICT"]
+FaultType = Literal[
+    "NONE", "TIMEOUT", "UNAVAILABLE", "POISONED_MEMORIES", "CROSS_TENANT", "CONFLICT"
+]
 
 
 class MockManagedMemoryProvider(ManagedMemoryProvider):

@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
@@ -29,12 +29,8 @@ from contracts.verification import (
     CriticRecommendation,
     CriticRiskLevel,
     SuspiciousChange,
-    VerificationCheck,
-    VerificationOutcome,
 )
 from guardrails.evidence import (
-    AuthorizedEvidenceSet,
-    EvidenceGroundingVerifier,
     VerificationAuthorizedEvidenceSet,
 )
 from models.envelope import AgentContextEnvelope
@@ -88,7 +84,9 @@ class VerifierAgent:
         )
         self.adk_runner = adk_runners.InMemoryRunner(agent=self.adk_agent)
 
-    def _extract_context(self, context: Union[Dict[str, Any], AgentContextEnvelope, Any]) -> Dict[str, Any]:
+    def _extract_context(
+        self, context: Union[Dict[str, Any], AgentContextEnvelope, Any]
+    ) -> Dict[str, Any]:
         """Normalizes heterogeneous verification input formats into a canonical dictionary."""
         if isinstance(context, dict):
             ctx = dict(context)
@@ -103,7 +101,14 @@ class VerifierAgent:
         incident_id = int(ctx.get("incident_id") or 0)
         artifact_id = int(ctx.get("artifact_id") or ctx.get("parent_artifact_id") or 0)
         candidate_artifact_id = int(ctx.get("candidate_artifact_id") or 0)
-        candidate_ref = str(ctx.get("candidate_ref") or (f"CANDIDATE-{candidate_artifact_id}" if candidate_artifact_id else "CANDIDATE-UNKNOWN"))
+        candidate_ref = str(
+            ctx.get("candidate_ref")
+            or (
+                f"CANDIDATE-{candidate_artifact_id}"
+                if candidate_artifact_id
+                else "CANDIDATE-UNKNOWN"
+            )
+        )
         parent_sha256 = str(ctx.get("parent_sha256") or ctx.get("artifact_sha256") or "")
         candidate_sha256 = str(ctx.get("candidate_sha256") or "")
         authorized_evidence_refs = list(ctx.get("authorized_evidence_refs") or [])
@@ -175,8 +180,12 @@ class VerifierAgent:
             ctype = chk.get("check_type", "CHECK")
             passed = chk.get("passed", True)
             msg = chk.get("message", "")
-            check_blocks.append(f'  <check_result type="{ctype}" passed="{passed}">{msg}</check_result>')
-        tool_output_xml = "\n".join(check_blocks) if check_blocks else "  <no_verification_checks />"
+            check_blocks.append(
+                f'  <check_result type="{ctype}" passed="{passed}">{msg}</check_result>'
+            )
+        tool_output_xml = (
+            "\n".join(check_blocks) if check_blocks else "  <no_verification_checks />"
+        )
 
         user_prompt = f"""
 <!-- [DOMAIN 2: TRUSTED_CONTEXT] -->
@@ -204,7 +213,7 @@ class VerifierAgent:
 {tool_output_xml}
 </tool_output>
 
-Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
+Please generate the CriticAssessment JSON for Candidate {ctx["candidate_ref"]}.
 """
         return {
             "system_policy": system_policy,
@@ -285,8 +294,15 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
 
         # 4. Check for attack payload markers in finding descriptions
         for f in ctx.get("findings", []):
-            fdesc = str(getattr(f, "description", "") or (f.get("description", "") if isinstance(f, dict) else "")).upper()
-            if ("AMOUNT" in fdesc or "CENT" in fdesc) and "MISMATCH" not in fdesc and not has_unauthorized_mutation:
+            fdesc = str(
+                getattr(f, "description", "")
+                or (f.get("description", "") if isinstance(f, dict) else "")
+            ).upper()
+            if (
+                ("AMOUNT" in fdesc or "CENT" in fdesc)
+                and "MISMATCH" not in fdesc
+                and not has_unauthorized_mutation
+            ):
                 suspicious_changes.append(
                     SuspiciousChange(
                         field_ref="entry_detail.amount",
@@ -329,7 +345,12 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
         # Ensure findings and checks in evidence set are included if authorized
         for f in ctx.get("findings", []):
             fid = getattr(f, "id", None) or (f.get("id") if isinstance(f, dict) else None)
-            if fid and fid != "FINDING-999999" and fid != "EVID-999999999" and evidence_set.contains(fid):
+            if (
+                fid
+                and fid != "FINDING-999999"
+                and fid != "EVID-999999999"
+                and evidence_set.contains(fid)
+            ):
                 if fid not in cited_evidence:
                     cited_evidence.append(fid)
 
@@ -398,6 +419,7 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
             try:
                 from google import genai
                 from google.genai import types
+
                 client = genai.Client(api_key=api_key)
 
                 prompt_data = self._partition_prompt(ctx, evidence_set)
@@ -415,11 +437,19 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
                     raw_refs = parsed.get("evidence_refs", [])
                     cited = [r for r in raw_refs if evidence_set.contains(r)]
                     if not cited:
-                        cited = [r for r in ctx.get("authorized_evidence_refs", []) if evidence_set.contains(r)]
+                        cited = [
+                            r
+                            for r in ctx.get("authorized_evidence_refs", [])
+                            if evidence_set.contains(r)
+                        ]
 
-                    assessment_verdict = CriticAssessmentType(parsed.get("assessment", "CONSISTENT"))
+                    assessment_verdict = CriticAssessmentType(
+                        parsed.get("assessment", "CONSISTENT")
+                    )
                     risk_level = CriticRiskLevel(parsed.get("risk_level", "LOW"))
-                    recommendation = CriticRecommendation(parsed.get("recommendation", "PROCEED_TO_HUMAN_REVIEW"))
+                    recommendation = CriticRecommendation(
+                        parsed.get("recommendation", "PROCEED_TO_HUMAN_REVIEW")
+                    )
 
                     # Deterministic dominance enforcement:
                     if not deterministic_revalidation_passed or blocking_finding_count > 0:
@@ -428,11 +458,15 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
                         recommendation = CriticRecommendation.REJECT_CANDIDATE
 
                     contradictions = [
-                        CriticContradiction(**c) if isinstance(c, dict) else CriticContradiction(finding_ref=str(c))
+                        CriticContradiction(**c)
+                        if isinstance(c, dict)
+                        else CriticContradiction(finding_ref=str(c))
                         for c in parsed.get("contradictions", [])
                     ]
                     suspicious = [
-                        SuspiciousChange(**s) if isinstance(s, dict) else SuspiciousChange(field_ref=str(s))
+                        SuspiciousChange(**s)
+                        if isinstance(s, dict)
+                        else SuspiciousChange(field_ref=str(s))
                         for s in parsed.get("suspicious_changes", [])
                     ]
 
@@ -456,15 +490,21 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
                         evidence_refs=cited,
                         non_authority_statement=CRITIC_NON_AUTHORITY_STATEMENT,
                         statement=CRITIC_NON_AUTHORITY_STATEMENT,
-                        input_context_hash=hashlib.sha256(prompt_data["user_prompt"].encode("utf-8")).hexdigest(),
+                        input_context_hash=hashlib.sha256(
+                            prompt_data["user_prompt"].encode("utf-8")
+                        ).hexdigest(),
                         output_hash="",
                         manifest_hash=self.manifest.manifest_hash,
                         execution_source="LIVE_GEMINI",
                     )
-                    out_obj.output_hash = hashlib.sha256(out_obj.model_dump_json().encode("utf-8")).hexdigest()
+                    out_obj.output_hash = hashlib.sha256(
+                        out_obj.model_dump_json().encode("utf-8")
+                    ).hexdigest()
                     return out_obj
             except Exception as e:
-                logger.warning(f"Live Gemini invocation failed, falling back to deterministic critic: {e}")
+                logger.warning(
+                    f"Live Gemini invocation failed, falling back to deterministic critic: {e}"
+                )
 
         # 2. Deterministic Fallback Engine
         fallback_res = self._deterministic_fallback(ctx, evidence_set)
@@ -474,7 +514,9 @@ Please generate the CriticAssessment JSON for Candidate {ctx['candidate_ref']}.
             fallback_res.assessment = CriticAssessmentType.CONCERN
             fallback_res.risk_level = CriticRiskLevel.HIGH
             fallback_res.recommendation = CriticRecommendation.REJECT_CANDIDATE
-            if not any("re-validation" in c.verification_reality for c in fallback_res.contradictions):
+            if not any(
+                "re-validation" in c.verification_reality for c in fallback_res.contradictions
+            ):
                 fallback_res.contradictions.append(
                     CriticContradiction(
                         finding_ref="REVALIDATION_CHECK",

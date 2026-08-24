@@ -523,13 +523,13 @@ func (r *Repository) GetSteps(ctx context.Context, s Scope, workflowID string) (
 	var steps []domain.AgentStep
 	for rows.Next() {
 		var (
-			st             domain.AgentStep
-			stType         string
-			fromStr        string
-			toStr          string
-			decPayload     string
-			evJoined       string
-			stepHash       string
+			st         domain.AgentStep
+			stType     string
+			fromStr    string
+			toStr      string
+			decPayload string
+			evJoined   string
+			stepHash   string
 		)
 		err := rows.Scan(
 			&st.ID, &st.RunID, &st.WorkflowID, &st.TenantID, &st.StepNumber,

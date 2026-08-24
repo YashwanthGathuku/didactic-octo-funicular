@@ -14,21 +14,21 @@ import (
 type KeyFormat string
 
 const (
-	KeyFormatOpenSSH  KeyFormat = "OPENSSH_PEM"
-	KeyFormatPuTTYv2  KeyFormat = "PUTTY_PPK_V2"
-	KeyFormatPuTTYv3  KeyFormat = "PUTTY_PPK_V3"
-	KeyFormatPKCS8    KeyFormat = "PKCS8_PEM"
-	KeyFormatRSAOld   KeyFormat = "RSA_LEGACY_PEM"
-	KeyFormatUnknown  KeyFormat = "UNKNOWN"
+	KeyFormatOpenSSH KeyFormat = "OPENSSH_PEM"
+	KeyFormatPuTTYv2 KeyFormat = "PUTTY_PPK_V2"
+	KeyFormatPuTTYv3 KeyFormat = "PUTTY_PPK_V3"
+	KeyFormatPKCS8   KeyFormat = "PKCS8_PEM"
+	KeyFormatRSAOld  KeyFormat = "RSA_LEGACY_PEM"
+	KeyFormatUnknown KeyFormat = "UNKNOWN"
 )
 
 // SSHKeyInspection analyzes an SSH credential and detects compatibility with WinSCP / OpenSSH.
 type SSHKeyInspection struct {
-	Format          KeyFormat `json:"format"`
-	IsEncrypted     bool      `json:"is_encrypted"`
-	WinSCPDirect    bool      `json:"winscp_direct_compatible"`
-	OpenSSHDirect   bool      `json:"openssh_direct_compatible"`
-	ConversionNote  string    `json:"conversion_note,omitempty"`
+	Format         KeyFormat `json:"format"`
+	IsEncrypted    bool      `json:"is_encrypted"`
+	WinSCPDirect   bool      `json:"winscp_direct_compatible"`
+	OpenSSHDirect  bool      `json:"openssh_direct_compatible"`
+	ConversionNote string    `json:"conversion_note,omitempty"`
 }
 
 // InspectSSHKey examines raw SSH key header lines without leaking private parameters.

@@ -41,7 +41,7 @@ func BenchmarkToolGateway_AuthorizeAndExecute(b *testing.B) {
 			IdempotencyKey:      fmt.Sprintf("bench-idem-%d", i),
 			TenantID:            "TENANT-A",
 			CallerID:            "agent-bench",
-			CallerCapabilities: []ToolCapability{CapIncidentRead},
+			CallerCapabilities:  []ToolCapability{CapIncidentRead},
 			CallerAutonomyLevel: 2,
 			Timestamp:           time.Now().UTC(),
 		}

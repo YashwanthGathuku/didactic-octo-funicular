@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Literal, Optional, Set
 from pydantic import BaseModel, Field
 
-from contracts.memory import AdvisoryMemoryContext, MemoryHit, PartnerOperationalProfile
+from contracts.memory import AdvisoryMemoryContext, MemoryHit
 
 logger = logging.getLogger("sentinel.memory.revalidation")
 
@@ -68,7 +68,9 @@ class MemoryRevalidator:
                 age_days = (current_time - dt).total_seconds() / 86400.0
                 if age_days > cls.DEFAULT_RETRIEVAL_LOOKBACK_DAYS:
                     rejected.append({"memory_id": hit.memory_id, "reason": "STALE_EXPIRED"})
-                    reasons.append(f"Memory {hit.memory_id} is {age_days:.1f} days old (exceeds retrieval lookback {cls.DEFAULT_RETRIEVAL_LOOKBACK_DAYS}d)")
+                    reasons.append(
+                        f"Memory {hit.memory_id} is {age_days:.1f} days old (exceeds retrieval lookback {cls.DEFAULT_RETRIEVAL_LOOKBACK_DAYS}d)"
+                    )
                     continue
             except Exception:
                 rejected.append({"memory_id": hit.memory_id, "reason": "INVALID_TIMESTAMP"})
@@ -80,13 +82,17 @@ class MemoryRevalidator:
                 missing_sources = [s for s in hit.source_refs if s not in authorized_evidence_set]
                 if missing_sources:
                     rejected.append({"memory_id": hit.memory_id, "reason": "UNGROUNDED_SOURCE"})
-                    reasons.append(f"Memory {hit.memory_id} references ungrounded source refs: {missing_sources}")
+                    reasons.append(
+                        f"Memory {hit.memory_id} references ungrounded source refs: {missing_sources}"
+                    )
                     continue
 
             # 3. Relevance ranking cutoff (context budgeting only)
             if hit.relevance_score < 0.20:
                 rejected.append({"memory_id": hit.memory_id, "reason": "LOW_RELEVANCE"})
-                reasons.append(f"Memory {hit.memory_id} relevance score {hit.relevance_score} below 0.20 context threshold")
+                reasons.append(
+                    f"Memory {hit.memory_id} relevance score {hit.relevance_score} below 0.20 context threshold"
+                )
                 continue
 
             revalidated.append(hit)
@@ -95,13 +101,19 @@ class MemoryRevalidator:
         profile_verified = False
         if context.partner_profile:
             if context.partner_profile.tenant_scope_token != tenant_scope_token:
-                reasons.append(f"Partner profile tenant {context.partner_profile.tenant_scope_token} does not match scope {tenant_scope_token}")
+                reasons.append(
+                    f"Partner profile tenant {context.partner_profile.tenant_scope_token} does not match scope {tenant_scope_token}"
+                )
             else:
                 profile_verified = True
 
         # Determine overall status
         if rejected and not revalidated:
-            status = "TAMPERED_REJECTED" if any(r["reason"] == "UNGROUNDED_SOURCE" for r in rejected) else "STALE_EXPIRED"
+            status = (
+                "TAMPERED_REJECTED"
+                if any(r["reason"] == "UNGROUNDED_SOURCE" for r in rejected)
+                else "STALE_EXPIRED"
+            )
         elif rejected and revalidated:
             status = "ADVISORY_FILTERED"
         else:

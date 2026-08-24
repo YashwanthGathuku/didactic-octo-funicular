@@ -27,7 +27,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 ROUTING_NUMBER_REGEX = re.compile(r"\b\d{9}\b")
 ACCOUNT_NUMBER_REGEX = re.compile(r"\b\d{10,17}\b")
 NACHA_94_RECORD_REGEX = re.compile(r"(?:[156789][0-9A-Za-z\s]{93}|[156789][0-9A-Za-z\s]{80,93})")
-SECRET_KEY_REGEX = re.compile(r"(?i)(bearer\s+[a-z0-9_\-\.]{20,}|(ghp|gho|xoxb|xoxp|sk_live|secret|token)_[a-z0-9_\-]{16,}|BEGIN\s+(RSA|OPENSSH|PGP|EC)\s+PRIVATE\s+KEY)")
+SECRET_KEY_REGEX = re.compile(
+    r"(?i)(bearer\s+[a-z0-9_\-\.]{20,}|(ghp|gho|xoxb|xoxp|sk_live|secret|token)_[a-z0-9_\-]{16,}|BEGIN\s+(RSA|OPENSSH|PGP|EC)\s+PRIVATE\s+KEY)"
+)
 
 
 def sanitize_text(text: str) -> str:
@@ -45,7 +47,9 @@ class MemoryEventEnvelope(BaseModel):
 
     schema_version: Literal["1.0"] = "1.0"
     event_id: str = Field(..., min_length=1, description="Unique event UUID or deterministic ID")
-    tenant_scope_token: str = Field(..., min_length=1, description="Authenticated tenant scope token")
+    tenant_scope_token: str = Field(
+        ..., min_length=1, description="Authenticated tenant scope token"
+    )
     memory_topic: Literal[
         "INCIDENT_PATTERN",
         "PARTNER_BEHAVIOR",
@@ -53,15 +57,23 @@ class MemoryEventEnvelope(BaseModel):
         "REMEDIATION_RESULT",
         "VALIDATION_ANOMALY",
     ] = Field(..., description="Classification category for memory indexing")
-    subject_ref: str = Field(..., min_length=1, description="Subject entity ID (e.g., PARTNER-BANK-EAST, ACH-SEC-PPD)")
+    subject_ref: str = Field(
+        ..., min_length=1, description="Subject entity ID (e.g., PARTNER-BANK-EAST, ACH-SEC-PPD)"
+    )
     sanitized_fact: str = Field(..., min_length=1, description="Data-minimized factual assertion")
-    source_refs: List[str] = Field(default_factory=list, description="Grounding source citations (FINDING-*, INCIDENT-*, RB-*)")
-    classification: Literal["OPERATIONAL", "COMPLIANCE", "TECHNICAL", "PARTNER_PROFILE"] = "OPERATIONAL"
+    source_refs: List[str] = Field(
+        default_factory=list, description="Grounding source citations (FINDING-*, INCIDENT-*, RB-*)"
+    )
+    classification: Literal["OPERATIONAL", "COMPLIANCE", "TECHNICAL", "PARTNER_PROFILE"] = (
+        "OPERATIONAL"
+    )
     occurred_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="ISO 8601 UTC timestamp of occurrence",
     )
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Structured non-sensitive metadata")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Structured non-sensitive metadata"
+    )
     event_hash: str = Field(
         default="",
         description="SHA-256 digest of canonical fields for tamper detection",
@@ -87,7 +99,9 @@ class MemoryEventEnvelope(BaseModel):
             "classification": self.classification,
             "occurred_at": self.occurred_at,
         }
-        digest = hashlib.sha256(json.dumps(canonical_dict, sort_keys=True).encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(
+            json.dumps(canonical_dict, sort_keys=True).encode("utf-8")
+        ).hexdigest()
         if not self.event_hash:
             self.event_hash = digest
         return self
@@ -96,13 +110,22 @@ class MemoryEventEnvelope(BaseModel):
 class MemoryQuery(BaseModel):
     """Bounded query contract for memory retrieval."""
 
-    tenant_scope_token: str = Field(..., min_length=1, description="Mandatory tenant scope for isolation")
+    tenant_scope_token: str = Field(
+        ..., min_length=1, description="Mandatory tenant scope for isolation"
+    )
     memory_topic: Optional[str] = Field(None, description="Optional topic filter")
     subject_ref: Optional[str] = Field(None, description="Target entity ID to recall")
     query_text: Optional[str] = Field(None, description="Semantic text query for matching")
     limit: int = Field(default=5, ge=1, le=5, description="Bounded retrieval limit (max 5 hits)")
-    min_score_threshold: float = Field(default=0.55, ge=0.0, le=1.0, description="Minimum ranking score cutoff for retrieval pruning")
-    lookback_days: int = Field(default=90, ge=1, le=365, description="Client-side retrieval lookback filter")
+    min_score_threshold: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description="Minimum ranking score cutoff for retrieval pruning",
+    )
+    lookback_days: int = Field(
+        default=90, ge=1, le=365, description="Client-side retrieval lookback filter"
+    )
     correlation_id: str = Field(default="", description="Distributed trace correlation ID")
 
 
@@ -114,12 +137,23 @@ class MemoryHit(BaseModel):
     subject_ref: str = Field(..., description="Entity reference")
     fact_summary: str = Field(..., description="Sanitized factual summary")
     source_refs: List[str] = Field(default_factory=list, description="Original source citations")
-    confidence_score: float = Field(default=0.85, ge=0.0, le=1.0, description="Provider match confidence (for ranking only, NOT trust)")
+    confidence_score: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Provider match confidence (for ranking only, NOT trust)",
+    )
     relevance_score: float = Field(..., ge=0.0, le=1.0, description="Semantic relevance score (w1)")
     recency_score: float = Field(..., ge=0.0, le=1.0, description="Recency decay score (w2)")
-    source_strength_score: float = Field(..., ge=0.0, le=1.0, description="Source authority score (w3)")
-    subject_match_score: float = Field(..., ge=0.0, le=1.0, description="Subject exactness score (w4)")
-    aggregate_ranking_score: float = Field(..., ge=0.0, le=1.0, description="Weighted composite ranking score")
+    source_strength_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Source authority score (w3)"
+    )
+    subject_match_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Subject exactness score (w4)"
+    )
+    aggregate_ranking_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Weighted composite ranking score"
+    )
     occurred_at: str = Field(..., description="ISO 8601 timestamp of original event")
     ingested_at: str = Field(..., description="ISO 8601 timestamp of memory ingestion")
     provenance_hash: str = Field(..., description="SHA-256 hash of original memory event")
@@ -160,7 +194,7 @@ class PartnerOperationalProfile(BaseModel):
 
 class AdvisoryMemoryContext(BaseModel):
     """Complete advisory memory package injected into AgentContextEnvelope under ADVISORY_DATA.
-    
+
     Formal Invariant:
     MemoryRecall != Evidence AND MemoryRef ∉ EvidenceSet
     """
@@ -201,14 +235,18 @@ class AdvisoryMemoryContext(BaseModel):
     @model_validator(mode="after")
     def validate_invariants_and_digest(self) -> "AdvisoryMemoryContext":
         if len(self.retrieved_hits) > 5:
-            raise ValueError(f"retrieved_hits count {len(self.retrieved_hits)} exceeds maximum bound of 5")
+            raise ValueError(
+                f"retrieved_hits count {len(self.retrieved_hits)} exceeds maximum bound of 5"
+            )
         if len(self.query_audit) > 2:
-            raise ValueError(f"query_audit count {len(self.query_audit)} exceeds maximum limit of 2 queries")
+            raise ValueError(
+                f"query_audit count {len(self.query_audit)} exceeds maximum limit of 2 queries"
+            )
 
         # Auto-populate advisory memory refs
         refs = []
         for i, hit in enumerate(self.retrieved_hits):
-            refs.append(f"MEM-HIT-{i+1:02d}")
+            refs.append(f"MEM-HIT-{i + 1:02d}")
             refs.append(f"MEM-{hit.memory_id}")
         if self.partner_profile:
             refs.append(f"MEM-PROFILE-{self.partner_profile.partner_ref}")
@@ -221,5 +259,7 @@ class AdvisoryMemoryContext(BaseModel):
             "partner": self.partner_profile.partner_ref if self.partner_profile else None,
             "refs": self.authorized_memory_refs,
         }
-        self.provenance_digest = hashlib.sha256(json.dumps(summary_obj, sort_keys=True).encode("utf-8")).hexdigest()
+        self.provenance_digest = hashlib.sha256(
+            json.dumps(summary_obj, sort_keys=True).encode("utf-8")
+        ).hexdigest()
         return self

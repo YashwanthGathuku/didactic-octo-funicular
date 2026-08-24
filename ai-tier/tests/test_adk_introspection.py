@@ -4,8 +4,6 @@ Proves that all SentinelFlow agents and parallel workflows instantiate and execu
 using actual Google ADK runtime classes (Agent, ParallelAgent, InMemoryRunner).
 """
 
-import pytest
-import google.adk as adk
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
 
@@ -23,14 +21,18 @@ def test_adk_runtime_classes_and_manifest_roster_introspection():
 
     # 1. IncidentCommanderAgent Runtime Proof
     assert hasattr(commander, "adk_agent")
-    assert isinstance(commander.adk_agent, adk_agents.Agent) or isinstance(commander.adk_agent, adk_agents.LlmAgent)
+    assert isinstance(commander.adk_agent, adk_agents.Agent) or isinstance(
+        commander.adk_agent, adk_agents.LlmAgent
+    )
     assert commander.adk_agent.name == "IncidentCommanderAgent"
     assert hasattr(commander, "adk_runner")
     assert isinstance(commander.adk_runner, adk_runners.InMemoryRunner)
 
     # 2. DiagnosisAgent Runtime Proof
     assert hasattr(diagnosis, "adk_agent")
-    assert isinstance(diagnosis.adk_agent, adk_agents.Agent) or isinstance(diagnosis.adk_agent, adk_agents.LlmAgent)
+    assert isinstance(diagnosis.adk_agent, adk_agents.Agent) or isinstance(
+        diagnosis.adk_agent, adk_agents.LlmAgent
+    )
     assert diagnosis.adk_agent.name == "DiagnosisAgent"
     assert diagnosis.adk_agent.output_key == "diagnosis_result"
     assert hasattr(diagnosis, "adk_runner")
@@ -38,7 +40,9 @@ def test_adk_runtime_classes_and_manifest_roster_introspection():
 
     # 3. PolicySLAAgent Runtime Proof
     assert hasattr(policy_sla, "adk_agent")
-    assert isinstance(policy_sla.adk_agent, adk_agents.Agent) or isinstance(policy_sla.adk_agent, adk_agents.LlmAgent)
+    assert isinstance(policy_sla.adk_agent, adk_agents.Agent) or isinstance(
+        policy_sla.adk_agent, adk_agents.LlmAgent
+    )
     assert policy_sla.adk_agent.name == "PolicySLAAgent"
     assert policy_sla.adk_agent.output_key == "policy_sla_result"
     assert hasattr(policy_sla, "adk_runner")

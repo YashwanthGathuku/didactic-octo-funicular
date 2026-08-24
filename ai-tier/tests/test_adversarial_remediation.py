@@ -91,7 +91,10 @@ def test_adv_rem_010_max_attempts_bound():
 def test_adv_rem_012_fabricated_finding_citation():
     """ADV-REM-012: Fabricated finding references trigger grounding violation."""
     from guardrails.evidence import AuthorizedEvidenceSet, EvidenceGroundingVerifier
+
     evidence_set = AuthorizedEvidenceSet(initial_refs=set(["FINDING-1"]))
-    verdict = EvidenceGroundingVerifier.verify_references(["FINDING-1", "FINDING-999999"], evidence_set)
+    verdict = EvidenceGroundingVerifier.verify_references(
+        ["FINDING-1", "FINDING-999999"], evidence_set
+    )
     assert not verdict.is_valid
     assert "FINDING-999999" in verdict.unauthorized_citations

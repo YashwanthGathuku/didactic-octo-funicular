@@ -7,7 +7,6 @@ history, SLA trends, and successful resolutions.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -20,16 +19,15 @@ logger = logging.getLogger(__name__)
 
 class MemoryEntry(BaseModel):
     """A single memory entry in the Memory Bank."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tenant_id: str
     memory_type: str  # INCIDENT_PATTERN, PARTNER_HISTORY, SLA_TREND, RESOLUTION
-    entity_id: str    # partner_id, incident_id, contract_id
+    entity_id: str  # partner_id, incident_id, contract_id
     entity_type: str  # PARTNER, INCIDENT, CONTRACT
     content: dict[str, Any]
     confidence: Optional[float] = None
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     expires_at: Optional[str] = None
     agent_id: str = ""
     invocation_id: Optional[str] = None
@@ -82,9 +80,8 @@ class MemoryStore:
         expires_at = None
         if ttl_hours:
             from datetime import timedelta
-            expires_at = (
-                datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
-            ).isoformat()
+
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=ttl_hours)).isoformat()
 
         entry = MemoryEntry(
             tenant_id=tenant_id,
@@ -106,7 +103,10 @@ class MemoryStore:
 
         logger.info(
             "Memory stored: type=%s entity=%s:%s tenant=%s",
-            memory_type, entity_type, entity_id, tenant_id,
+            memory_type,
+            entity_type,
+            entity_id,
+            tenant_id,
         )
         return entry
 
@@ -133,10 +133,7 @@ class MemoryStore:
 
         # Filter expired entries
         now = datetime.now(timezone.utc).isoformat()
-        valid = [
-            e for e in entries
-            if e.expires_at is None or e.expires_at > now
-        ]
+        valid = [e for e in entries if e.expires_at is None or e.expires_at > now]
 
         return sorted(valid, key=lambda e: e.created_at, reverse=True)[:limit]
 

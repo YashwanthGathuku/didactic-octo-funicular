@@ -312,4 +312,3 @@ func SeedDefaultEnterprisePolicies() []*PolicyDefinition {
 	}
 	return rules
 }
-

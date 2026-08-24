@@ -28,48 +28,48 @@ const (
 
 // AgentStageRequest represents a typed request from Go to Python for a bounded AI stage.
 type AgentStageRequest struct {
-	StageType               StageType              `json:"stage_type"`
-	WorkflowID              string                 `json:"workflow_id"`
-	TenantID                string                 `json:"tenant_id"`
-	IncidentID              int64                  `json:"incident_id"`
-	ArtifactID              int64                  `json:"artifact_id"`
-	ArtifactSHA256          string                 `json:"artifact_sha256"`
-	PolicyBundleHash        string                 `json:"policy_bundle_hash"`
-	AuthorizedEvidenceRefs  []string               `json:"authorized_evidence_refs"`
-	Findings                []interface{}          `json:"findings"`
-	AvailableRunbooks       []string               `json:"available_runbooks"`
-	CorrelationID           string                 `json:"correlation_id"`
-	TraceID                 string                 `json:"trace_id,omitempty"`
-	AttemptNumber           int                    `json:"attempt_number,omitempty"`
-	Plan                    map[string]interface{} `json:"plan,omitempty"`
-	DiagnosisResult         map[string]interface{} `json:"diagnosis_result,omitempty"`
-	PolicySLAResult         map[string]interface{} `json:"policy_sla_result,omitempty"`
-	RemediationPlan         map[string]interface{} `json:"remediation_plan,omitempty"`
-	AuthoritativeDecision   map[string]interface{} `json:"authoritative_policy_decision,omitempty"`
-	SLAContext              map[string]interface{} `json:"sla_context,omitempty"`
-	MaxElapsedSeconds       float64                `json:"max_elapsed_seconds,omitempty"`
+	StageType              StageType              `json:"stage_type"`
+	WorkflowID             string                 `json:"workflow_id"`
+	TenantID               string                 `json:"tenant_id"`
+	IncidentID             int64                  `json:"incident_id"`
+	ArtifactID             int64                  `json:"artifact_id"`
+	ArtifactSHA256         string                 `json:"artifact_sha256"`
+	PolicyBundleHash       string                 `json:"policy_bundle_hash"`
+	AuthorizedEvidenceRefs []string               `json:"authorized_evidence_refs"`
+	Findings               []interface{}          `json:"findings"`
+	AvailableRunbooks      []string               `json:"available_runbooks"`
+	CorrelationID          string                 `json:"correlation_id"`
+	TraceID                string                 `json:"trace_id,omitempty"`
+	AttemptNumber          int                    `json:"attempt_number,omitempty"`
+	Plan                   map[string]interface{} `json:"plan,omitempty"`
+	DiagnosisResult        map[string]interface{} `json:"diagnosis_result,omitempty"`
+	PolicySLAResult        map[string]interface{} `json:"policy_sla_result,omitempty"`
+	RemediationPlan        map[string]interface{} `json:"remediation_plan,omitempty"`
+	AuthoritativeDecision  map[string]interface{} `json:"authoritative_policy_decision,omitempty"`
+	SLAContext             map[string]interface{} `json:"sla_context,omitempty"`
+	MaxElapsedSeconds      float64                `json:"max_elapsed_seconds,omitempty"`
 }
 
 // AgentStageResponse represents the structured result returned by Python for a bounded stage.
 type AgentStageResponse struct {
-	StageType          StageType                      `json:"stage_type"`
-	Status             string                         `json:"status"` // "SUCCESS" or "FAILED"
-	WorkflowID         string                         `json:"workflow_id"`
-	Plan               map[string]interface{}         `json:"plan,omitempty"`
-	DiagnosisResult    map[string]interface{}         `json:"diagnosis_result,omitempty"`
-	PolicySLAResult    map[string]interface{}         `json:"policy_sla_result,omitempty"`
-	RemediationPlan    map[string]interface{}         `json:"remediation_plan,omitempty"`
-	CriticAssessment   map[string]interface{}         `json:"critic_assessment,omitempty"`
-	Synthesis          map[string]interface{}         `json:"synthesis,omitempty"`
-	CandidateResult    *candidate.CandidateResult     `json:"candidate_result,omitempty"`
+	StageType          StageType                        `json:"stage_type"`
+	Status             string                           `json:"status"` // "SUCCESS" or "FAILED"
+	WorkflowID         string                           `json:"workflow_id"`
+	Plan               map[string]interface{}           `json:"plan,omitempty"`
+	DiagnosisResult    map[string]interface{}           `json:"diagnosis_result,omitempty"`
+	PolicySLAResult    map[string]interface{}           `json:"policy_sla_result,omitempty"`
+	RemediationPlan    map[string]interface{}           `json:"remediation_plan,omitempty"`
+	CriticAssessment   map[string]interface{}           `json:"critic_assessment,omitempty"`
+	Synthesis          map[string]interface{}           `json:"synthesis,omitempty"`
+	CandidateResult    *candidate.CandidateResult       `json:"candidate_result,omitempty"`
 	VerificationResult *verification.VerificationResult `json:"verification_result,omitempty"`
-	Outcome            string                         `json:"outcome,omitempty"`
-	EvidenceRefs       []string                       `json:"evidence_refs,omitempty"`
-	LatencyMs          float64                        `json:"latency_ms"`
-	InputTokens        int                            `json:"input_tokens"`
-	OutputTokens       int                            `json:"output_tokens"`
-	ExecutionSource    string                         `json:"execution_source"`
-	ErrorDetail        string                         `json:"error_detail,omitempty"`
+	Outcome            string                           `json:"outcome,omitempty"`
+	EvidenceRefs       []string                         `json:"evidence_refs,omitempty"`
+	LatencyMs          float64                          `json:"latency_ms"`
+	InputTokens        int                              `json:"input_tokens"`
+	OutputTokens       int                              `json:"output_tokens"`
+	ExecutionSource    string                           `json:"execution_source"`
+	ErrorDetail        string                           `json:"error_detail,omitempty"`
 }
 
 // AgentOrchestrator is the authoritative Go orchestrator for multi-agent workflows.
@@ -189,30 +189,30 @@ func (o *AgentOrchestrator) fallbackStage(req *AgentStageRequest) (*AgentStageRe
 			Status:     "SUCCESS",
 			WorkflowID: req.WorkflowID,
 			DiagnosisResult: map[string]interface{}{
-				"agent_name":                  "DiagnosisAgent",
-				"status":                      "SUCCESS",
-				"manifest_hash":               "manifest_hash_diagnosis",
-				"input_context_hash":          "input_hash_diag",
-				"artifact_sha256":             req.ArtifactSHA256,
-				"policy_bundle_hash":          req.PolicyBundleHash,
+				"agent_name":                   "DiagnosisAgent",
+				"status":                       "SUCCESS",
+				"manifest_hash":                "manifest_hash_diagnosis",
+				"input_context_hash":           "input_hash_diag",
+				"artifact_sha256":              req.ArtifactSHA256,
+				"policy_bundle_hash":           req.PolicyBundleHash,
 				"authorized_evidence_set_hash": "evidence_hash_default",
-				"evidence_refs":               req.AuthorizedEvidenceRefs,
+				"evidence_refs":                req.AuthorizedEvidenceRefs,
 				"output": map[string]interface{}{
-					"classification":         "ENTRY_HASH_ACCUMULATOR_MISMATCH",
-					"summary":                "Batch entry hash accumulator mismatch verified.",
-					"evidence_refs":          req.AuthorizedEvidenceRefs,
+					"classification":          "ENTRY_HASH_ACCUMULATOR_MISMATCH",
+					"summary":                 "Batch entry hash accumulator mismatch verified.",
+					"evidence_refs":           req.AuthorizedEvidenceRefs,
 					"remediation_eligibility": true,
 				},
 			},
 			PolicySLAResult: map[string]interface{}{
-				"agent_name":                  "PolicySLAAgent",
-				"status":                      "SUCCESS",
-				"manifest_hash":               "manifest_hash_policy",
-				"input_context_hash":          "input_hash_policy",
-				"artifact_sha256":             req.ArtifactSHA256,
-				"policy_bundle_hash":          req.PolicyBundleHash,
+				"agent_name":                   "PolicySLAAgent",
+				"status":                       "SUCCESS",
+				"manifest_hash":                "manifest_hash_policy",
+				"input_context_hash":           "input_hash_policy",
+				"artifact_sha256":              req.ArtifactSHA256,
+				"policy_bundle_hash":           req.PolicyBundleHash,
 				"authorized_evidence_set_hash": "evidence_hash_default",
-				"evidence_refs":               req.AuthorizedEvidenceRefs,
+				"evidence_refs":                req.AuthorizedEvidenceRefs,
 				"output": map[string]interface{}{
 					"policy_summary": "PolicyEngine evaluation attached.",
 					"evidence_refs":  req.AuthorizedEvidenceRefs,
@@ -274,13 +274,13 @@ func (o *AgentOrchestrator) fallbackStage(req *AgentStageRequest) (*AgentStageRe
 						"operation_type": candidate.OpRecomputeBatchControlTotal,
 						"target_ref":     "BATCH-1",
 						"finding_refs":   []string{"FINDING-001"},
-						"rationale":     "Recompute batch debit total and hash accumulator",
+						"rationale":      "Recompute batch debit total and hash accumulator",
 					},
 					{
 						"operation_type": candidate.OpRecomputeFileControlTotal,
 						"target_ref":     "FILE_CONTROL",
 						"finding_refs":   []string{"FINDING-002"},
-						"rationale":     "Recompute file debit total and block count",
+						"rationale":      "Recompute file debit total and block count",
 					},
 				},
 				"confidence": "HIGH",
@@ -297,12 +297,12 @@ func (o *AgentOrchestrator) fallbackStage(req *AgentStageRequest) (*AgentStageRe
 			Status:     "SUCCESS",
 			WorkflowID: req.WorkflowID,
 			CriticAssessment: map[string]interface{}{
-				"schema_version": "1.0",
-				"candidate_ref":  fmt.Sprintf("cand-%d", req.ArtifactID),
-				"assessment":     "CONSISTENT",
-				"risk_level":     "LOW",
-				"recommendation": "PROCEED_TO_HUMAN_REVIEW",
-				"summary":        "Candidate independently verified by deterministic validator and critic fallback",
+				"schema_version":          "1.0",
+				"candidate_ref":           fmt.Sprintf("cand-%d", req.ArtifactID),
+				"assessment":              "CONSISTENT",
+				"risk_level":              "LOW",
+				"recommendation":          "PROCEED_TO_HUMAN_REVIEW",
+				"summary":                 "Candidate independently verified by deterministic validator and critic fallback",
 				"non_authority_statement": "This critic assessment is advisory only and has no authority to approve, verify, or release financial artifacts.",
 			},
 			EvidenceRefs:    req.AuthorizedEvidenceRefs,

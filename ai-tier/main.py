@@ -23,7 +23,6 @@ from llm_client import (
 from models import (
     AgentContextEnvelope,
     EvidenceEnvelope,
-    RedactedFinding,
     AgentResponse,
     DiagnosisRunResponse,
 )
@@ -87,6 +86,7 @@ def health_check():
 def list_agents():
     """Lists registered Google ADK specialist agents and their tool scopes."""
     from agents.tools import AGENT_TOOL_SCOPES
+
     agents = [
         {
             "id": "diagnosis-agent",
@@ -205,7 +205,7 @@ def analyze_incident(
         for idx, f in enumerate(req.findings):
             finding_items.append(
                 FindingItem(
-                    id=f"FINDING-{idx+1}",
+                    id=f"FINDING-{idx + 1}",
                     code=f.split(":")[0].strip() if ":" in f else "VALIDATION_ERROR",
                     description=f,
                     severity="HIGH",
@@ -221,7 +221,9 @@ def analyze_incident(
         )
 
     # 2. Check request deduplication cache
-    dedup_key = f"{tenant_id}:{x_idempotency_key or getattr(req, 'correlation_id', '') or str(inc_id)}"
+    dedup_key = (
+        f"{tenant_id}:{x_idempotency_key or getattr(req, 'correlation_id', '') or str(inc_id)}"
+    )
     if dedup_key in _idempotency_cache:
         return _idempotency_cache[dedup_key]
 
@@ -386,7 +388,7 @@ def run_multi_agent_workflow(
     x_sentinel_tenant: Optional[str] = Header(None),
 ):
     """Executes the governed P06 multi-agent fleet investigation workflow.
-    
+
     Orchestrates IncidentCommanderAgent -> (DiagnosisAgent + PolicySLAAgent in parallel) -> Synthesis.
     """
     if x_sentinel_tenant and x_sentinel_tenant != envelope.tenant_id:
@@ -406,6 +408,7 @@ def run_multi_agent_workflow(
             )
 
     from orchestrator import MultiAgentWorkflowOrchestrator
+
     orchestrator = MultiAgentWorkflowOrchestrator()
     synthesis = orchestrator.run_workflow(envelope)
     return synthesis
@@ -424,6 +427,7 @@ def run_agent_stage(
         )
 
     from orchestrator import MultiAgentWorkflowOrchestrator
+
     orchestrator = MultiAgentWorkflowOrchestrator()
     return orchestrator.execute_stage(req)
 

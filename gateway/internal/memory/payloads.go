@@ -18,24 +18,24 @@ type RemediationSuccessFact struct {
 
 // VerifiedFailurePatternFact payload for FactTypeVerifiedFailurePattern.
 type VerifiedFailurePatternFact struct {
-	WorkflowID        string   `json:"workflow_id"`
-	IncidentID        int64    `json:"incident_id"`
-	RuleCode          string   `json:"rule_code"`
-	FailedCheckType   string   `json:"failed_check_type"`
-	ObservedPattern   string   `json:"observed_pattern"`
-	AttemptCount      int      `json:"attempt_count"`
-	FinalVerdict      string   `json:"final_verdict"`
-	VerificationRef   string   `json:"verification_ref"`
+	WorkflowID      string `json:"workflow_id"`
+	IncidentID      int64  `json:"incident_id"`
+	RuleCode        string `json:"rule_code"`
+	FailedCheckType string `json:"failed_check_type"`
+	ObservedPattern string `json:"observed_pattern"`
+	AttemptCount    int    `json:"attempt_count"`
+	FinalVerdict    string `json:"final_verdict"`
+	VerificationRef string `json:"verification_ref"`
 }
 
 // PartnerFormatToleranceFact payload for FactTypePartnerFormatTolerance.
 type PartnerFormatToleranceFact struct {
-	PartnerID           string   `json:"partner_id"`
-	FileStandard        string   `json:"file_standard"`
-	PermittedVariance   string   `json:"permitted_variance"`
-	MaxBatchCount       int      `json:"max_batch_count"`
-	SettlementCutoffUTC string   `json:"settlement_cutoff_utc"`
-	VerificationRef     string   `json:"verification_ref"`
+	PartnerID           string `json:"partner_id"`
+	FileStandard        string `json:"file_standard"`
+	PermittedVariance   string `json:"permitted_variance"`
+	MaxBatchCount       int    `json:"max_batch_count"`
+	SettlementCutoffUTC string `json:"settlement_cutoff_utc"`
+	VerificationRef     string `json:"verification_ref"`
 }
 
 // OperationalSLABreachFact payload for FactTypeOperationalSLABreach.
@@ -50,22 +50,22 @@ type OperationalSLABreachFact struct {
 
 // HumanInvestigationOutcomeFact payload for FactTypeHumanInvestigationOutcome.
 type HumanInvestigationOutcomeFact struct {
-	WorkflowID         string   `json:"workflow_id"`
-	IncidentID         int64    `json:"incident_id"`
-	ReviewerID         string   `json:"reviewer_id"`
-	ResolutionAction   string   `json:"resolution_action"`
-	NotesSummary       string   `json:"notes_summary"`
-	VerifiedArtifactID *int64   `json:"verified_artifact_id,omitempty"`
+	WorkflowID         string    `json:"workflow_id"`
+	IncidentID         int64     `json:"incident_id"`
+	ReviewerID         string    `json:"reviewer_id"`
+	ResolutionAction   string    `json:"resolution_action"`
+	NotesSummary       string    `json:"notes_summary"`
+	VerifiedArtifactID *int64    `json:"verified_artifact_id,omitempty"`
 	ApprovedAt         time.Time `json:"approved_at"`
 }
 
 // DualControlReleaseOutcomeFact payload for FactTypeDualControlReleaseOutcome.
 type DualControlReleaseOutcomeFact struct {
-	ReleaseID       string    `json:"release_id"`
-	WorkflowID      string    `json:"workflow_id"`
-	ArtifactSHA256  string    `json:"artifact_sha256"`
-	InitiatorID     string    `json:"initiator_id"`
-	ApproverID      string    `json:"approver_id"`
-	ReleaseTarget   string    `json:"release_target"`
-	SettledAt       time.Time `json:"settled_at"`
+	ReleaseID      string    `json:"release_id"`
+	WorkflowID     string    `json:"workflow_id"`
+	ArtifactSHA256 string    `json:"artifact_sha256"`
+	InitiatorID    string    `json:"initiator_id"`
+	ApproverID     string    `json:"approver_id"`
+	ReleaseTarget  string    `json:"release_target"`
+	SettledAt      time.Time `json:"settled_at"`
 }

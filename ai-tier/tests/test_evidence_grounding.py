@@ -1,12 +1,10 @@
 """Unit tests for Evidence Grounding Guardrail (SGACA P05)."""
 
-import pytest
 from contracts.diagnosis import DiagnosisHypothesis, DiagnosisOutput
 from guardrails.evidence import (
     AuthorizedEvidenceSet,
     EvidenceGroundingVerifier,
     GroundingVerdict,
-    GroundingViolationError,
 )
 
 
@@ -43,7 +41,9 @@ def test_authorized_evidence_set_tool_expansion():
     """Verifies that evidence set expands monotonically only with tool results."""
     evidence_set = AuthorizedEvidenceSet({"FINDING-001"})
 
-    evidence_set.expand_from_tool_result("incident.get", {"incident_id": "101", "artifact_id": "501"})
+    evidence_set.expand_from_tool_result(
+        "incident.get", {"incident_id": "101", "artifact_id": "501"}
+    )
     assert evidence_set.contains("INCIDENT-101")
     assert evidence_set.contains("ARTIFACT-501")
 

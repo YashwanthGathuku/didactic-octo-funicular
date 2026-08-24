@@ -1,6 +1,5 @@
 """Unit tests for MultiAgentWorkflowOrchestrator (SGACA Phase P06)."""
 
-import pytest
 from contracts.orchestration import AgentTriggerEvent, CommanderSynthesis
 from models.envelope import AgentContextEnvelope, RedactedFindingItem
 from orchestrator.fleet import MultiAgentWorkflowOrchestrator
@@ -57,7 +56,10 @@ def test_multi_agent_workflow_full_trajectory_ready_for_remediation():
     assert synthesis.policy_sla_result.status == "SUCCESS"
     assert "FINDING-001" in synthesis.evidence_refs
     assert "POL-DEC-501" in synthesis.evidence_refs
-    assert synthesis.statement == "The AI incident commander operates in a read-only capacity and has made no system state changes."
+    assert (
+        synthesis.statement
+        == "The AI incident commander operates in a read-only capacity and has made no system state changes."
+    )
 
 
 def test_multi_agent_workflow_event_idempotency():
@@ -90,6 +92,7 @@ def test_multi_agent_workflow_event_idempotency():
 
 def test_multi_agent_workflow_partial_specialist_failure_handling():
     """Section 21: Partial specialist failure does not pretend complete analysis; sets PARTIAL_SPECIALIST_FAILURE."""
+
     class FailingPolicyAgent:
         def run(self, *args, **kwargs):
             raise TimeoutError("PolicySLAAgent simulated timeout")

@@ -35,11 +35,11 @@ func FuzzSemanticTargetResolution(f *testing.F) {
 			"5200" + strings.Repeat(" ", 70) + "021000020000001\n" +
 			"8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n" +
 			"9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n"
-		
+
 		ops := []RemediationOperation{
 			{OperationType: OpRecomputeBatchControlTotal, TargetRef: targetRef},
 		}
-		
+
 		_, _, _, _ = svc.applyDeterministicOperations([]byte(nacha), ops)
 	})
 }
@@ -56,11 +56,11 @@ func FuzzOperationValidation(f *testing.F) {
 			"5200" + strings.Repeat(" ", 70) + "021000020000001\n" +
 			"8200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n" +
 			"9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n"
-		
+
 		ops := []RemediationOperation{
 			{OperationType: opType, TargetRef: targetRef},
 		}
-		
+
 		_, _, _, _ = svc.applyDeterministicOperations([]byte(nacha), ops)
 	})
 }

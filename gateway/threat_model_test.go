@@ -9,6 +9,7 @@ import (
 
 // Mock Context to simulate request scoping
 type ContextKey string
+
 const TenantIDKey ContextKey = "tenant_id"
 const UserIDKey ContextKey = "user_id"
 

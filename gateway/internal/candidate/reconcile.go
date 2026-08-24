@@ -24,16 +24,16 @@ const (
 )
 
 type ReconciliationReport struct {
-	Outcome              ReconciliationOutcome `json:"outcome"`
-	TenantID             string                `json:"tenant_id"`
-	WorkflowID           string                `json:"workflow_id"`
-	AttemptNumber        int                   `json:"attempt_number"`
-	DerivationID         string                `json:"derivation_id,omitempty"`
-	CandidateArtifactID  int64                 `json:"candidate_artifact_id,omitempty"`
-	CandidateStorageKey  string                `json:"candidate_storage_key,omitempty"`
-	CandidateSHA256      string                `json:"candidate_sha256,omitempty"`
-	ValidationOutcome    string                `json:"validation_outcome,omitempty"`
-	Detail               string                `json:"detail"`
+	Outcome             ReconciliationOutcome `json:"outcome"`
+	TenantID            string                `json:"tenant_id"`
+	WorkflowID          string                `json:"workflow_id"`
+	AttemptNumber       int                   `json:"attempt_number"`
+	DerivationID        string                `json:"derivation_id,omitempty"`
+	CandidateArtifactID int64                 `json:"candidate_artifact_id,omitempty"`
+	CandidateStorageKey string                `json:"candidate_storage_key,omitempty"`
+	CandidateSHA256     string                `json:"candidate_sha256,omitempty"`
+	ValidationOutcome   string                `json:"validation_outcome,omitempty"`
+	Detail              string                `json:"detail"`
 }
 
 // ReconcileCandidate audits and reconciles cross-resource state between DB and ObjectStore.
@@ -108,7 +108,7 @@ func (s *Service) ReconcileCandidate(
 	report.DerivationID = deriv.ID
 	report.CandidateArtifactID = deriv.CandidateArtifactID
 	report.CandidateSHA256 = deriv.CandidateSHA256
-	
+
 	if deriv.RemediationPlanHash != expectedPlanHash {
 		report.Outcome = CorruptionDetected
 		report.Detail = "DB derivation exists but plan hash mismatch."

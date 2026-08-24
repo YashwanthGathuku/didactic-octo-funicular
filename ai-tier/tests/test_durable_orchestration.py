@@ -8,7 +8,7 @@ import os
 import tempfile
 import pytest
 
-from contracts.orchestration import AgentTriggerEvent, CommanderSynthesis
+from contracts.orchestration import AgentTriggerEvent
 from models.envelope import AgentContextEnvelope, RedactedFindingItem
 from orchestrator.fleet import MultiAgentWorkflowOrchestrator
 from persistence.store import DurableWorkflowStore

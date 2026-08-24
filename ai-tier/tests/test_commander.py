@@ -3,7 +3,6 @@
 import pytest
 from agents.commander import IncidentCommanderAgent
 from contracts.diagnosis import DiagnosisHypothesis, DiagnosisOutput
-from contracts.manifests import FIXED_AGENT_ROSTER
 from contracts.orchestration import CommanderPlan, CommanderSynthesis, SpecialistResult
 from contracts.policy_sla import PolicySLAOutput
 from models.envelope import AgentContextEnvelope, RedactedFindingItem
@@ -126,7 +125,10 @@ def test_commander_synthesis_evidence_union_grounding():
     assert synthesis.outcome == "READY_FOR_REMEDIATION"
     assert "FINDING-001" in synthesis.evidence_refs
     assert "POL-DEC-402" in synthesis.evidence_refs
-    assert synthesis.statement == "The AI incident commander operates in a read-only capacity and has made no system state changes."
+    assert (
+        synthesis.statement
+        == "The AI incident commander operates in a read-only capacity and has made no system state changes."
+    )
     assert synthesis.audit.agent_policy_disagreement_count == 0
 
 
@@ -173,7 +175,10 @@ def test_commander_policy_disagreement_handling():
         plan=plan,
         diagnosis_result=diag_res,
         policy_sla_result=policy_res,
-        authoritative_policy_decision={"decision_id": "POL-DEC-403", "decision": "DENY"},  # Policy Engine is DENY
+        authoritative_policy_decision={
+            "decision_id": "POL-DEC-403",
+            "decision": "DENY",
+        },  # Policy Engine is DENY
     )
 
     # Section 7 Invariant: Outcome must be POLICY_BLOCKED, human attention attached for review

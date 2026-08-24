@@ -23,14 +23,9 @@ from contracts.policy_sla import PolicySLAOutput
 from guardrails.boundary import GuardedModelBoundary
 from guardrails.evidence import (
     AuthorizedEvidenceSet,
-    EvidenceGroundingVerifier,
-    GroundingVerdict,
-    GroundingViolationError,
 )
 from guardrails.prompt import PromptTrustPartitioner
 from models.envelope import AgentContextEnvelope
-from tools.gateway_client import ToolGatewayClient, ToolGatewayContext
-from tools.tool_adapter import SentinelToolAdapter
 
 logger = logging.getLogger("sentinel.ai.policy_sla")
 
@@ -38,7 +33,9 @@ logger = logging.getLogger("sentinel.ai.policy_sla")
 class PolicySLAAgent:
     """Governed Read-Only Policy & SLA Interpretation Specialist."""
 
-    def __init__(self, model_name: str = "gemini-3.5-flash", gateway_base_url: str = "http://localhost:8080"):
+    def __init__(
+        self, model_name: str = "gemini-3.5-flash", gateway_base_url: str = "http://localhost:8080"
+    ):
         self.manifest = FIXED_AGENT_ROSTER["PolicySLAAgent"]
         self.model_name = model_name
         self.gateway_base_url = gateway_base_url
@@ -85,18 +82,20 @@ class PolicySLAAgent:
         else:
             envelope = envelope_or_handoff
 
-        tenant_id = envelope.tenant_id
         incident_id = envelope.incident_id
-        workflow_id = envelope.workflow_id or f"wf-policy-{tenant_id}-{incident_id}"
 
         # Initialize AuthorizedEvidenceSet
         evidence_set = AuthorizedEvidenceSet.from_envelope(envelope.model_dump())
         if authoritative_policy_decision and "decision_id" in authoritative_policy_decision:
             evidence_set.add_reference(authoritative_policy_decision["decision_id"])
-            evidence_set.add_reference(f"POLICY-DECISION-{authoritative_policy_decision['decision_id']}")
+            evidence_set.add_reference(
+                f"POLICY-DECISION-{authoritative_policy_decision['decision_id']}"
+            )
 
         # Extract authoritative policy & SLA context (server-injected)
-        decision_id = (authoritative_policy_decision or {}).get("decision_id", f"POL-DEC-{incident_id}")
+        decision_id = (authoritative_policy_decision or {}).get(
+            "decision_id", f"POL-DEC-{incident_id}"
+        )
         decision_verdict = (authoritative_policy_decision or {}).get("decision", "REQUIRE_HUMAN")
         active_obligations = (authoritative_policy_decision or {}).get(
             "obligations", ["CANDIDATE_ONLY_REMEDIATION", "DUAL_CONTROL_APPROVAL_REQUIRED"]
@@ -106,21 +105,31 @@ class PolicySLAAgent:
         )
 
         cutoff_type = (sla_context or {}).get("cutoff_type", "INSTITUTION_INTERNAL")
-        
+
         # Section 8: Deterministic SLA computation from authoritative timestamps
-        if sla_context and "cutoff_timestamp" in sla_context and "evaluation_timestamp" in sla_context:
-            time_remaining_seconds = max(0, int(sla_context["cutoff_timestamp"] - sla_context["evaluation_timestamp"]))
+        if (
+            sla_context
+            and "cutoff_timestamp" in sla_context
+            and "evaluation_timestamp" in sla_context
+        ):
+            time_remaining_seconds = max(
+                0, int(sla_context["cutoff_timestamp"] - sla_context["evaluation_timestamp"])
+            )
         elif sla_context and "time_remaining_seconds" in sla_context:
             time_remaining_seconds = int(sla_context["time_remaining_seconds"])
         else:
             time_remaining_seconds = 3600
 
-        sla_status = (sla_context or {}).get("sla_status", "ON_TRACK" if time_remaining_seconds > 1800 else "AT_RISK")
+        sla_status = (sla_context or {}).get(
+            "sla_status", "ON_TRACK" if time_remaining_seconds > 1800 else "AT_RISK"
+        )
 
         # Compile Prompt
         prompt = PromptTrustPartitioner.compile(envelope)
         input_hash = hashlib.sha256(prompt.user_prompt.encode("utf-8")).hexdigest()
-        evidence_set_hash = hashlib.sha256(json.dumps(sorted(list(evidence_set.references))).encode("utf-8")).hexdigest()
+        evidence_set_hash = hashlib.sha256(
+            json.dumps(sorted(list(evidence_set.references))).encode("utf-8")
+        ).hexdigest()
         policy_bundle_hash = envelope.policy_version or "default/1"
 
         ai_mode = os.getenv("SENTINEL_AI_MODE", "auto").lower()
@@ -158,7 +167,9 @@ class PolicySLAAgent:
             "INVARIANT: You CANNOT override or dispute the deterministic policy engine verdict.\n"
         )
 
-        def _fallback(env: AgentContextEnvelope, auth_set: AuthorizedEvidenceSet) -> PolicySLAOutput:
+        def _fallback(
+            env: AgentContextEnvelope, auth_set: AuthorizedEvidenceSet
+        ) -> PolicySLAOutput:
             return self._build_deterministic_policy_sla(
                 incident_id=incident_id,
                 decision_id=decision_id,
@@ -269,7 +280,9 @@ class PolicySLAAgent:
         applicable_contracts = (sla_context or {}).get("contract_refs", ["SLA-PARTNER-CORE-01"])
         risk_factors = []
         if sla_status == "AT_RISK":
-            risk_factors.append("Processing window expiring within 30 minutes; risk of missed daily bank cut-off.")
+            risk_factors.append(
+                "Processing window expiring within 30 minutes; risk of missed daily bank cut-off."
+            )
         if decision_verdict == "DENY":
             risk_factors.append("Deterministic policy engine issued DENY on current state.")
 
@@ -285,7 +298,8 @@ class PolicySLAAgent:
             applicable_contract_refs=applicable_contracts,
             risk_factors=risk_factors,
             unknowns=[],
-            escalation_required=sla_status == "AT_RISK" or decision_verdict in ("REQUIRE_HUMAN", "DENY"),
+            escalation_required=sla_status == "AT_RISK"
+            or decision_verdict in ("REQUIRE_HUMAN", "DENY"),
             evidence_refs=[decision_id] + envelope.available_runbooks,
             statement="The AI Policy/SLA analyst operates in a read-only capacity and has made no system state changes.",
         )

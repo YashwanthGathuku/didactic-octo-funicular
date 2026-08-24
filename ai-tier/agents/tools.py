@@ -14,9 +14,10 @@ from typing import Any
 
 # --- Read-Only Tools (available to all agents) ---
 
+
 def lookup_finding(finding_id: str) -> dict[str, Any]:
     """Look up a specific validation finding by ID.
-    
+
     Scope: READ
     Resources: validation_findings
     """
@@ -26,7 +27,7 @@ def lookup_finding(finding_id: str) -> dict[str, Any]:
 
 def lookup_nacha_rule(rule_code: str) -> dict[str, Any]:
     """Look up a NACHA rule by its code.
-    
+
     Scope: READ
     Resources: nacha_rules (in-memory reference data)
     """
@@ -35,7 +36,7 @@ def lookup_nacha_rule(rule_code: str) -> dict[str, Any]:
 
 def check_sla_status(contract_id: str) -> dict[str, Any]:
     """Check the current SLA status for a contract.
-    
+
     Scope: READ
     Resources: expectations, file_contracts
     """
@@ -44,7 +45,7 @@ def check_sla_status(contract_id: str) -> dict[str, Any]:
 
 def recall_partner_history(partner_name: str, tenant_id: str) -> dict[str, Any]:
     """Recall historical incident and delivery data for a partner.
-    
+
     Scope: READ
     Resources: agent_memory, incidents, expectations
     """
@@ -53,7 +54,7 @@ def recall_partner_history(partner_name: str, tenant_id: str) -> dict[str, Any]:
 
 def recall_similar_incidents(finding_codes: list[str], tenant_id: str) -> dict[str, Any]:
     """Find past incidents with similar finding codes.
-    
+
     Scope: READ
     Resources: agent_memory, incidents, validation_findings
     """
@@ -62,9 +63,10 @@ def recall_similar_incidents(finding_codes: list[str], tenant_id: str) -> dict[s
 
 # --- Write Tools (restricted to specific agents) ---
 
+
 def store_memory(tenant_id: str, memory_type: str, entity_id: str, content: str) -> dict[str, Any]:
     """Store a new memory entry in the Memory Bank.
-    
+
     Scope: WRITE
     Resources: agent_memory
     Restricted to: MemoryAgent only
@@ -72,9 +74,11 @@ def store_memory(tenant_id: str, memory_type: str, entity_id: str, content: str)
     return {"tenant_id": tenant_id, "memory_type": memory_type, "status": "stub"}
 
 
-def propose_derived_artifact(original_id: str, correction_spec: dict, reason: str) -> dict[str, Any]:
+def propose_derived_artifact(
+    original_id: str, correction_spec: dict, reason: str
+) -> dict[str, Any]:
     """Propose a derived artifact from a quarantined original.
-    
+
     Scope: WRITE
     Resources: file_instances (derived_from linkage only)
     Restricted to: RemediationAgent only

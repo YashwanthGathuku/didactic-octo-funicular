@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class RedactedFinding(BaseModel):
     """A single validation finding with raw data stripped."""
+
     id: str
     code: str
     severity: Literal["INFO", "WARNING", "BLOCKING"]
@@ -38,6 +39,7 @@ class EvidenceEnvelope(BaseModel):
     This is the ONLY data structure agents receive. It guarantees that
     raw financial content never reaches an AI model provider.
     """
+
     envelope_version: Literal["1.0"] = "1.0"
     tenant_id: str
     incident_id: int
@@ -70,6 +72,7 @@ class EvidenceEnvelope(BaseModel):
 
 class AgentResponse(BaseModel):
     """Unified response from the agent fleet coordinator."""
+
     incident_id: int
     tenant_id: str
     file_id: int

@@ -16,6 +16,7 @@ from contracts.memory import (
 @dataclass
 class IngestionResult:
     """Result returned upon memory event ingestion."""
+
     success: bool
     event_id: str
     event_hash: str
@@ -27,6 +28,7 @@ class IngestionResult:
 @dataclass
 class MemoryProviderHealth:
     """Health check status for the memory provider."""
+
     status: str  # HEALTHY | DEGRADED | UNHEALTHY
     provider_name: str
     latency_ms: float

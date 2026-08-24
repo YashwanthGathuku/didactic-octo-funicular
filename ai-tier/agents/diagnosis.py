@@ -8,12 +8,10 @@ Zero authority to release, approve, mutate, or settle payments.
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List
 
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
@@ -26,14 +24,9 @@ from contracts.diagnosis import (
 from guardrails.boundary import GuardedModelBoundary
 from guardrails.evidence import (
     AuthorizedEvidenceSet,
-    EvidenceGroundingVerifier,
-    GroundingVerdict,
-    GroundingViolationError,
 )
 from guardrails.prompt import PromptTrustPartitioner
 from models.envelope import AgentContextEnvelope
-from tools.gateway_client import ToolGatewayClient, ToolGatewayContext
-from tools.tool_adapter import SentinelToolAdapter
 
 logger = logging.getLogger("sentinel.agents.diagnosis")
 
@@ -74,7 +67,7 @@ class DiagnosisAgent:
     def run(self, envelope_data: Dict[str, Any] | AgentContextEnvelope) -> DiagnosisRunResponse:
         """Executes evidence-grounded diagnosis for an incident envelope."""
         start_time = time.time()
-        
+
         if isinstance(envelope_data, dict):
             envelope = AgentContextEnvelope(**envelope_data)
         else:
@@ -119,7 +112,9 @@ class DiagnosisAgent:
             )
 
         # Fallback closure
-        def _fallback(env: AgentContextEnvelope, auth_set: AuthorizedEvidenceSet) -> DiagnosisOutput:
+        def _fallback(
+            env: AgentContextEnvelope, auth_set: AuthorizedEvidenceSet
+        ) -> DiagnosisOutput:
             return self._build_deterministic_diagnosis(env, auth_set)
 
         inv_result = self.boundary.invoke(
@@ -161,7 +156,11 @@ class DiagnosisAgent:
 
         # Failed or blocked by guardrail / live execution error
         status_code = inv_result.error_code or "FAILED"
-        if status_code in ("GROUNDING_VIOLATION", "PROMPT_SECURITY_BLOCKED", "GUARDRAIL_UNAVAILABLE"):
+        if status_code in (
+            "GROUNDING_VIOLATION",
+            "PROMPT_SECURITY_BLOCKED",
+            "GUARDRAIL_UNAVAILABLE",
+        ):
             return DiagnosisRunResponse(
                 workflow_id=workflow_id,
                 incident_id=incident_id,
@@ -176,7 +175,11 @@ class DiagnosisAgent:
                     input_hash=inv_result.audit.post_guardrail_input_hash or input_hash,
                     grounding_verdict="UNGROUNDED_REJECTED",
                 ),
-                error={"code": status_code, "message": inv_result.error_message or "Guardrail screening or model execution blocked."},
+                error={
+                    "code": status_code,
+                    "message": inv_result.error_message
+                    or "Guardrail screening or model execution blocked.",
+                },
             )
 
         # Deterministic fallback response
@@ -212,8 +215,15 @@ class DiagnosisAgent:
         findings_text = " ".join([f.code + " " + f.description for f in envelope.findings]).upper()
 
         has_hash_mismatch = "HASH" in findings_text or "0802" in findings_text
-        has_routing_invalid = "ROUTING" in findings_text or "ABA" in findings_text or "0602" in findings_text
-        has_length_truncation = "LENGTH" in findings_text or "RECORDLENGTH" in findings_text or "TRUNCAT" in findings_text or "0001" in findings_text
+        has_routing_invalid = (
+            "ROUTING" in findings_text or "ABA" in findings_text or "0602" in findings_text
+        )
+        has_length_truncation = (
+            "LENGTH" in findings_text
+            or "RECORDLENGTH" in findings_text
+            or "TRUNCAT" in findings_text
+            or "0001" in findings_text
+        )
 
         hypotheses: List[DiagnosisHypothesis] = []
         evidence_refs: List[str] = [f.id for f in envelope.findings]
@@ -233,9 +243,15 @@ class DiagnosisAgent:
                     status="PROPOSED",
                 )
             )
-            recommended_checks.append("Verify counterparty batch compilation hash calculation logic.")
-            recommended_checks.append("Perform dual-control derived artifact review if counterparty retransmission is unavailable.")
-            unknowns.append("Has the originating partner updated their ACH batch generation software recently?")
+            recommended_checks.append(
+                "Verify counterparty batch compilation hash calculation logic."
+            )
+            recommended_checks.append(
+                "Perform dual-control derived artifact review if counterparty retransmission is unavailable."
+            )
+            unknowns.append(
+                "Has the originating partner updated their ACH batch generation software recently?"
+            )
             summary = f"Quarantined File #{envelope.artifact_id} due to deterministic Batch Entry Hash accumulator failure."
 
         elif has_routing_invalid:
@@ -250,8 +266,12 @@ class DiagnosisAgent:
                     status="PROPOSED",
                 )
             )
-            recommended_checks.append("Inspect entry detail record routing number check digit against FedACH directory.")
-            recommended_checks.append("Require supervisor sign-off before proposing derived artifact correction.")
+            recommended_checks.append(
+                "Inspect entry detail record routing number check digit against FedACH directory."
+            )
+            recommended_checks.append(
+                "Require supervisor sign-off before proposing derived artifact correction."
+            )
             unknowns.append("Is the destination routing number an active FedACH participant?")
             summary = f"Quarantined File #{envelope.artifact_id} due to invalid RDFI routing number checksum."
 
@@ -289,7 +309,9 @@ class DiagnosisAgent:
             summary = f"Pre-ledger investigation completed with {len(envelope.findings)} findings."
 
         affected_records = [f"LINE-{f.line_number}" for f in envelope.findings if f.line_number]
-        valid_evidence_refs = [r for r in list(dict.fromkeys(evidence_refs)) if evidence_set.contains(r)]
+        valid_evidence_refs = [
+            r for r in list(dict.fromkeys(evidence_refs)) if evidence_set.contains(r)
+        ]
 
         return DiagnosisOutput(
             schema_version="1.0",

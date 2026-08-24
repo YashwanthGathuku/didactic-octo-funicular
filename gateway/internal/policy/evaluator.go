@@ -12,13 +12,13 @@ import (
 const EvaluatorVersion = "1.0.0"
 
 var (
-	ErrNilRequest          = errors.New("policy evaluation request is nil")
-	ErrMissingRequestID    = errors.New("request_id is required")
-	ErrMissingTenantID     = errors.New("tenant_id is required")
-	ErrMissingAction       = errors.New("action is required")
-	ErrZeroEvaluationTime  = errors.New("evaluation_time is required and must not be zero")
-	ErrEmptyPolicyBundle   = errors.New("policy bundle contains zero active policies")
-	ErrBundleNotFound      = errors.New("policy bundle not found")
+	ErrNilRequest         = errors.New("policy evaluation request is nil")
+	ErrMissingRequestID   = errors.New("request_id is required")
+	ErrMissingTenantID    = errors.New("tenant_id is required")
+	ErrMissingAction      = errors.New("action is required")
+	ErrZeroEvaluationTime = errors.New("evaluation_time is required and must not be zero")
+	ErrEmptyPolicyBundle  = errors.New("policy bundle contains zero active policies")
+	ErrBundleNotFound     = errors.New("policy bundle not found")
 )
 
 // CompiledBundle is an immutable snapshot of a policy bundle ready for fast evaluation.

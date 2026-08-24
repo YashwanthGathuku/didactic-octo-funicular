@@ -7,9 +7,9 @@ import (
 
 // AgentBudget defines explicit resource constraints for an agent execution.
 type AgentBudget struct {
-	MaxTokens   int     `json:"maxTokens"`
-	MaxSeconds  int     `json:"maxSeconds"`
-	MaxCostUSD  float64 `json:"maxCostUsd"`
+	MaxTokens  int     `json:"maxTokens"`
+	MaxSeconds int     `json:"maxSeconds"`
+	MaxCostUSD float64 `json:"maxCostUsd"`
 }
 
 // RedactedFindingItem represents a single pre-redacted validation finding.

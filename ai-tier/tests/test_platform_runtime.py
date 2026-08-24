@@ -104,9 +104,7 @@ def test_gateway_client_default_deny_is_explicitly_local_policy(monkeypatch):
     assert allowed.is_registered is True
     assert allowed.decision_source == "LOCAL_POLICY"
 
-    blocked = gw.evaluate_egress(
-        "IncidentCommanderAgent", "https://arbitrary-api.example/leak", {}
-    )
+    blocked = gw.evaluate_egress("IncidentCommanderAgent", "https://arbitrary-api.example/leak", {})
     assert blocked.decision == "DENY"
     assert blocked.is_registered is False
     assert blocked.status_code == 403
