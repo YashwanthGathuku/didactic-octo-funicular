@@ -53,9 +53,14 @@ jobs:
 
           path = Path("gateway/managed_agent_tools.go")
           text = path.read_text(encoding="utf-8")
-          if "WorkflowState:" not in text:
+          if not re.search(r"\n\s*WorkflowState:\s+workflowState,", text):
               pattern = r"(\n\s*WorkflowID:\s+workflowID,)(\n\s*ArtifactID:)"
-              text, count = re.subn(pattern, r"\1\n\t\t\tWorkflowState:       workflowState,\2", text, count=1)
+              text, count = re.subn(
+                  pattern,
+                  r"\1\n\t\t\tWorkflowState:       workflowState,\2",
+                  text,
+                  count=1,
+              )
               if count != 1:
                   raise SystemExit("managed workflow-state insertion target not found")
               path.write_text(text, encoding="utf-8")
@@ -75,9 +80,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # These two Ruff classes are limited to removing unused locals and
-          # rewriting an assigned lambda as a function. The full test suite is
-          # the semantic gate after this mechanical normalization.
           python -m ruff check ai-tier --select F841,E731 --fix --unsafe-fixes
           python -m ruff check ai-tier --fix
           python -m ruff format ai-tier
@@ -94,5 +96,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add gateway ai-tier
-          git commit -m 'chore(submission): normalize formatting and patch dependency state'
+          git commit -m 'chore(submission): finalize normalized hardening tree'
+          git fetch origin chatgpt/submission-hardening-2026-08-23
+          git rebase origin/chatgpt/submission-hardening-2026-08-23
           git push origin HEAD:chatgpt/submission-hardening-2026-08-23
