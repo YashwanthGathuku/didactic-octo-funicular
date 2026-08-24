@@ -1,8 +1,8 @@
 """Agent Runtime identity context for SentinelFlow.
 
 P11.5 deliberately separates *managed, system-attested* Google Agent Identity
-from local test fixtures.  SentinelFlow never manufactures a SPIFFE identity and
-never sends a client-authored ``X-Agent-Identity-Principal`` header as proof of
+from local test fixtures. SentinelFlow never fabricates a managed workload
+principal and never sends a client-authored legacy principal header as proof of
 identity.
 
 Formal invariants:
@@ -57,7 +57,7 @@ class AgentIdentityProvider:
         """Returns the Google-provisioned Agent Identity principal from trusted config.
 
         The value is populated only after a real Agent Runtime deployment is
-        created and its output-only principal is observed.  The application does
+        created and its output-only principal is observed. The application does
         not derive or guess this value.
         """
 
@@ -118,7 +118,7 @@ class AgentIdentityProvider:
     ) -> Dict[str, str]:
         """Builds application metadata headers for the governed Go endpoint.
 
-        These headers are NOT authentication.  In managed mode Google Agent
+        These headers are NOT authentication. In managed mode Google Agent
         Gateway/IAP authenticates the workload out-of-band and the Go endpoint
         verifies that managed ingress before trusting this metadata.
         """
@@ -138,7 +138,7 @@ class AgentIdentityProvider:
             headers["X-Sentinel-Tenant"] = tenant_id
 
         # Local fixtures are explicit and can never be confused with a Google
-        # attested identity.  Managed mode intentionally sends no principal
+        # attested identity. Managed mode intentionally sends no principal
         # header from application code.
         if cls.platform_mode() == "local":
             headers["X-Sentinel-Test-Principal"] = cls.get_local_fixture_principal(agent_name)
