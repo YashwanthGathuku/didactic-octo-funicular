@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 ROUTING_NUMBER_REGEX = re.compile(r"\b\d{9}\b")
 ACCOUNT_NUMBER_REGEX = re.compile(r"\b\d{10,17}\b")
 NACHA_94_RECORD_REGEX = re.compile(r"(?:[156789][0-9A-Za-z\s]{93}|[156789][0-9A-Za-z\s]{80,93})")
+# secret-scan-allow: detector regex intentionally names credential shapes so managed memory can reject them
 SECRET_KEY_REGEX = re.compile(
     r"(?i)(bearer\s+[a-z0-9_\-\.]{20,}|(ghp|gho|xoxb|xoxp|sk_live|secret|token)_[a-z0-9_\-]{16,}|BEGIN\s+(RSA|OPENSSH|PGP|EC)\s+PRIVATE\s+KEY)"
 )
