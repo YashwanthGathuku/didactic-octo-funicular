@@ -1,11 +1,13 @@
 /**
- * The Quarantine and Review Queue (Light Fintech Theme)
- * 
- * Where authorized reviewers inspect anomalies and enforce dual-control release governance.
+ * Quarantine and dual-control review queue.
+ *
+ * This surface makes the release boundary explicit: deterministic verification
+ * can make an artifact eligible for review, but only authorized humans can
+ * approve or release it.
  */
 
 import React, { useCallback, useState } from 'react';
-import { CheckCircle2, ShieldAlert, XCircle, ShieldQuestion } from 'lucide-react';
+import { CheckCircle2, ShieldAlert, XCircle, ShieldQuestion, Fingerprint, FileKey2 } from 'lucide-react';
 import {
   getReviewQueue,
   overrideRelease,
@@ -20,7 +22,6 @@ import { EmptyState, LoadingState, PartialBanner, ResultState } from './states';
 import { Timestamp } from './Timestamp';
 import { ConfirmDialog } from './ConfirmDialog';
 
-/** The minimum the server enforces on an override justification. */
 const MIN_OVERRIDE_REASON = 20;
 
 type PendingAction =
@@ -76,24 +77,27 @@ export const ReviewQueue: React.FC = () => {
 
   return (
     <section aria-labelledby="queue-heading" className="space-y-4">
-      <div>
-        <h2 id="queue-heading" className="text-sm font-bold tracking-tight text-slate-900 flex items-center gap-2">
-          <ShieldQuestion className="h-4 w-4 text-indigo-600" />
-          Quarantine Review Queue
-        </h2>
-        <p className="text-xs text-slate-500">
-          Enforce identity-bound dual-control approval with cryptographic artifact and policy integrity binding on quarantined payment batches
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="max-w-3xl">
+          <h2 id="queue-heading" className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+            <ShieldQuestion className="h-4 w-4 text-slate-500" aria-hidden />
+            Dual-control review queue
+          </h2>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500">
+            Verification is not authorization. Review decisions bind human identity to the exact artifact digest, policy version, rule pack, and deterministic outcome.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <Fingerprint className="h-3.5 w-3.5" aria-hidden />
+          <span>Distinct authorized reviewers required</span>
+        </div>
       </div>
 
       {outcome && outcome.state !== 'ok' && (
-        <div
-          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 shadow-2xs"
-          role="alert"
-        >
-          <p className="font-bold">
+        <div className="border-l-2 border-amber-500 bg-amber-50 px-4 py-3 text-xs text-amber-900" role="alert">
+          <p className="font-semibold">
             {outcome.state === 'conflict'
-              ? 'This decision changed while you were looking at it.'
+              ? 'This decision changed while you were viewing it.'
               : 'Action refused by gateway.'}
           </p>
           <p className="mt-0.5">
@@ -103,9 +107,9 @@ export const ReviewQueue: React.FC = () => {
         </div>
       )}
       {outcome?.state === 'ok' && (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 font-medium" role="status">
-          Decision recorded successfully. State updated to <span className="font-bold">{outcome.data.state}</span>.
-        </p>
+        <div className="border-l-2 border-emerald-600 bg-emerald-50 px-4 py-3 text-xs text-emerald-900" role="status">
+          Decision recorded. Current state: <strong>{outcome.data.state}</strong>.
+        </div>
       )}
 
       {list.partial && <PartialBanner reason={list.partial} />}
@@ -115,113 +119,129 @@ export const ReviewQueue: React.FC = () => {
       {list.result?.state === 'ok' && list.items.length === 0 && (
         <EmptyState
           title="No artifacts pending review"
-          detail="The gateway answered and the quarantine queue is clear. All ingested files have settled."
+          detail="The gateway answered and no current release decisions require reviewer action."
         />
       )}
 
-      <ul className="space-y-3">
+      <div className="space-y-3">
         {list.items.map((d) => {
           const held = approvalsHeld(d);
           const rejected = d.votes.some((v) => v.choice === 'REJECT');
           const met = held >= d.requiredApprovals && !rejected;
           return (
-            <li key={d.id} className="fintech-card p-4 bg-white border border-slate-200">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Decision #{d.id} · Artifact #{d.artifactId}
-                  </h3>
-                  <p className="mt-0.5 font-mono text-[11px] text-slate-500 font-semibold">
-                    SHA-256: {d.artifactSha256.slice(0, 16)}…
-                  </p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Proposed by <strong className="text-slate-800">{d.proposedBy}</strong> at <Timestamp iso={d.proposedAt} />
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Policy: {d.policyVersion} · Rules: {d.rulePackVersion} · Outcome: {d.outcome}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-bold text-slate-800">
-                    {d.state}
-                  </span>
-                  <p className="mt-1.5 text-xs text-slate-600 font-medium">
-                    {held} of {d.requiredApprovals} approvals
-                    {d.separationOfDuties ? ' · Separation of Duties ON' : ''}
-                  </p>
-                  {rejected && (
-                    <p className="mt-0.5 text-xs font-bold text-rose-600">Rejected by Reviewer</p>
+            <article key={d.id} className="surface-panel overflow-hidden">
+              <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_250px]">
+                <div className="min-w-0 p-4 sm:p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-slate-950">Artifact #{d.artifactId}</h3>
+                        <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
+                          decision/{d.id}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2">
+                        <FileKey2 className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                        <code className="truncate font-mono text-[10px] text-slate-600">sha256/{d.artifactSha256}</code>
+                      </div>
+                    </div>
+                    <span className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
+                      {d.state}
+                    </span>
+                  </div>
+
+                  <dl className="mt-4 grid gap-x-5 gap-y-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <ReviewFact label="Policy" value={d.policyVersion} mono />
+                    <ReviewFact label="Rule pack" value={d.rulePackVersion} mono />
+                    <ReviewFact label="Deterministic outcome" value={d.outcome} />
+                    <ReviewFact label="Proposed by" value={d.proposedBy} />
+                  </dl>
+
+                  <div className="mt-3 text-[11px] text-slate-500">
+                    Proposed <Timestamp iso={d.proposedAt} />
+                    {d.separationOfDuties ? ' · proposer exclusion / separation of duties enforced' : ''}
+                  </div>
+
+                  {d.votes.length > 0 && (
+                    <div className="mt-4 border-t border-slate-200 pt-3">
+                      <p className="text-[10px] font-semibold tracking-wide text-slate-500">REVIEW HISTORY</p>
+                      <ul className="mt-2 divide-y divide-slate-100">
+                        {d.votes.map((v, i) => (
+                          <li key={`${v.actorId}-${i}`} className="grid gap-1 py-2 text-xs sm:grid-cols-[90px_1fr_auto] sm:items-start">
+                            <span className={v.choice === 'APPROVE' ? 'font-semibold text-emerald-700' : 'font-semibold text-rose-700'}>
+                              {v.choice}
+                            </span>
+                            <span className="text-slate-600">
+                              <strong className="font-semibold text-slate-800">{v.actorId}</strong> · {v.role} · {v.reason || 'No reason recorded'}
+                            </span>
+                            <span className="text-slate-500"><Timestamp iso={v.at} /></span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                 </div>
-              </div>
 
-              {d.votes.length > 0 && (
-                <ul className="mt-3 space-y-1 border-t border-slate-100 pt-2.5">
-                  {d.votes.map((v, i) => (
-                    <li key={`${v.actorId}-${i}`} className="text-xs text-slate-600">
-                      <span className={v.choice === 'APPROVE' ? 'font-bold text-emerald-600' : 'font-bold text-rose-600'}>
-                        {v.choice}
-                      </span>{' '}
-                      by <strong className="text-slate-800">{v.actorId}</strong> ({v.role}) — {v.reason || 'No reason recorded'} ·{' '}
-                      <Timestamp iso={v.at} />
-                    </li>
-                  ))}
-                </ul>
-              )}
+                <aside className="border-t border-slate-200 bg-slate-50/70 p-4 xl:border-l xl:border-t-0" aria-label={`Authorization state for decision ${d.id}`}>
+                  <p className="text-[10px] font-semibold tracking-wide text-slate-500">AUTHORIZATION</p>
+                  <p className="mt-2 text-2xl font-bold tracking-[-0.04em] text-slate-950 tabular-nums">
+                    {held}<span className="text-sm font-medium text-slate-400"> / {d.requiredApprovals}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">distinct approvals held</p>
+                  {rejected && <p className="mt-2 text-xs font-semibold text-rose-700">Reviewer rejection blocks normal release.</p>}
+                  {!rejected && met && <p className="mt-2 text-xs font-semibold text-emerald-700">Approval threshold satisfied.</p>}
+                  {!rejected && !met && <p className="mt-2 text-xs text-slate-600">Release remains disabled until threshold is met.</p>}
 
-              <div className="mt-3.5 flex flex-wrap gap-2 pt-1 border-t border-slate-100">
-                <ActionButton
-                  label="Approve"
-                  Icon={CheckCircle2}
-                  tone="emerald"
-                  allowed={can('release:approve')}
-                  deniedReason="Approving a release requires the reviewer role."
-                  onClick={() => { setOutcome(null); setPending({ kind: 'approve', decision: d }); }}
-                />
-                <ActionButton
-                  label="Reject"
-                  Icon={XCircle}
-                  tone="rose"
-                  allowed={can('release:approve')}
-                  deniedReason="Rejecting a release requires the reviewer role."
-                  onClick={() => { setOutcome(null); setPending({ kind: 'reject', decision: d }); }}
-                />
-                <ActionButton
-                  label="Release"
-                  Icon={CheckCircle2}
-                  tone="sky"
-                  allowed={can('release:approve') && met}
-                  deniedReason={
-                    !can('release:approve')
-                      ? 'Releasing requires the reviewer role.'
-                      : rejected
-                        ? 'This decision was rejected by an authorized reviewer.'
-                        : `The approval threshold is not met (${held} of ${d.requiredApprovals}).`
-                  }
-                  onClick={() => { setOutcome(null); setPending({ kind: 'release', decision: d }); }}
-                />
-                <ActionButton
-                  label="Override"
-                  Icon={ShieldAlert}
-                  tone="amber"
-                  allowed={can('release:override')}
-                  deniedReason="Overriding dual control requires the release supervisor role."
-                  onClick={() => { setOutcome(null); setPending({ kind: 'override', decision: d }); }}
-                />
+                  <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-1">
+                    <ActionButton
+                      label="Approve"
+                      Icon={CheckCircle2}
+                      tone="emerald"
+                      allowed={can('release:approve')}
+                      deniedReason="Approving a release requires the reviewer role."
+                      onClick={() => { setOutcome(null); setPending({ kind: 'approve', decision: d }); }}
+                    />
+                    <ActionButton
+                      label="Reject"
+                      Icon={XCircle}
+                      tone="rose"
+                      allowed={can('release:approve')}
+                      deniedReason="Rejecting a release requires the reviewer role."
+                      onClick={() => { setOutcome(null); setPending({ kind: 'reject', decision: d }); }}
+                    />
+                    <ActionButton
+                      label="Release"
+                      Icon={CheckCircle2}
+                      tone="sky"
+                      allowed={can('release:approve') && met}
+                      deniedReason={
+                        !can('release:approve')
+                          ? 'Releasing requires the reviewer role.'
+                          : rejected
+                            ? 'This decision was rejected by an authorized reviewer.'
+                            : `The approval threshold is not met (${held} of ${d.requiredApprovals}).`
+                      }
+                      onClick={() => { setOutcome(null); setPending({ kind: 'release', decision: d }); }}
+                    />
+                    <ActionButton
+                      label="Override"
+                      Icon={ShieldAlert}
+                      tone="amber"
+                      allowed={can('release:override')}
+                      deniedReason="Overriding dual control requires the release supervisor role."
+                      onClick={() => { setOutcome(null); setPending({ kind: 'override', decision: d }); }}
+                    />
+                  </div>
+                </aside>
               </div>
-            </li>
+            </article>
           );
         })}
-      </ul>
+      </div>
 
       {list.hasMore && (
-        <button
-          type="button"
-          onClick={list.loadMore}
-          disabled={list.loadingMore}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
-        >
-          {list.loadingMore ? 'Loading…' : 'Load more'}
+        <button type="button" onClick={list.loadMore} disabled={list.loadingMore} className="secondary-action">
+          {list.loadingMore ? 'Loading…' : 'Load more decisions'}
         </button>
       )}
 
@@ -235,7 +255,7 @@ export const ReviewQueue: React.FC = () => {
           minReasonLength={pending.kind === 'override' ? MIN_OVERRIDE_REASON : 1}
           reasonHint={
             pending.kind === 'override'
-              ? `At least ${MIN_OVERRIDE_REASON} characters. Recorded in the tamper-evident ledger.`
+              ? `At least ${MIN_OVERRIDE_REASON} characters. Recorded in the tamper-evident evidence ledger.`
               : 'Recorded against your verified identity on the decision.'
           }
           busy={busy}
@@ -246,6 +266,13 @@ export const ReviewQueue: React.FC = () => {
     </section>
   );
 };
+
+const ReviewFact: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono = false }) => (
+  <div className="min-w-0">
+    <dt className="text-[10px] font-medium text-slate-500">{label}</dt>
+    <dd className={`mt-0.5 truncate font-semibold text-slate-800 ${mono ? 'font-mono text-[11px]' : ''}`}>{value}</dd>
+  </div>
+);
 
 function confirmTitle(a: PendingAction): string {
   switch (a.kind) {
@@ -266,7 +293,7 @@ function confirmBody(a: PendingAction): string {
     case 'release':
       return `Releases artifact ${a.decision.artifactId} with ${held} of ${a.decision.requiredApprovals} approvals. Transitions state to RELEASED.`;
     case 'override':
-      return `Releases artifact ${a.decision.artifactId} past controls with supervisor override. Reason is written to the immutable audit register.`;
+      return `Releases artifact ${a.decision.artifactId} past normal dual-control requirements with supervisor override. The justification is recorded in the tamper-evident append-only evidence ledger.`;
   }
 }
 
@@ -275,10 +302,10 @@ function confirmLabel(a: PendingAction): string {
 }
 
 const toneClasses: Record<string, string> = {
-  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
-  rose: 'border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100',
-  sky: 'border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100',
-  amber: 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100',
+  emerald: 'border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50',
+  rose: 'border-rose-300 bg-white text-rose-800 hover:bg-rose-50',
+  sky: 'border-slate-900 bg-slate-950 text-white hover:bg-slate-800',
+  amber: 'border-amber-300 bg-white text-amber-900 hover:bg-amber-50',
 };
 
 const ActionButton: React.FC<{
@@ -298,16 +325,12 @@ const ActionButton: React.FC<{
         disabled={!allowed}
         title={allowed ? undefined : deniedReason}
         aria-describedby={allowed ? undefined : id}
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold shadow-2xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${toneClasses[tone]}`}
+        className={`inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${toneClasses[tone]}`}
       >
         <Icon className="h-3.5 w-3.5" aria-hidden />
         {label}
       </button>
-      {!allowed && (
-        <span id={id} className="sr-only">
-          {deniedReason}
-        </span>
-      )}
+      {!allowed && <span id={id} className="sr-only">{deniedReason}</span>}
     </span>
   );
 };
