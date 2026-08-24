@@ -1,17 +1,19 @@
 /**
- * Main Application Shell
- * 
- * Clean light fintech theme with top navigation header and primary operations console.
+ * Main application shell.
+ *
+ * SentinelFlow is an operational control plane, not a marketing dashboard. The
+ * shell keeps global actions compact and gives the governed operations console
+ * most of the viewport.
  */
 
 import React, { useState } from 'react';
+import { Database, Plus } from 'lucide-react';
 import { Header } from './components/Header';
 import { UploadModal } from './components/UploadModal';
 import { ConnectorWizardModal } from './components/ConnectorWizardModal';
 import { SavedConnectionsPanel } from './components/SavedConnectionsPanel';
 import { OperationsConsole } from './components/ops/OperationsConsole';
 import { SessionProvider } from './state/SessionContext';
-import { Database, Plus } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [showUpload, setShowUpload] = useState(false);
@@ -20,33 +22,31 @@ export const App: React.FC = () => {
 
   return (
     <SessionProvider>
-      <div className="flex min-h-screen flex-col bg-[#F8FAFC] text-slate-900 antialiased selection:bg-indigo-100 selection:text-indigo-900">
+      <div className="flex min-h-[100dvh] flex-col bg-[#F3F5F7] text-slate-950 antialiased selection:bg-slate-200 selection:text-slate-950">
         <Header
           onOpenUpload={() => setShowUpload(true)}
-          onOpenConnectors={() => setShowConnections((v) => !v)}
+          onOpenConnectors={() => setShowConnections((value) => !value)}
         />
 
-        <main className="flex-1 space-y-6 px-6 py-6 sm:px-8">
+        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
           {showConnections && (
-            <div className="mx-auto max-w-7xl">
-              <section
-                aria-label="Saved source connections"
-                className="fintech-card overflow-hidden"
-              >
-                <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3.5">
-                  <div className="flex items-center gap-2">
-                    <Database className="h-4 w-4 text-indigo-600" />
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                      Managed Source Connections
-                    </h2>
+            <div className="mx-auto mb-5 max-w-[1440px]">
+              <section aria-label="Saved source connections" className="surface-panel overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
+                  <div className="flex items-center gap-2.5">
+                    <Database className="h-4 w-4 text-slate-500" aria-hidden />
+                    <div>
+                      <h2 className="text-sm font-semibold text-slate-950">Managed source connections</h2>
+                      <p className="mt-0.5 text-xs text-slate-500">Connection inventory is operational configuration, not model context.</p>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowWizard(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                    className="secondary-action"
                   >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>Add Connection</span>
+                    <Plus className="h-3.5 w-3.5" aria-hidden />
+                    <span>Add connection</span>
                   </button>
                 </div>
                 <SavedConnectionsPanel />
@@ -54,7 +54,7 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          <OperationsConsole />
+          <OperationsConsole onOpenUpload={() => setShowUpload(true)} />
         </main>
 
         {showWizard && <ConnectorWizardModal onClose={() => setShowWizard(false)} />}
