@@ -2,6 +2,7 @@ package policy
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 )
