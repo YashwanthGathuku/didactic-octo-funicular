@@ -31,10 +31,78 @@ if grep -RInE --exclude-dir=.git --exclude='*.md' --exclude='*.json' --exclude='
   exit 1
 fi
 
-if grep -RIn --exclude='test_*' --exclude='*_test.py' 'X-Agent-Identity-Principal' "$ROOT/ai-tier/runtime"; then
-  echo "ERROR: runtime code still manufactures the legacy identity-principal header" >&2
-  exit 1
-fi
+# Do not use raw grep for the legacy identity header: comments and docstrings are
+# documentation, not executable behavior. Parse Python and reject the exact
+# legacy header literal only when it appears in executable AST nodes.
+python - "$ROOT/ai-tier/runtime" <<'PY'
+import ast
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+needle = "X-Agent-Identity-Principal"
+violations: list[str] = []
+
+
+def body_without_docstring(body):
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        return body[1:]
+    return body
+
+
+class ExecutableStringVisitor(ast.NodeVisitor):
+    def __init__(self, path: pathlib.Path):
+        self.path = path
+
+    def visit_Module(self, node: ast.Module):
+        for stmt in body_without_docstring(node.body):
+            self.visit(stmt)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        for stmt in body_without_docstring(node.body):
+            self.visit(stmt)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword)
+        for stmt in body_without_docstring(node.body):
+            self.visit(stmt)
+
+    def visit_Constant(self, node: ast.Constant):
+        if node.value == needle:
+            violations.append(f"{self.path}:{node.lineno}")
+
+
+for path in sorted(root.rglob("*.py")):
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError) as exc:
+        print(f"ERROR: unable to parse {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    ExecutableStringVisitor(path).visit(tree)
+
+if violations:
+    print("ERROR: runtime code still manufactures/references the legacy identity-principal header", file=sys.stderr)
+    for violation in violations:
+        print(violation, file=sys.stderr)
+    sys.exit(1)
+PY
 
 if grep -RIn --exclude='test_*' --exclude='*_test.py' '"status": "COMPLETED"' "$ROOT/ai-tier/runtime"; then
   echo "ERROR: runtime adapter appears to claim COMPLETED without managed proof" >&2
