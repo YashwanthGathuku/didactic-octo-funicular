@@ -1,6 +1,6 @@
 module sentinel-gateway
 
-go 1.25.8
+go 1.25.13
 
 require (
 	github.com/ProtonMail/go-crypto v1.4.1
@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/cloudflare/circl v1.6.2 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
