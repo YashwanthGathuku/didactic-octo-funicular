@@ -76,7 +76,7 @@ func TestValueSurvivesReflectiveInspection(t *testing.T) {
 		case reflect.String:
 			rendered = f.String()
 		case reflect.Slice:
-			rendered = fmt.Sprintf("%s", f.Bytes())
+			rendered = string(f.Bytes())
 		default:
 			rendered = fmt.Sprint(f)
 		}

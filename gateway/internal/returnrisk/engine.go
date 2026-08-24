@@ -313,9 +313,10 @@ func (e *DeterministicRiskEngine) extractFeatureVector(
 
 	// 9. Source Strength (contextual/diagnostic only)
 	sourceStrength := 50.0
-	if event.VerificationStatus == VerificationStatusVerified {
+	switch event.VerificationStatus {
+	case VerificationStatusVerified:
 		sourceStrength = 100.0
-	} else if event.VerificationStatus == VerificationStatusDisputed {
+	case VerificationStatusDisputed:
 		sourceStrength = 20.0
 	}
 

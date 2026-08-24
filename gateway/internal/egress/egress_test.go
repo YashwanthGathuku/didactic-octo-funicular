@@ -285,8 +285,7 @@ func TestHostResolvingToNothingIsRefused(t *testing.T) {
 // A redirect is a new destination. An allowlisted host answering 302 to the
 // metadata service is the classic bypass.
 func TestRedirectToABlockedDestinationIsRefused(t *testing.T) {
-	var target *httptest.Server
-	target = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var target *httptest.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
 	}))
 	defer target.Close()

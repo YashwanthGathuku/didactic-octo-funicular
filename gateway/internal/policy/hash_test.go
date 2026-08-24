@@ -195,7 +195,7 @@ func TestCanonicalJSON_RFC8785_NumericGoldenVectors(t *testing.T) {
 		expected string
 	}{
 		{"positive zero", 0.0, "0"},
-		{"negative zero", -0.0, "0"},
+		{"negative zero", math.Copysign(0, -1), "0"},
 		{"integer zero", 0, "0"},
 		{"positive int", 100, "100"},
 		{"negative int", -100, "-100"},

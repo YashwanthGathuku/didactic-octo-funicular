@@ -114,9 +114,10 @@ func (s *ToolStore) RecordInvocationTx(ctx context.Context, tx *sql.Tx, rec *Inv
 
 	// Emit universal transactional outbox event
 	eventType := "TOOL_INVOCATION_SUCCEEDED"
-	if rec.Status == StatusDenied {
+	switch rec.Status {
+	case StatusDenied:
 		eventType = "TOOL_INVOCATION_DENIED"
-	} else if rec.Status == StatusFailed || rec.Status == StatusTimedOut {
+	case StatusFailed, StatusTimedOut:
 		eventType = "TOOL_INVOCATION_FAILED"
 	}
 

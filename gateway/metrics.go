@@ -113,10 +113,11 @@ func (m *MetricsCollector) RecordFileIngested(status string, bytes int) {
 	metricBytesIngestedTotal.Add(uint64(bytes))
 
 	normStatus := telemetry.NormalizeStatus(status)
-	if status == "QUARANTINED" {
+	switch status {
+	case "QUARANTINED":
 		atomic.AddUint64(&m.TotalQuarantined, 1)
 		metricFilesIngestedTotal.Inc(telemetry.Label{Key: "status", Value: "QUARANTINED"})
-	} else if status == "RELEASED" || status == "VALID" {
+	case "RELEASED", "VALID":
 		atomic.AddUint64(&m.TotalValid, 1)
 		metricFilesIngestedTotal.Inc(telemetry.Label{Key: "status", Value: "VALID"})
 	}

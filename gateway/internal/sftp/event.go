@@ -78,7 +78,7 @@ func (e *FinalizedUploadEvent) DedupeKey(tenantID string) string {
 // ComputeSignature calculates the HMAC-SHA256 signature for webhook authentication.
 func ComputeSignature(secret string, timestamp int64, payload []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(fmt.Sprintf("%d\n", timestamp)))
+	fmt.Fprintf(mac, "%d\n", timestamp)
 	mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
 }

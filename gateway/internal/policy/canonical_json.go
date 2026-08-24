@@ -293,7 +293,7 @@ func writeCanonicalString(s string, buf *bytes.Buffer) error {
 			buf.WriteString(`\t`)
 		default:
 			if r < 0x20 {
-				buf.WriteString(fmt.Sprintf(`\u%04x`, r))
+				fmt.Fprintf(buf, `\u%04x`, r)
 			} else {
 				buf.WriteRune(r)
 			}

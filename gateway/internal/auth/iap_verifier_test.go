@@ -29,8 +29,8 @@ func TestIAPJWTVerifier_ValidSignedAssertion(t *testing.T) {
 				"alg": "ES256",
 				"use": "sig",
 				"kid": kid,
-				"x":   base64.RawURLEncoding.EncodeToString(key.PublicKey.X.Bytes()),
-				"y":   base64.RawURLEncoding.EncodeToString(key.PublicKey.Y.Bytes()),
+				"x":   base64.RawURLEncoding.EncodeToString(key.X.Bytes()),
+				"y":   base64.RawURLEncoding.EncodeToString(key.Y.Bytes()),
 			}},
 		})
 	}))
@@ -80,8 +80,8 @@ func TestIAPJWTVerifier_RejectsWrongAudience(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]any{{
 				"kty": "EC", "crv": "P-256", "alg": "ES256", "kid": kid,
-				"x": base64.RawURLEncoding.EncodeToString(key.PublicKey.X.Bytes()),
-				"y": base64.RawURLEncoding.EncodeToString(key.PublicKey.Y.Bytes()),
+				"x": base64.RawURLEncoding.EncodeToString(key.X.Bytes()),
+				"y": base64.RawURLEncoding.EncodeToString(key.Y.Bytes()),
 			}},
 		})
 	}))

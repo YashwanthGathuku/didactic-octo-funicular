@@ -673,7 +673,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 			}
 			id, _ := res.LastInsertId()
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(fmt.Sprintf(`{"status": "CREATED", "id": %d}`, id)))
+			fmt.Fprintf(w, `{"status": "CREATED", "id": %d}`, id)
 		})
 
 		// GET Contracts

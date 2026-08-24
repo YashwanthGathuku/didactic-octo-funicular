@@ -182,7 +182,7 @@ func TestFetchJWKSRejectsWeakKeys(t *testing.T) {
 func TestFetchJWKSSkipsKeysWithoutAnId(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	body := `{"keys":[{"kty":"RSA","use":"sig","alg":"RS256","n":"` +
-		base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()) +
+		base64.RawURLEncoding.EncodeToString(key.N.Bytes()) +
 		`","e":"AQAB"}]}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

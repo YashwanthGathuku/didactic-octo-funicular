@@ -232,9 +232,10 @@ func (o *AgentOrchestrator) fallbackStage(req *AgentStageRequest) (*AgentStageRe
 		}
 
 		outcome := "HUMAN_AUTHORIZATION_REQUIRED"
-		if decision == "DENY" {
+		switch decision {
+		case "DENY":
 			outcome = "POLICY_BLOCKED"
-		} else if decision == "ALLOW" || decision == "ALLOW_WITH_OBLIGATIONS" {
+		case "ALLOW", "ALLOW_WITH_OBLIGATIONS":
 			outcome = "READY_FOR_REMEDIATION"
 		}
 
@@ -350,13 +351,14 @@ func (o *AgentOrchestrator) RunWorkflow(
 	// 2. If workflow is already in terminal state, return it immediately
 	if domain.IsTerminalAgentWorkflow(wf.State) {
 		outcome := "UNRESOLVED"
-		if wf.State == domain.WorkflowCompleted {
+		switch wf.State {
+		case domain.WorkflowCompleted:
 			outcome = "READY_FOR_REMEDIATION"
-		} else if wf.State == domain.WorkflowAwaitingVerification {
+		case domain.WorkflowAwaitingVerification:
 			outcome = "CANDIDATE_REVALIDATION_PASSED"
-		} else if wf.State == domain.WorkflowPolicyDenied {
+		case domain.WorkflowPolicyDenied:
 			outcome = "POLICY_BLOCKED"
-		} else if wf.State == domain.WorkflowHumanReview {
+		case domain.WorkflowHumanReview:
 			outcome = "HUMAN_AUTHORIZATION_REQUIRED"
 		}
 		synthResp := &AgentStageResponse{
