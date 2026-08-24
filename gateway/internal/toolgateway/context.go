@@ -33,10 +33,12 @@ type TrustedExecutionContext struct {
 	CallerCapabilities    []ToolCapability `json:"caller_capabilities"`
 	CallerAutonomyLevel   int              `json:"caller_autonomy_level"`
 	WorkflowID            string           `json:"workflow_id,omitempty"`
+	WorkflowState         string           `json:"workflow_state,omitempty"`
 	IncidentID            string           `json:"incident_id,omitempty"`
 	ArtifactID            string           `json:"artifact_id,omitempty"`
 	ArtifactSHA256        string           `json:"artifact_sha256,omitempty"`
 	ResourceVersion       int              `json:"resource_version,omitempty"`
+	PolicyBundleHash      string           `json:"policy_bundle_hash,omitempty"`
 	AllowedTools          []string         `json:"allowed_tools"`
 	ExecutionMode         string           `json:"execution_mode"` // SHADOW, ADVISORY, LIVE
 	Timestamp             time.Time        `json:"timestamp"`
@@ -96,9 +98,6 @@ func (ctx *TrustedExecutionContext) Validate() error {
 			return fmt.Errorf("%w: %s (generation=%d)", ErrAgentExecutionDisabled, reason, ctx.KillSwitchGeneration)
 		}
 		if ctx.MaxToolCalls > 0 {
-			// ToolCallOrdinal is one-based for an attempted logical invocation. An
-			// ordinal greater than the trusted maximum is rejected before any tool
-			// side effect can occur.
 			if ctx.ToolCallOrdinal == 0 {
 				return fmt.Errorf("%w: tool_call_ordinal required when max_tool_calls is configured", ErrInputValidationFailed)
 			}
@@ -122,7 +121,6 @@ func (ctx *TrustedExecutionContext) Validate() error {
 	return nil
 }
 
-// HasCapability checks if the trusted context holds the requested capability.
 func (ctx *TrustedExecutionContext) HasCapability(cap ToolCapability) bool {
 	for _, c := range ctx.CallerCapabilities {
 		if c == cap {
@@ -132,7 +130,6 @@ func (ctx *TrustedExecutionContext) HasCapability(cap ToolCapability) bool {
 	return false
 }
 
-// IsToolAllowed checks if the tool is in the context's allowed tool list (if non-empty).
 func (ctx *TrustedExecutionContext) IsToolAllowed(toolID string) bool {
 	if len(ctx.AllowedTools) == 0 {
 		return true
@@ -145,8 +142,9 @@ func (ctx *TrustedExecutionContext) IsToolAllowed(toolID string) bool {
 	return false
 }
 
-// CanonicalHash computes the RFC 8785 SHA-256 hash of the trusted context, including the operational
-// controls that were authoritative at invocation time.
+// CanonicalHash computes the RFC 8785 SHA-256 hash of the trusted context,
+// including current TOCTOU state and operational controls authoritative at the
+// invocation boundary.
 func (ctx *TrustedExecutionContext) CanonicalHash() (string, error) {
 	roles := append([]string(nil), ctx.CallerRoles...)
 	sort.Strings(roles)
@@ -161,7 +159,7 @@ func (ctx *TrustedExecutionContext) CanonicalHash() (string, error) {
 	sort.Strings(allowed)
 
 	payload := map[string]interface{}{
-		"schema_version":             "1.1",
+		"schema_version":             "1.2",
 		"request_id":                 ctx.RequestID,
 		"idempotency_key":            ctx.IdempotencyKey,
 		"correlation_id":             ctx.CorrelationID,
@@ -173,10 +171,12 @@ func (ctx *TrustedExecutionContext) CanonicalHash() (string, error) {
 		"caller_capabilities":        caps,
 		"caller_autonomy_level":      ctx.CallerAutonomyLevel,
 		"workflow_id":                ctx.WorkflowID,
+		"workflow_state":             ctx.WorkflowState,
 		"incident_id":                ctx.IncidentID,
 		"artifact_id":                ctx.ArtifactID,
 		"artifact_sha256":            ctx.ArtifactSHA256,
 		"resource_version":           ctx.ResourceVersion,
+		"policy_bundle_hash":         ctx.PolicyBundleHash,
 		"allowed_tools":              allowed,
 		"execution_mode":             ctx.ExecutionMode,
 		"timestamp":                  ctx.Timestamp.UTC().Format(time.RFC3339Nano),
@@ -185,7 +185,7 @@ func (ctx *TrustedExecutionContext) CanonicalHash() (string, error) {
 		"kill_switch_generation":     ctx.KillSwitchGeneration,
 		"tool_call_ordinal":          ctx.ToolCallOrdinal,
 		"max_tool_calls":             ctx.MaxToolCalls,
-		"workflow_started_at":         "",
+		"workflow_started_at":        "",
 		"max_workflow_duration_sec":  ctx.MaxWorkflowDurationSec,
 	}
 	if !ctx.WorkflowStartedAt.IsZero() {
