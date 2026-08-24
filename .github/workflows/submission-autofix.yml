@@ -4,22 +4,26 @@ on:
   push:
     branches:
       - chatgpt/submission-hardening-2026-08-23
-    paths-ignore:
-      - 'docs/**'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 concurrency:
-  group: submission-autofix-${{ github.ref }}
+  group: submission-autofix-${{ github.event.pull_request.head.ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
   mechanical-autofix:
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.ref_name == 'chatgpt/submission-hardening-2026-08-23' ||
+       github.head_ref == 'chatgpt/submission-hardening-2026-08-23')
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout branch
+      - name: Checkout hardening branch
         uses: actions/checkout@v4
         with:
           ref: chatgpt/submission-hardening-2026-08-23
