@@ -29,6 +29,22 @@ jobs:
           go-version-file: gateway/go.mod
           cache-dependency-path: gateway/go.sum
 
+      - name: Fix verification parent-binding tautology
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('gateway/internal/verification/service.go')
+          text = p.read_text()
+          old = '''parentBindingPassed := (deriv.ParentArtifactID == deriv.ParentArtifactID) &&
+          \t(candDerivedFrom == "" || candDerivedFrom == fmt.Sprintf("%d", deriv.ParentArtifactID) || candDerivedFrom == fmt.Sprintf("parent-%d", deriv.ParentArtifactID))'''
+          new = '''parentBindingPassed := candDerivedFrom == fmt.Sprintf("%d", deriv.ParentArtifactID)'''
+          if old not in text:
+              raise SystemExit('expected parent-binding pattern not found; refusing blind edit')
+          p.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Run safe golangci autofixes
         uses: golangci/golangci-lint-action@v9
         continue-on-error: true
@@ -51,7 +67,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add gateway
-          git commit -m 'chore(submission): apply safe Go lint autofixes'
+          git commit -m 'chore(submission): batch-fix Go lint and verification binding'
           git fetch origin chatgpt/submission-hardening-2026-08-23
           git rebase origin/chatgpt/submission-hardening-2026-08-23
           git push origin HEAD:chatgpt/submission-hardening-2026-08-23
