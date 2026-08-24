@@ -1,23 +1,18 @@
 """Deploy SentinelFlow's fixed Google ADK fleet to Agent Runtime.
 
-Safety properties:
-- dry-run by default;
-- a real deployment requires ``--execute`` and ADC;
-- Agent Identity is requested at *creation* time;
-- an optional existing Agent-to-Anywhere Gateway can be bound at creation;
-- no token, credential or financial payload is printed.
+Dry-run is the default. A live create requires ``--execute``, ADC, an explicit
+GCS staging bucket, and (when supplied) an Agent-to-Anywhere Gateway in the same
+project/region used by this hackathon deployment.
 
-This command creates a new reasoning engine when ``--execute`` is supplied. It
-therefore intentionally does not auto-retry creation or silently create a second
-resource. Reuse/update of an existing engine is handled by the P17 live runbook.
+Managed infrastructure never becomes SentinelFlow financial authority.
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict, dataclass
 import json
 import os
-from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 from runtime.managed_adk import MANAGED_MODEL, build_agent_runtime_app
@@ -32,6 +27,7 @@ class DeploymentPlan:
     display_name: str
     tracing_enabled: bool
     agent_gateway: Optional[str]
+    staging_bucket: Optional[str]
     vertex_ai_backend: bool
 
 
@@ -49,8 +45,13 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--display-name",
-        default="sentinelflow-p11-dev",
+        default="sentinelflow-p17-dev",
         help="Managed runtime display name",
+    )
+    parser.add_argument(
+        "--staging-bucket",
+        default=os.getenv("SENTINEL_AGENT_RUNTIME_STAGING_BUCKET", ""),
+        help="Existing gs:// bucket used to stage Agent Runtime deployment artifacts",
     )
     parser.add_argument(
         "--agent-gateway",
@@ -63,13 +64,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="Actually create the Agent Runtime resource. Without this flag the command is dry-run only.",
+        help="Create the Agent Runtime resource. Without this flag no cloud resource is created.",
     )
     return parser.parse_args()
 
 
 def _plan(args: argparse.Namespace) -> DeploymentPlan:
-    gateway = args.agent_gateway.strip() or None
     return DeploymentPlan(
         project=args.project,
         location=args.location,
@@ -77,7 +77,8 @@ def _plan(args: argparse.Namespace) -> DeploymentPlan:
         identity_type="AGENT_IDENTITY",
         display_name=args.display_name,
         tracing_enabled=True,
-        agent_gateway=gateway,
+        agent_gateway=args.agent_gateway.strip() or None,
+        staging_bucket=args.staging_bucket.strip() or None,
         vertex_ai_backend=True,
     )
 
@@ -92,22 +93,31 @@ def _resource_name(remote_app: Any) -> Optional[str]:
     return str(value) if value else None
 
 
+def _validate_live_args(args: argparse.Namespace) -> None:
+    if not args.project or not args.location:
+        raise RuntimeError("project and location are required for live Agent Runtime deployment")
+    staging = args.staging_bucket.strip()
+    if not staging.startswith("gs://"):
+        raise RuntimeError(
+            "--execute requires --staging-bucket=gs://... (or SENTINEL_AGENT_RUNTIME_STAGING_BUCKET)"
+        )
+
+
 def _build_config(args: argparse.Namespace, identity_type: Any) -> dict[str, Any]:
     config: dict[str, Any] = {
         "display_name": args.display_name,
         "identity_type": identity_type,
         "requirements": [
-            "google-adk>=2.7.1,<3.0.0",
-            "google-genai>=2.18.1,<3.0.0",
             "google-cloud-aiplatform[agent_engines,adk]>=1.111.0,<3.0.0",
+            "google-adk[agent-identity]>=2.7.1,<3.0.0",
+            "google-genai>=2.18.1,<3.0.0",
             "pydantic>=2.10.4,<3.0.0",
             "httpx>=0.27.0,<1.0.0",
         ],
+        "staging_bucket": args.staging_bucket.strip(),
         "env_vars": {
             "GOOGLE_CLOUD_PROJECT": args.project,
             "GOOGLE_CLOUD_LOCATION": args.location,
-            # Managed ADK model calls use Vertex AI + ADC/Agent Identity rather
-            # than requiring a long-lived Gemini API key in the Runtime.
             "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
             "SENTINEL_PLATFORM_MODE": "managed",
             "SENTINEL_AI_MODE": "live",
@@ -125,6 +135,10 @@ def _build_config(args: argparse.Namespace, identity_type: Any) -> dict[str, Any
         config["agent_gateway_config"] = {
             "agent_to_anywhere_config": {"agent_gateway": gateway}
         }
+        # Current Agent Runtime guidance requires this opt-out when routing
+        # Google service calls through Agent Gateway with Agent Identity. It is
+        # deliberately scoped to managed Runtime, not local development.
+        config["env_vars"]["GOOGLE_API_PREVENT_AGENT_TOKEN_SHARING_FOR_GCP_SERVICES"] = False
 
     return config
 
@@ -138,8 +152,7 @@ def deploy(args: argparse.Namespace) -> dict[str, Any]:
             "message": "No Google Cloud resources were created.",
         }
 
-    if not args.project or not args.location:
-        raise RuntimeError("project and location are required for live Agent Runtime deployment")
+    _validate_live_args(args)
 
     try:
         import google.auth
@@ -164,7 +177,7 @@ def deploy(args: argparse.Namespace) -> dict[str, Any]:
     resource_name = _resource_name(remote_app)
     if not resource_name:
         raise RuntimeError(
-            "Agent Runtime create returned without a resource name; do not treat the deployment as proven"
+            "Agent Runtime create returned without a resource name; deployment is not proven"
         )
 
     return {
@@ -176,14 +189,14 @@ def deploy(args: argparse.Namespace) -> dict[str, Any]:
         "identity_type": "AGENT_IDENTITY",
         "model": MANAGED_MODEL,
         "agent_gateway": plan.agent_gateway,
+        "staging_bucket": plan.staging_bucket,
         "vertex_ai_backend": True,
     }
 
 
 def main() -> None:
     args = _parse_args()
-    result = deploy(args)
-    print(json.dumps(result, indent=2, sort_keys=True))
+    print(json.dumps(deploy(args), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
