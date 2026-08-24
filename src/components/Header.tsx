@@ -1,12 +1,13 @@
 /**
- * Institutional Header Navigation Bar (Light Fintech Theme)
- * 
- * Clean, bright header with verified identity, live gateway readiness status,
- * and high-priority operator actions.
+ * Global SentinelFlow header.
+ *
+ * The header is intentionally quiet: product identity, trusted runtime status,
+ * and the two global operator actions. Screen navigation lives with the
+ * operations console instead of competing with these actions.
  */
 
 import React from 'react';
-import { Activity, Database, ShieldCheck, Layers } from 'lucide-react';
+import { Activity, Database, ShieldCheck } from 'lucide-react';
 import { useSession } from '../state/SessionContext';
 
 interface HeaderProps {
@@ -17,55 +18,43 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ onOpenUpload, onOpenConnectors }) => {
   const { result, session, can } = useSession();
 
-  const [dotClass, badgeClass, label] =
+  const [dotClass, statusLabel] =
     result === null
-      ? ['dot-pulse-amber', 'badge-slate', 'Probing Gateway…']
+      ? ['dot-pulse-amber', 'Probing gateway']
       : result.state === 'ok'
-        ? ['dot-pulse-green', 'badge-emerald', `Gateway Live · ${session?.profile ?? 'local-demo'}`]
-        : ['dot-pulse-red', 'badge-amber', 'Gateway Offline'];
+        ? ['dot-pulse-green', `Gateway live · ${session?.profile ?? 'local-demo'}`]
+        : ['dot-pulse-red', 'Gateway offline'];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 px-6 py-3.5 backdrop-blur-md transition-all shadow-xs">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-        
-        {/* Brand & System Status */}
-        <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 shadow-sm text-white">
-            <ShieldCheck className="h-5 w-5" aria-hidden />
+    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/96 backdrop-blur-md">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-950 text-white shadow-xs">
+            <ShieldCheck className="h-[18px] w-[18px]" aria-hidden />
           </div>
 
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="text-base font-extrabold tracking-tight text-slate-900">
-                SENTINEL<span className="text-indigo-600 font-semibold ml-1">FLOW</span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-[15px] font-extrabold tracking-[-0.035em] text-slate-950">
+                SENTINEL<span className="font-medium text-slate-500">FLOW</span>
               </span>
-              
-              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-700">
-                <Layers className="h-3 w-3 text-indigo-600" />
-                Pre-Ledger Gateway
-              </span>
-
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${badgeClass}`} role="status">
-                <span className={dotClass} aria-hidden />
-                {label}
-              </span>
+              <span className="hidden text-xs font-medium text-slate-500 sm:inline">Pre-ledger financial control plane</span>
             </div>
-
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Financial file reliability: scheduled expected feeds, zero-copy NACHA validation, dual-control release
-            </p>
+            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500" role="status" aria-live="polite">
+              <span className={dotClass} aria-hidden />
+              <span>{statusLabel}</span>
+            </div>
           </div>
         </div>
 
-        {/* Global Action Toolbar */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onOpenConnectors}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-xs transition-all hover:border-slate-300 hover:bg-slate-50"
+            className="secondary-action"
           >
-            <Database className="h-3.5 w-3.5 text-slate-500" aria-hidden />
-            Source Connections
+            <Database className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline">Connections</span>
           </button>
 
           <button
@@ -73,13 +62,12 @@ export const Header: React.FC<HeaderProps> = ({ onOpenUpload, onOpenConnectors }
             onClick={onOpenUpload}
             disabled={!can('artifact:upload')}
             title={can('artifact:upload') ? undefined : 'Uploading an artifact requires the operator role.'}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition-all hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="primary-action"
           >
-            <Activity className="h-3.5 w-3.5 text-indigo-200" aria-hidden />
-            Ingest File
+            <Activity className="h-3.5 w-3.5" aria-hidden />
+            <span>Ingest file</span>
           </button>
         </div>
-
       </div>
     </header>
   );
