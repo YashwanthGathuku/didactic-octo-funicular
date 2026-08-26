@@ -402,3 +402,101 @@ export interface StreamHello {
   gap: boolean;
   serverNow: string;
 }
+
+// ---------------------------------------------------------------------------
+// SentinelFlow Lens — governed advisory analytics
+// ---------------------------------------------------------------------------
+
+export interface LensTimeRange {
+  start: string;
+  end: string;
+}
+
+export interface LensFilter {
+  field: string;
+  op: 'EQ' | 'IN';
+  values: string[];
+}
+
+export interface LensOrderBy {
+  field: string;
+  direction: 'ASC' | 'DESC';
+}
+
+export interface LensQueryIntent {
+  schema_version: '1.0';
+  dataset_id: string;
+  time_range: LensTimeRange;
+  metrics: string[];
+  dimensions: string[];
+  filters?: LensFilter[];
+  order_by?: LensOrderBy[];
+  limit?: number;
+}
+
+export interface LensDatasetField {
+  id: string;
+  label: string;
+  kind: 'DIMENSION' | 'METRIC';
+  value_type: string;
+  description?: string;
+}
+
+export interface LensDataset {
+  id: string;
+  label: string;
+  description: string;
+  time_field: string;
+  fields: LensDatasetField[];
+  source_class: string;
+}
+
+export interface LensChartSpec {
+  kind: 'line' | 'bar' | 'table';
+  x?: string;
+  y?: string;
+  series?: string;
+  title: string;
+  value_label?: string;
+}
+
+export interface LensProvenance {
+  source_class: string;
+  query_hash: string;
+  result_hash: string;
+  evidence_refs: string[];
+  executed_at: string;
+  row_count: number;
+  advisory_only: boolean;
+}
+
+export interface LensQueryResult {
+  dataset_id: string;
+  columns: string[];
+  rows: Array<Record<string, string | number | null>>;
+  chart: LensChartSpec;
+  provenance: LensProvenance;
+  meta?: Record<string, unknown>;
+}
+
+export interface LensInvestigationNode {
+  id: string;
+  investigation_id: string;
+  parent_node_id?: string;
+  question: string;
+  query_intent: LensQueryIntent;
+  query_hash: string;
+  result_hash: string;
+  chart: LensChartSpec;
+  evidence_refs: string[];
+  created_by: string;
+  created_at: string;
+}
+
+export interface LensInvestigation {
+  id: string;
+  title: string;
+  created_by: string;
+  created_at: string;
+  nodes: LensInvestigationNode[];
+}

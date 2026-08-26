@@ -52,12 +52,13 @@ var tenantRoles = map[Role]bool{
 type Permission string
 
 const (
-	PermReadTenant     Permission = "tenant:read"
-	PermUploadArtifact Permission = "artifact:upload"
-	PermApproveRelease Permission = "release:approve"
-	PermManageContract Permission = "contract:manage"
-	PermReadEvidence   Permission = "evidence:read"
-	PermPlatformAdmin  Permission = "platform:admin"
+	PermReadTenant      Permission = "tenant:read"
+	PermUploadArtifact  Permission = "artifact:upload"
+	PermApproveRelease  Permission = "release:approve"
+	PermManageContract  Permission = "contract:manage"
+	PermReadEvidence    Permission = "evidence:read"
+	PermPlatformAdmin   Permission = "platform:admin"
+	PermManageAnalytics Permission = "analytics:manage"
 
 	// PermManageSecret authorizes creating, rotating and retiring a tenant's
 	// credentials. It does not authorize reading one: no role does, because the
@@ -88,17 +89,17 @@ const (
 // collapsing them lets one account both configure the control and satisfy it.
 var rolePermissions = map[Role][]Permission{
 	RoleViewer:   {PermReadTenant, PermReadEvidence},
-	RoleOperator: {PermReadTenant, PermReadEvidence, PermUploadArtifact},
-	RoleReviewer: {PermReadTenant, PermReadEvidence, PermApproveRelease},
+	RoleOperator: {PermReadTenant, PermReadEvidence, PermUploadArtifact, PermManageAnalytics},
+	RoleReviewer: {PermReadTenant, PermReadEvidence, PermApproveRelease, PermManageAnalytics},
 	RoleTenantAdmin: {
 		PermReadTenant, PermReadEvidence, PermManageContract, PermManageSecret,
-		PermManageReleasePolicy,
+		PermManageReleasePolicy, PermManageAnalytics,
 	},
 	// A supervisor may approve and may override. They may not configure the
 	// policy they are overriding, which is what stops "lower the threshold,
 	// then meet it" being an alternative to writing a justification.
 	RoleReleaseSupervisor: {
-		PermReadTenant, PermReadEvidence, PermApproveRelease, PermOverrideRelease,
+		PermReadTenant, PermReadEvidence, PermApproveRelease, PermOverrideRelease, PermManageAnalytics,
 	},
 	RolePlatformAdmin: {PermPlatformAdmin},
 }

@@ -71,7 +71,7 @@ func rosterAgent(name string, level AutonomyLevel, allowed, additionalDenied []s
 var FixedCanonicalRoster = map[string]RegisteredAgentIdentity{
 	"IncidentCommanderAgent": rosterAgent(
 		"IncidentCommanderAgent", AutonomyA1,
-		[]string{"incident.get", "workflow.get", "artifact.metadata.get", "validation.findings.list_redacted"},
+		[]string{"incident.get", "workflow.get", "artifact.metadata.get", "validation.findings.list_redacted", "lens.query"},
 		[]string{"remediation.candidate.create"},
 	),
 	"DiagnosisAgent": rosterAgent(
@@ -104,7 +104,7 @@ var FixedCanonicalRoster = map[string]RegisteredAgentIdentity{
 	),
 	"ReturnRiskAgent": rosterAgent(
 		"ReturnRiskAgent", AutonomyA1,
-		[]string{"incident.get", "workflow.get", "memory.retrieve", "returnrisk.result.get"},
+		[]string{"incident.get", "workflow.get", "memory.retrieve", "returnrisk.result.get", "lens.query"},
 		[]string{"remediation.candidate.create"},
 	),
 }

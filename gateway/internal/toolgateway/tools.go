@@ -1,13 +1,16 @@
 package toolgateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"sentinel-gateway/internal/auth"
 	"sentinel-gateway/internal/candidate"
+	"sentinel-gateway/internal/lens"
 	"sentinel-gateway/internal/policy"
 	"sentinel-gateway/internal/repository"
 )
@@ -19,6 +22,7 @@ const (
 	ToolArtifactMetadataGet        = "artifact.metadata.get"
 	ToolWorkflowGet                = "workflow.get"
 	ToolRemediationCandidateCreate = "remediation.candidate.create"
+	ToolLensQuery                  = "lens.query"
 )
 
 // Strongly typed output structures for P04 safe tools
@@ -331,6 +335,54 @@ func makeSystemScope(tenantID, actorID string) repository.Scope {
 	}
 	scope, _ := repository.NewScope(p, tenantID, auth.PermReadTenant)
 	return scope
+}
+
+// RegisterLensTool exposes the Lens semantic compiler to governed agent/MCP callers.
+// The caller can provide only a typed QueryIntent; raw SQL is never part of the contract.
+func RegisterLensTool(reg *Registry, svc *lens.Service) error {
+	if reg == nil {
+		return errors.New("lens tool registry is required")
+	}
+	if svc == nil {
+		return errors.New("lens service is required")
+	}
+	manifest := &ToolManifest{
+		ToolID:                       ToolLensQuery,
+		Version:                      "1.0.0",
+		Description:                  "Executes a bounded, tenant-scoped SentinelFlow Lens semantic analytics intent. Raw SQL and financial mutations are not exposed.",
+		Owner:                        "sentinel-lens",
+		Status:                       ManifestStatusActive,
+		PolicyDomain:                 policy.DomainTool,
+		PolicyAction:                 policy.ActionQueryAnalytics,
+		RequiredCapabilities:         []ToolCapability{CapAnalyticsQuery},
+		SideEffectClass:              SideEffectReadOnly,
+		MinAutonomy:                  1,
+		MaxAutonomy:                  4,
+		InputContract:                `{"type":"object","required":["schema_version","dataset_id","time_range","metrics","dimensions"],"additionalProperties":false}`,
+		OutputContract:               `{"type":"object","required":["dataset_id","rows","chart","provenance"]}`,
+		Timeout:                      8 * time.Second,
+		MaxOutputBytes:               512 * 1024,
+		DataClassifications:          []DataClassification{ClassificationInternal, ClassificationMetadataOnly},
+		AllowedOutputClassifications: []DataClassification{ClassificationInternal, ClassificationMetadataOnly, ClassificationPublic},
+		IdempotencyRequired:          false,
+		VerificationRequired:         false,
+		ShadowModeAllowed:            true,
+		AllowedExecutionModes:        []string{"SHADOW", "ADVISORY", "LIVE"},
+	}
+	handler := func(ctx context.Context, execCtx *TrustedExecutionContext, args json.RawMessage) (json.RawMessage, error) {
+		var intent lens.QueryIntent
+		dec := json.NewDecoder(bytes.NewReader(args))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&intent); err != nil {
+			return nil, fmt.Errorf("%w: invalid Lens query intent: %v", ErrInputValidationFailed, err)
+		}
+		result, err := svc.Execute(ctx, execCtx.TenantID, intent)
+		if err != nil {
+			return nil, fmt.Errorf("lens query: %w", err)
+		}
+		return json.Marshal(result)
+	}
+	return reg.Register(manifest, handler)
 }
 
 // RegisterCandidateTool registers or updates the remediation.candidate.create tool manifest and handler.

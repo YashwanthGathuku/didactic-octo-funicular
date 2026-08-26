@@ -303,6 +303,27 @@ func SeedDefaultEnterprisePolicies() []*PolicyDefinition {
 			SourceReference: "SGACA Standard Enterprise Operations",
 			CreatedAt:       DefaultSafetyEffectiveDate,
 		},
+		// SF-ENT-005: Permit bounded, read-only Lens analytics within tenant boundaries.
+		{
+			PolicyID:      "SF-ENT-005",
+			Version:       1,
+			Domain:        DomainTool,
+			Layer:         LayerEnterprise,
+			Priority:      100,
+			Status:        StatusActive,
+			EffectiveFrom: DefaultSafetyEffectiveDate,
+			Action:        ActionQueryAnalytics,
+			SubjectConstraints: SubjectConstraint{
+				Type: "*",
+			},
+			ResourceConstraints: ResourceConstraint{
+				Type: "TOOL",
+			},
+			Effect:          DecisionAllow,
+			ReasonCode:      "PERMITTED_BOUNDED_ANALYTICS",
+			SourceReference: "SentinelFlow Lens Lite governed analytics",
+			CreatedAt:       DefaultSafetyEffectiveDate,
+		},
 	}
 
 	for _, r := range rules {

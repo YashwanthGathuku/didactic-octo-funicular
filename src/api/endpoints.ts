@@ -17,6 +17,11 @@ import type {
   EvidenceEntry,
   Expectation,
   Incident,
+  LensDataset,
+  LensInvestigation,
+  LensInvestigationNode,
+  LensQueryIntent,
+  LensQueryResult,
   OverrideRecord,
   Page,
   ReleasePolicy,
@@ -199,3 +204,38 @@ export const ingestRaw = (
   });
 
 export { query };
+
+// ---------------------------------------------------------------------------
+// SentinelFlow Lens — governed advisory analytics
+// ---------------------------------------------------------------------------
+
+export const getLensDatasets = (signal?: AbortSignal): Promise<ApiResult<LensDataset[]>> =>
+  request<LensDataset[]>('/lens/datasets', { signal });
+
+export const runLensQuery = (
+  intent: LensQueryIntent,
+  signal?: AbortSignal,
+): Promise<ApiResult<LensQueryResult>> =>
+  request<LensQueryResult>('/lens/query', { method: 'POST', body: intent, signal });
+
+export const createLensInvestigation = (
+  title: string,
+): Promise<ApiResult<LensInvestigation>> =>
+  request<LensInvestigation>('/lens/investigations', { method: 'POST', body: { title } });
+
+export const getLensInvestigation = (
+  id: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<LensInvestigation>> =>
+  request<LensInvestigation>(`/lens/investigations/${encodeURIComponent(id)}`, { signal });
+
+export const addLensInvestigationNode = (
+  investigationId: string,
+  question: string,
+  queryIntent: LensQueryIntent,
+  parentNodeId?: string,
+): Promise<ApiResult<LensInvestigationNode>> =>
+  request<LensInvestigationNode>(
+    `/lens/investigations/${encodeURIComponent(investigationId)}/nodes`,
+    { method: 'POST', body: { parent_node_id: parentNodeId ?? '', question, query_intent: queryIntent } },
+  );

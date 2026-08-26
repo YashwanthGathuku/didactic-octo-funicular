@@ -14,6 +14,7 @@ import {
   GitBranch,
   HeartPulse,
   Lock,
+  SearchCode,
   ScrollText,
   ShieldAlert,
   ShieldQuestion,
@@ -28,9 +29,10 @@ import { EvidenceTimeline } from './EvidenceTimeline';
 import { ContractsScreen } from './ContractsScreen';
 import { ServiceHealthScreen } from './ServiceHealthScreen';
 import { SubmissionProofScreen } from './SubmissionProofScreen';
+import { LensWorkspace } from './LensWorkspace';
 import { LoadingState, ResultState } from './states';
 
-type ScreenId = 'board' | 'artifacts' | 'review' | 'evidence' | 'contracts' | 'health' | 'proof';
+type ScreenId = 'board' | 'lens' | 'artifacts' | 'review' | 'evidence' | 'contracts' | 'health' | 'proof';
 
 type ScreenDefinition = {
   id: ScreenId;
@@ -45,6 +47,12 @@ const SCREENS: Record<ScreenId, ScreenDefinition> = {
     label: 'Feed Board',
     description: 'Expected-file arrivals, anomalies, quarantine state, and active operational work.',
     Icon: CalendarClock,
+  },
+  lens: {
+    id: 'lens',
+    label: 'Lens',
+    description: 'Governed financial intelligence: branching analytics, semantic query plans, and provenance without model SQL authority.',
+    Icon: SearchCode,
   },
   artifacts: {
     id: 'artifacts',
@@ -86,6 +94,7 @@ const SCREENS: Record<ScreenId, ScreenDefinition> = {
 
 const NAV_GROUPS: Array<{ label: string; screens: ScreenId[] }> = [
   { label: 'Operate', screens: ['board', 'artifacts', 'review'] },
+  { label: 'Intelligence', screens: ['lens'] },
   { label: 'Govern', screens: ['evidence', 'contracts'] },
   { label: 'Platform', screens: ['health'] },
   { label: 'Demo', screens: ['proof'] },
@@ -113,6 +122,7 @@ export const OperationsConsole: React.FC<OperationsConsoleProps> = ({ onOpenUplo
   const body = useMemo(() => {
     switch (screen) {
       case 'board': return <FeedBoard key={generation} onNavigateToUpload={onOpenUpload} />;
+      case 'lens': return <LensWorkspace />;
       case 'artifacts': return <ArtifactsScreen key={generation} />;
       case 'review': return <ReviewQueue key={generation} />;
       case 'evidence': return <EvidenceTimeline key={generation} />;

@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"sentinel-gateway/internal/auth"
+	"sentinel-gateway/internal/lens"
 	"sentinel-gateway/internal/policy"
 	"sentinel-gateway/internal/toolgateway"
 )
@@ -208,6 +209,9 @@ func buildManagedReadToolGateway(db *sql.DB) (*toolgateway.ToolGatewayService, e
 	if err := toolgateway.RegisterDefaultTools(reg, &managedAgentDataProvider{db: db}); err != nil {
 		return nil, fmt.Errorf("register managed tools: %w", err)
 	}
+	if err := toolgateway.RegisterLensTool(reg, lens.NewService(db)); err != nil {
+		return nil, fmt.Errorf("register managed Lens tool: %w", err)
+	}
 	engine := policy.NewEngineWithDefaults()
 	if engine == nil {
 		return nil, errors.New("default deterministic policy engine unavailable")
@@ -234,6 +238,8 @@ func capabilitiesForManagedAgent(identity *auth.RegisteredAgentIdentity) []toolg
 			cap = toolgateway.CapWorkflowRead
 		case toolgateway.ToolRemediationCandidateCreate:
 			cap = toolgateway.CapCandidateCreate
+		case toolgateway.ToolLensQuery:
+			cap = toolgateway.CapAnalyticsQuery
 		default:
 			continue
 		}

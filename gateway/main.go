@@ -626,6 +626,9 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		// The AI agent fleet registry and execution invocation telemetry.
 		registerAgentRoutes(r, db)
 
+		// SentinelFlow Lens: governed read-only analytics and append-only investigation threads.
+		registerLensRoutes(r, db)
+
 		// GET Partners
 		r.Get("/partners", func(w http.ResponseWriter, r *http.Request) {
 			scope, serr := resolveScope(r, auth.PermReadTenant)

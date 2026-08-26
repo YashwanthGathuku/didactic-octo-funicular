@@ -221,20 +221,24 @@ $$\text{EffectiveToolAccess} = \text{RegisteredTool} \cap \text{CallerCapability
 - **Server-Injected Trusted Context**: `TrustedExecutionContext` carries verified `TenantID`, `CallerID`, `Roles`, and `AutonomyLevel`. Model-supplied arguments cannot override authority.
 - **Side-Effect Blast Radius Hierarchy**: Explicit classes (`READ_ONLY`, `INTERNAL_STATE_WRITE`, `CANDIDATE_SANDBOX_WRITE`, `REVERSIBLE_EXTERNAL`, `IRREVERSIBLE_EXTERNAL`, `IRREVERSIBLE_FINANCIAL`). No agent tool may ever possess `IRREVERSIBLE_FINANCIAL`.
 - **Singleflight Idempotency**: Durable tenant-scoped singleflight execution ensuring concurrent duplicate requests execute exactly once and identical requests replay cached results safely.
-- **Initial Safe Registered Tools**: `incident.get`, `validation.findings.list_redacted`, `artifact.metadata.get`, `workflow.get`.
+- **Initial Safe Registered Tools**: `incident.get`, `validation.findings.list_redacted`, `artifact.metadata.get`, `workflow.get`; Lens Lite later adds read-only `lens.query` under `ANALYTICS_QUERY`.
 - **Universal Persistence & Outbox Journaling**: Migration `018_tool_gateway.sql` records `tool_invocations` and emits `TOOL_INVOCATION_SUCCEEDED`, `TOOL_INVOCATION_DENIED`, and `TOOL_INVOCATION_FAILED` to generic `outbox_events`.
 - **Performance**: Registry lookup at 37.5 ns/op, idempotency lookup at 367.6 ns/op, and complete governed execution at 104 µs/op with 0 data races.
 - **Full Architecture Specification**: See [`docs/architecture/TOOL_GATEWAY.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/TOOL_GATEWAY.md).
 
 ---
 
-## 10. SentinelFlow Lens: Governed Analytics Plane (PLANNED)
+## 10. SentinelFlow Lens: Governed Financial Operations Intelligence (LENS LITE IMPLEMENTED)
 
-The planned **SentinelFlow Lens** subsystem introduces a zero-trust, read-only analytics and investigation workbench for deep anomaly diagnosis and ACH return trend analysis without compromising production data isolation.
+**SentinelFlow Lens Lite** adds a bounded, read-only investigation workbench on top of the locally frozen control plane. It uses typed `QueryIntent` objects, a static dataset/metric registry, server-injected tenant scope, parameterized Go query compilation, result/query hashing, and append-only Investigation Threads.
 
-- **Status**: `PLANNED` (Documentation & Architecture Blueprint; see [`docs/architecture/SENTINELFLOW_LENS.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/SENTINELFLOW_LENS.md) and [`docs/third_party/DATA_FORMULATOR_REFERENCE.md`](file:///c:/Users/Gathu/Projects/fintech/docs/third_party/DATA_FORMULATOR_REFERENCE.md)).
-- **Core Invariant**: The `AnalyticsAgent` operates at Autonomy Level A1 (Advisory Only) and never receives database credentials. Natural language is translated into a declarative `QueryIntent` AST, compiled by SentinelFlow's deterministic Safe Query Compiler, and executed strictly against curated read-only views or ephemeral in-memory DuckDB sandboxes.
-- **8-Stage Governance Gate**: All analytics requests must pass through Identity $\rightarrow$ Tenant Scope $\rightarrow$ Tool Gateway $\rightarrow$ Policy Engine $\rightarrow$ Dataset Registry $\rightarrow$ Schema Validation $\rightarrow$ Query Limits $\rightarrow$ Safe Compiler.
+- **Status**: `IMPLEMENTED — LOCAL VERIFICATION REQUIRED`; verification is `bash scripts/verify_lens_lite.sh`.
+- **Authority invariant**: analytics can explain financial truth but cannot approve, release, unquarantine, mutate artifacts, or satisfy deterministic verification.
+- **Human path**: authenticated HTTP/RBAC → Lens compiler → tenant-scoped read.
+- **Managed-agent path**: verified managed ingress → Tool Gateway `lens.query` → `ANALYTICS_QUERY` + deterministic policy → the same Lens compiler.
+- **Synthetic provenance**: demo observations are `SYNTHETIC_DEMO`, database-constrained to `verified=0`, and cannot mint authoritative incident evidence.
+- **Scope boundary**: no arbitrary SQL, arbitrary joins, full BI report designer, deployed MCP transport, DuckDB, or natural-language query planning is claimed in Lens Lite.
+- **Full specification**: see [`docs/architecture/SENTINELFLOW_LENS.md`](file:///c:/Users/Gathu/Projects/fintech/docs/architecture/SENTINELFLOW_LENS.md).
 
 ---
 

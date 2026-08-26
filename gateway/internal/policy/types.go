@@ -140,6 +140,7 @@ const (
 	ActionListFindings        = "LIST_FINDINGS"
 	ActionGetArtifactMetadata = "GET_ARTIFACT_METADATA"
 	ActionGetWorkflow         = "GET_WORKFLOW"
+	ActionQueryAnalytics      = "QUERY_ANALYTICS"
 )
 
 // CapabilityProhibitions maps tool capabilities to the prohibition types that block them.

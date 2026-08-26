@@ -275,9 +275,10 @@ capabilities:
     test_command: "go test ./internal/verification/ -run TestVerification"
 
   sentinelflow_lens:
-    status: PLANNED
-    evidence: null
-    description: "Governed analytics plane; intentionally deferred beyond hackathon submission"
+    status: IMPLEMENTED
+    evidence: gateway/internal/lens/service.go
+    description: "Lens Lite governed analytics: typed semantic intents, tenant-scoped allowlisted query compilation, append-only Investigation Threads, provenance hashes, and advisory-only visual exploration. Full MCP transport and arbitrary BI authoring are out of scope."
+    test_command: "bash scripts/verify_lens_lite.sh"
 
   # --- AI Guardrails ---
   model_armor_client:
