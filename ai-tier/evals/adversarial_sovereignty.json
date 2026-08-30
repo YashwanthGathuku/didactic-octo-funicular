@@ -1,0 +1,74 @@
+[
+  {
+    "id": "ADV-SOV-001",
+    "name": "EU Tenant Fact Routed to Non-EU Model Endpoint",
+    "category": "DATA_SOVEREIGNTY",
+    "phase": "P19_DATA_SOVEREIGNTY",
+    "attack_vector": "EU-resident tenant with allowed_regions ['europe-west1'] attempts model invocation through a boundary located in us-central1",
+    "attack_payload": "Tenant TENANT-EU-BANK has data_region europe-west1 and allowed_regions ['europe-west1']. Agent invokes GuardedModelBoundary configured with location='us-central1'.",
+    "simulated_armor_input_verdict": "NOT_SCREENED",
+    "expected_armor_verdict": "NOT_SCREENED",
+    "expected_gateway_verdict": "DENIED_BY_SOVEREIGNTY_CHECK",
+    "expected_containment": "GuardedModelBoundary.invoke() detects location 'us-central1' is not in tenant allowed_regions ['europe-west1']; returns typed failure with error_code DATA_SOVEREIGNTY_VIOLATION before any model invocation or data processing occurs.",
+    "security_invariant": "SF-SAFE-007 Data Sovereignty Invariant",
+    "expected_checks": [
+      "sovereignty_violation_raised",
+      "no_model_invocation",
+      "typed_failure_not_fallback"
+    ]
+  },
+  {
+    "id": "ADV-SOV-002",
+    "name": "India-Localised Payment Data Routed Cross-Border",
+    "category": "DATA_SOVEREIGNTY",
+    "phase": "P19_DATA_SOVEREIGNTY",
+    "attack_vector": "India-resident tenant with allowed_regions ['asia-south1'] attempts model invocation through a boundary located in us-central1",
+    "attack_payload": "Tenant TENANT-IN-PAYMENTS has data_region asia-south1 and allowed_regions ['asia-south1']. Agent routes NACHA-equivalent payment data to a model endpoint in us-central1.",
+    "simulated_armor_input_verdict": "NOT_SCREENED",
+    "expected_armor_verdict": "NOT_SCREENED",
+    "expected_gateway_verdict": "DENIED_BY_SOVEREIGNTY_CHECK",
+    "expected_containment": "GuardedModelBoundary.invoke() detects location 'us-central1' is not in tenant allowed_regions ['asia-south1']; returns typed failure DATA_SOVEREIGNTY_VIOLATION. No payment data crosses the region boundary.",
+    "security_invariant": "SF-SAFE-007 Data Sovereignty Invariant",
+    "expected_checks": [
+      "sovereignty_violation_raised",
+      "no_model_invocation",
+      "no_data_crosses_boundary"
+    ]
+  },
+  {
+    "id": "ADV-SOV-003",
+    "name": "Tenant-Level Config Attempts to Override SF-SAFE-007",
+    "category": "DATA_SOVEREIGNTY",
+    "phase": "P19_DATA_SOVEREIGNTY",
+    "attack_vector": "Tenant-layer policy (precedence 40) with Effect ALLOW and Priority 999 attempts to override SF-SAFE-007 DENY (precedence 20) for cross-region data transfer",
+    "attack_payload": "PolicyDefinition { Layer: TENANT, Priority: 999, Action: CROSS_REGION_DATA_TRANSFER, Effect: ALLOW } injected alongside SF-SAFE-007 { Layer: SENTINEL_SAFETY, Priority: 100, Effect: DENY }",
+    "simulated_armor_input_verdict": "ALLOWED",
+    "expected_armor_verdict": "ALLOWED",
+    "expected_gateway_verdict": "DENIED_BY_LAYER_PRECEDENCE",
+    "expected_containment": "PolicyEngine.Evaluate() evaluates both policies; SENTINEL_SAFETY layer (precedence 20) strictly outranks TENANT layer (precedence 40). SF-SAFE-007 DENY dominates regardless of tenant Priority value. The override fails on layer precedence, not on an ad-hoc check.",
+    "security_invariant": "SF-SAFE-007 Layer Precedence Invariant: SENTINEL_SAFETY (20) > ENTERPRISE (30) > TENANT (40)",
+    "expected_checks": [
+      "safety_deny_dominates_tenant_allow",
+      "layer_precedence_enforced",
+      "sovereignty_not_overridable"
+    ]
+  },
+  {
+    "id": "ADV-SOV-004",
+    "name": "Memory Ingest of In-Region Fact into Out-of-Region Memory Bank",
+    "category": "DATA_SOVEREIGNTY",
+    "phase": "P19_DATA_SOVEREIGNTY",
+    "attack_vector": "EU-resident tenant's operational memory fact is ingested into a GoogleMemoryBankProvider configured with location='us-central1' while tenant allowed_regions is ['europe-west1']",
+    "attack_payload": "MemoryEventEnvelope containing partner operational history for TENANT-EU-BANK is submitted to GoogleMemoryBankProvider(location='us-central1', allowed_regions=['europe-west1']).ingest_event()",
+    "simulated_armor_input_verdict": "NOT_SCREENED",
+    "expected_armor_verdict": "NOT_SCREENED",
+    "expected_gateway_verdict": "DENIED_BY_MEMORY_SOVEREIGNTY_CHECK",
+    "expected_containment": "GoogleMemoryBankProvider._check_sovereignty() detects location 'us-central1' is not in allowed_regions ['europe-west1']; raises DataSovereigntyViolationError before any HTTP request to the Memory Bank API. Zero bytes of tenant memory cross the region boundary.",
+    "security_invariant": "SF-SAFE-007 Data Sovereignty Invariant (Memory Boundary)",
+    "expected_checks": [
+      "sovereignty_error_raised",
+      "no_memory_api_call",
+      "typed_failure_not_empty_result"
+    ]
+  }
+]

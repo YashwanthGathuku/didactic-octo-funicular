@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"sentinel-gateway/internal/telemetry"
 )
 
 var (
@@ -110,6 +112,11 @@ func (c *AIClient) TriageIncident(ctx context.Context, env *AgentContextEnvelope
 			}
 		}
 
+		ctx, span := telemetry.StartSpan(ctx, "sentinelflow.gateway.ai_client.triage")
+		defer span.End()
+		span.SetAttribute("tenant_id", env.TenantID)
+		span.SetAttribute("incident_id", fmt.Sprintf("%d", env.IncidentID))
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(payload))
 		if err != nil {
 			return nil, fmt.Errorf("create request: %w", err)
@@ -119,6 +126,7 @@ func (c *AIClient) TriageIncident(ctx context.Context, env *AgentContextEnvelope
 		req.Header.Set("X-Correlation-ID", env.CorrelationID)
 		req.Header.Set("X-Sentinel-Tenant", env.TenantID)
 		req.Header.Set("X-Idempotency-Key", idempotencyKey)
+		req.Header.Set(telemetry.TraceParentHeader, span.FormatW3CTraceParent())
 		if env.TraceID != "" {
 			req.Header.Set("X-Trace-ID", env.TraceID)
 		}
@@ -172,11 +180,15 @@ func (c *AIClient) RunEvals(ctx context.Context) ([]byte, error) {
 		return nil, ErrAITierNotConfigured
 	}
 
+	ctx, span := telemetry.StartSpan(ctx, "sentinelflow.gateway.ai_client.evals")
+	defer span.End()
+
 	targetURL := c.cfg.BaseURL + "/evals/run"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create evals request: %w", err)
 	}
+	req.Header.Set(telemetry.TraceParentHeader, span.FormatW3CTraceParent())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

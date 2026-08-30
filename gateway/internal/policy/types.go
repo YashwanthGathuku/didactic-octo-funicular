@@ -97,6 +97,7 @@ const (
 	ProhibitionAccessSecret                   ProhibitionType = "ACCESS_SECRET"
 	ProhibitionCrossTenantAccess              ProhibitionType = "CROSS_TENANT_ACCESS"
 	ProhibitionIrreversibleFinancialAuthority ProhibitionType = "IRREVERSIBLE_FINANCIAL_AUTHORITY"
+	ProhibitionCrossRegionDataTransfer        ProhibitionType = "CROSS_REGION_DATA_TRANSFER"
 )
 
 // Prohibition represents a typed prohibition.
@@ -141,6 +142,7 @@ const (
 	ActionGetArtifactMetadata = "GET_ARTIFACT_METADATA"
 	ActionGetWorkflow         = "GET_WORKFLOW"
 	ActionQueryAnalytics      = "QUERY_ANALYTICS"
+	ActionCrossRegionDataTransfer = "CROSS_REGION_DATA_TRANSFER"
 )
 
 // CapabilityProhibitions maps tool capabilities to the prohibition types that block them.

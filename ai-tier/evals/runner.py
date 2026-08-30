@@ -270,6 +270,7 @@ def run_adversarial_evals(
     from evals.memory_runner import run_memory_adversarial_evals
     from evals.platform_runner import run_platform_adversarial_evals
     from evals.return_runner import run_return_risk_adversarial_evals
+    from evals.sovereignty_runner import run_sovereignty_adversarial_evals
 
     multi_agent_summary = run_multi_agent_adversarial_evals()
     remediation_summary = run_remediation_adversarial_evals()
@@ -278,6 +279,7 @@ def run_adversarial_evals(
     memory_summary = run_memory_adversarial_evals()
     platform_summary = run_platform_adversarial_evals()
     return_risk_summary = run_return_risk_adversarial_evals()
+    sovereignty_summary = run_sovereignty_adversarial_evals()
 
     combined_scenarios = (
         len(dataset)
@@ -288,6 +290,7 @@ def run_adversarial_evals(
         + memory_summary["total_scenarios"]
         + platform_summary["total_scenarios"]
         + return_risk_summary["total_scenarios"]
+        + sovereignty_summary["total_scenarios"]
     )
     combined_total_checks = (
         total_checks
@@ -298,6 +301,7 @@ def run_adversarial_evals(
         + memory_summary["total_checks"]
         + platform_summary["total_checks"]
         + return_risk_summary["total_checks"]
+        + sovereignty_summary["total_checks"]
     )
     combined_passed_checks = (
         passed_checks
@@ -308,6 +312,7 @@ def run_adversarial_evals(
         + memory_summary["passed_checks"]
         + platform_summary["passed_checks"]
         + return_risk_summary["passed_checks"]
+        + sovereignty_summary["passed_checks"]
     )
     overall_status = (
         "PASSED"
@@ -320,6 +325,7 @@ def run_adversarial_evals(
             and memory_summary["status"] == "PASSED"
             and platform_summary["pass_rate_pct"] == 100.0
             and return_risk_summary["status"] == "PASSED"
+            and sovereignty_summary["status"] == "PASSED"
         )
         else "FAILED"
     )
@@ -345,7 +351,8 @@ def run_adversarial_evals(
             + model_armor_summary["elapsed_ms"]
             + memory_summary["elapsed_ms"]
             + (platform_summary["elapsed_seconds"] * 1000.0)
-            + return_risk_summary["elapsed_ms"],
+            + return_risk_summary["elapsed_ms"]
+            + sovereignty_summary["elapsed_ms"],
             2,
         ),
         "single_agent_evals": {
@@ -361,6 +368,7 @@ def run_adversarial_evals(
         "memory_evals": memory_summary,
         "platform_evals": platform_summary,
         "return_risk_evals": return_risk_summary,
+        "sovereignty_evals": sovereignty_summary,
     }
 
 

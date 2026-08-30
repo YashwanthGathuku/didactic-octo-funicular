@@ -8,9 +8,11 @@ import "time"
 // Tenant is the isolation boundary. Every other record in this package belongs
 // to exactly one.
 type Tenant struct {
-	ID        TenantID
-	Name      string
-	CreatedAt time.Time
+	ID             TenantID
+	Name           string
+	DataRegion     string   // Primary data residency region (e.g. "us-central1", "europe-west1")
+	AllowedRegions []string // All permitted geographic regions for this tenant's data processing
+	CreatedAt      time.Time
 }
 
 // Partner is a counterparty that sends or receives files.

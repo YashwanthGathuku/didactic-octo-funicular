@@ -18,9 +18,11 @@ import {
   FileLock2,
   Fingerprint,
   GitBranch,
+  Globe,
   History,
   Network,
   ScanSearch,
+  ShieldAlert,
   ShieldCheck,
   ShieldX,
   UsersRound,
@@ -60,6 +62,18 @@ const LOCAL_PROOFS: Proof[] = [
     state: 'TESTED',
     detail: 'Go owns parser, policy, Tool Gateway, candidate derivation, verification, review and release state.',
     Icon: ShieldCheck,
+  },
+  {
+    label: 'Data Sovereignty (SF-SAFE-007)',
+    state: 'TESTED',
+    detail: 'Layer 20 boot invariant prevents cross-border model and memory bank invocations without silent fallback.',
+    Icon: Globe,
+  },
+  {
+    label: 'Tool Poisoning Containment',
+    state: 'TESTED',
+    detail: 'Evaluated against descriptor injection, capability escalation, schema poisoning, and output poisoning attacks.',
+    Icon: ShieldAlert,
   },
 ];
 

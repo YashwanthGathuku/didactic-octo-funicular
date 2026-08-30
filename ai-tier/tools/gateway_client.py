@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional, Union
 import httpx
 from pydantic import BaseModel
 
+from observability.telemetry import get_tracer, inject_trace_context
+
 logger = logging.getLogger("sentinel.tools.gateway_client")
 
 
@@ -138,101 +140,118 @@ class ToolGatewayClient:
             idempotency_key or f"ik-{tool_id}-{context.correlation_id}-{uuid.uuid4().hex[:8]}"
         )
 
-        headers = {
-            "Content-Type": "application/json",
-            "X-Sentinel-Tenant": context.tenant_id,
-            "X-Correlation-ID": context.correlation_id,
-            "X-Request-ID": req_id,
-            "X-Idempotency-Key": idem_key,
-        }
-        if context.trace_id:
-            headers["X-Trace-ID"] = context.trace_id
+        tracer = get_tracer("sentinelflow.toolgateway")
+        with tracer.start_as_current_span(
+            "sentinelflow.toolgateway.execute",
+            attributes={
+                "tool.id": tool_id,
+                "tool.version": tool_version,
+                "tenant.id": context.tenant_id,
+                "correlation.id": context.correlation_id,
+                "caller.id": context.caller_id,
+                "caller.autonomy_level": str(context.caller_autonomy_level),
+                "idempotency_key": idem_key,
+            },
+        ) as span:
+            headers = {
+                "Content-Type": "application/json",
+                "X-Sentinel-Tenant": context.tenant_id,
+                "X-Correlation-ID": context.correlation_id,
+                "X-Request-ID": req_id,
+                "X-Idempotency-Key": idem_key,
+            }
+            if context.trace_id:
+                headers["X-Trace-ID"] = context.trace_id
+            inject_trace_context(headers)
 
-        # Server-enforced payload structure: business args are cleanly separated from context
-        payload: Dict[str, Any] = {
-            "tool_id": tool_id,
-            "tool_version": tool_version,
-            "args": business_args,
-            "idempotency_key": idem_key,
-        }
+            # Server-enforced payload structure: business args are cleanly separated from context
+            payload: Dict[str, Any] = {
+                "tool_id": tool_id,
+                "tool_version": tool_version,
+                "args": business_args,
+                "idempotency_key": idem_key,
+            }
 
-        # Optional TOCTOU preconditions
-        preconditions: Dict[str, Any] = {}
-        if expected_artifact_sha256:
-            preconditions["expected_artifact_sha256"] = expected_artifact_sha256
-        if expected_row_version is not None:
-            preconditions["expected_row_version"] = expected_row_version
-        if preconditions:
-            payload["resource_preconditions"] = preconditions
+            # Optional TOCTOU preconditions
+            preconditions: Dict[str, Any] = {}
+            if expected_artifact_sha256:
+                preconditions["expected_artifact_sha256"] = expected_artifact_sha256
+            if expected_row_version is not None:
+                preconditions["expected_row_version"] = expected_row_version
+            if preconditions:
+                payload["resource_preconditions"] = preconditions
 
-        url = f"{self.base_url}/api/v1/tools/execute"
-        raw_body = json.dumps(payload).encode("utf-8")
+            url = f"{self.base_url}/api/v1/tools/execute"
+            raw_body = json.dumps(payload).encode("utf-8")
 
-        last_err: Optional[Exception] = None
-        for attempt in range(self.max_retries + 1):
-            if attempt > 0:
-                time.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
+            last_err: Optional[Exception] = None
+            for attempt in range(self.max_retries + 1):
+                if attempt > 0:
+                    time.sleep(0.1 * (2 ** (attempt - 1)))  # Exponential backoff
 
-            try:
-                resp = self._client.post(url, content=raw_body, headers=headers)
+                try:
+                    resp = self._client.post(url, content=raw_body, headers=headers)
 
-                # Check response size limit
-                if len(resp.content) > self.max_response_bytes:
-                    raise ToolOutputValidationError(
-                        f"Response size {len(resp.content)} exceeded ceiling {self.max_response_bytes} bytes",
-                        "RESPONSE_TOO_LARGE",
+                    # Check response size limit
+                    if len(resp.content) > self.max_response_bytes:
+                        raise ToolOutputValidationError(
+                            f"Response size {len(resp.content)} exceeded ceiling {self.max_response_bytes} bytes",
+                            "RESPONSE_TOO_LARGE",
+                        )
+
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        record = ToolExecutionRecord(**data)
+                        span.set_attribute("status", record.status)
+                        span.set_attribute("duration_ms", str(record.duration_ms))
+                        return record
+
+                    # Map HTTP error codes to structured domain exceptions
+                    if resp.status_code == 403:
+                        err_data = (
+                            resp.json()
+                            if resp.headers.get("content-type", "").startswith("application/json")
+                            else {}
+                        )
+                        code = err_data.get("code", "POLICY_DENIED")
+                        msg = err_data.get("message", resp.text)
+                        raise ToolPolicyDeniedError(msg, code, err_data)
+
+                    if resp.status_code == 409:
+                        raise ToolIdempotencyConflictError(
+                            f"Idempotency conflict: {resp.text}", "IDEMPOTENCY_CONFLICT"
+                        )
+
+                    if resp.status_code == 412:
+                        raise ToolPreconditionFailedError(
+                            f"Precondition failed: {resp.text}", "PRECONDITION_FAILED"
+                        )
+
+                    if resp.status_code == 422:
+                        raise ToolOutputValidationError(
+                            f"Validation failed: {resp.text}", "VALIDATION_FAILED"
+                        )
+
+                    if resp.status_code == 504:
+                        raise ToolTimeoutError(f"Tool execution timed out: {resp.text}", "TIMEOUT")
+
+                    # Transient 5xx errors retryable
+                    if resp.status_code >= 500:
+                        last_err = ToolGatewayError(
+                            f"Gateway error HTTP {resp.status_code}: {resp.text}", "SERVER_ERROR"
+                        )
+                        continue
+
+                    raise ToolGatewayError(
+                        f"Unexpected status HTTP {resp.status_code}: {resp.text}",
+                        "UNEXPECTED_HTTP_STATUS",
                     )
 
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return ToolExecutionRecord(**data)
-
-                # Map HTTP error codes to structured domain exceptions
-                if resp.status_code == 403:
-                    err_data = (
-                        resp.json()
-                        if resp.headers.get("content-type", "").startswith("application/json")
-                        else {}
-                    )
-                    code = err_data.get("code", "POLICY_DENIED")
-                    msg = err_data.get("message", resp.text)
-                    raise ToolPolicyDeniedError(msg, code, err_data)
-
-                if resp.status_code == 409:
-                    raise ToolIdempotencyConflictError(
-                        f"Idempotency conflict: {resp.text}", "IDEMPOTENCY_CONFLICT"
-                    )
-
-                if resp.status_code == 412:
-                    raise ToolPreconditionFailedError(
-                        f"Precondition failed: {resp.text}", "PRECONDITION_FAILED"
-                    )
-
-                if resp.status_code == 422:
-                    raise ToolOutputValidationError(
-                        f"Validation failed: {resp.text}", "VALIDATION_FAILED"
-                    )
-
-                if resp.status_code == 504:
-                    raise ToolTimeoutError(f"Tool execution timed out: {resp.text}", "TIMEOUT")
-
-                # Transient 5xx errors retryable
-                if resp.status_code >= 500:
-                    last_err = ToolGatewayError(
-                        f"Gateway error HTTP {resp.status_code}: {resp.text}", "SERVER_ERROR"
+                except (httpx.TimeoutException, httpx.NetworkError) as e:
+                    last_err = ToolTimeoutError(
+                        f"Network / timeout error communicating with Tool Gateway: {str(e)}",
+                        "NETWORK_ERROR",
                     )
                     continue
 
-                raise ToolGatewayError(
-                    f"Unexpected status HTTP {resp.status_code}: {resp.text}",
-                    "UNEXPECTED_HTTP_STATUS",
-                )
-
-            except (httpx.TimeoutException, httpx.NetworkError) as e:
-                last_err = ToolTimeoutError(
-                    f"Network / timeout error communicating with Tool Gateway: {str(e)}",
-                    "NETWORK_ERROR",
-                )
-                continue
-
-        raise last_err or ToolGatewayError("Max retries exhausted", "RETRIES_EXHAUSTED")
+            raise last_err or ToolGatewayError("Max retries exhausted", "RETRIES_EXHAUSTED")

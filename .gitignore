@@ -15,3 +15,5 @@ gateway/inbox/quarantine/
 gateway/sentinel-gateway
 gateway/gw
 *.zip
+*.log
+datasets/

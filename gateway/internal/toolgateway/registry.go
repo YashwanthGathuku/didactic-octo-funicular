@@ -51,6 +51,9 @@ func (r *Registry) Register(m *ToolManifest, handler ToolHandler) error {
 	if err != nil {
 		return fmt.Errorf("compute manifest hash: %w", err)
 	}
+	if m.ManifestHash != "" && m.ManifestHash != manifestHash {
+		return fmt.Errorf("%w: manifest hash mismatch (provided: %s, computed: %s)", ErrInvalidManifest, m.ManifestHash, manifestHash)
+	}
 	m.ManifestHash = manifestHash
 
 	r.mu.Lock()
@@ -98,6 +101,9 @@ func (r *Registry) RegisterOrReplace(m *ToolManifest, handler ToolHandler) error
 	manifestHash, err := m.ComputeManifestHash()
 	if err != nil {
 		return fmt.Errorf("compute manifest hash: %w", err)
+	}
+	if m.ManifestHash != "" && m.ManifestHash != manifestHash {
+		return fmt.Errorf("%w: manifest hash mismatch (provided: %s, computed: %s)", ErrInvalidManifest, m.ManifestHash, manifestHash)
 	}
 	m.ManifestHash = manifestHash
 

@@ -15,7 +15,9 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"sentinel-gateway/internal/auth"
+	"sentinel-gateway/internal/candidate"
 	"sentinel-gateway/internal/lens"
+	"sentinel-gateway/internal/objectstore"
 	"sentinel-gateway/internal/policy"
 	"sentinel-gateway/internal/toolgateway"
 )
@@ -25,11 +27,15 @@ import (
 // decoded. Tenant authority is NOT accepted from this body or from a model
 // header; it is derived from the durable workflow row.
 type managedAgentToolRequest struct {
-	AgentName      string          `json:"agent_name"`
-	ToolName       string          `json:"tool_name"`
-	ToolVersion    string          `json:"tool_version,omitempty"`
-	ToolArgs       json.RawMessage `json:"tool_args"`
-	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	AgentName              string          `json:"agent_name"`
+	ToolName               string          `json:"tool_name"`
+	ToolVersion            string          `json:"tool_version,omitempty"`
+	ToolArgs               json.RawMessage `json:"tool_args"`
+	IdempotencyKey         string          `json:"idempotency_key,omitempty"`
+	ExpectedArtifactSHA256 string          `json:"expected_artifact_sha256,omitempty"`
+	ExpectedRowVersion     *int            `json:"expected_row_version,omitempty"`
+	ExpectedWorkflowState  string          `json:"expected_workflow_state,omitempty"`
+	ExpectedPolicyBundle   string          `json:"expected_policy_bundle_hash,omitempty"`
 }
 
 type managedAgentDataProvider struct {
@@ -42,7 +48,7 @@ func (p *managedAgentDataProvider) GetIncident(ctx context.Context, tenantID, in
 		return nil, fmt.Errorf("invalid incident_id")
 	}
 	var status, created string
-	var expectationID int64
+	var expectationID sql.NullInt64
 	var artifactID sql.NullInt64
 	err = p.db.QueryRowContext(ctx, `
 		SELECT status, created_at, expectation_id, file_instance_id
@@ -59,9 +65,11 @@ func (p *managedAgentDataProvider) GetIncident(ctx context.Context, tenantID, in
 		"incident_id":         incidentID,
 		"tenant_id":           tenantID,
 		"status":              status,
-		"expectation_id":      expectationID,
 		"data_classification": string(toolgateway.ClassificationMetadataOnly),
 		"created_at":          created,
+	}
+	if expectationID.Valid {
+		out["expectation_id"] = expectationID.Int64
 	}
 	if artifactID.Valid {
 		out["artifact_id"] = strconv.FormatInt(artifactID.Int64, 10)
@@ -204,7 +212,7 @@ func (p *managedAgentDataProvider) GetWorkflow(ctx context.Context, tenantID, wo
 	}, nil
 }
 
-func buildManagedReadToolGateway(db *sql.DB) (*toolgateway.ToolGatewayService, error) {
+func buildManagedToolGateway(db *sql.DB, store objectstore.ObjectStore) (*toolgateway.ToolGatewayService, error) {
 	reg := toolgateway.NewRegistry()
 	if err := toolgateway.RegisterDefaultTools(reg, &managedAgentDataProvider{db: db}); err != nil {
 		return nil, fmt.Errorf("register managed tools: %w", err)
@@ -215,6 +223,10 @@ func buildManagedReadToolGateway(db *sql.DB) (*toolgateway.ToolGatewayService, e
 	engine := policy.NewEngineWithDefaults()
 	if engine == nil {
 		return nil, errors.New("default deterministic policy engine unavailable")
+	}
+	candService := candidate.NewService(db, store, engine)
+	if err := toolgateway.RegisterCandidateTool(reg, candService); err != nil {
+		return nil, fmt.Errorf("register managed candidate tool: %w", err)
 	}
 	return toolgateway.NewToolGatewayService(reg, engine, toolgateway.NewToolStore(db)), nil
 }
@@ -254,27 +266,45 @@ func capabilitiesForManagedAgent(identity *auth.RegisteredAgentIdentity) []toolg
 // deriveManagedWorkflowContext makes the durable workflow row authoritative for
 // tenant/artifact context. X-Sentinel-Tenant is checked only for mismatch
 // detection; it can never create or switch the tenant scope.
-func deriveManagedWorkflowContext(ctx context.Context, db *sql.DB, workflowID string) (tenantID, artifactID, artifactSHA, workflowState string, rowVersion int, startedAt time.Time, err error) {
+func deriveManagedWorkflowContext(ctx context.Context, db *sql.DB, workflowID string) (tenantID, incidentID, artifactID, artifactSHA, workflowState, policyBundleHash string, rowVersion int, startedAt time.Time, err error) {
 	if strings.TrimSpace(workflowID) == "" {
 		err = errors.New("X-Workflow-ID is required")
 		return
 	}
-	var artifact int64
+	var incident, artifact int64
 	var started sql.NullTime
+	var pbHash sql.NullString
 	err = db.QueryRowContext(ctx, `
-		SELECT tenant_id, artifact_id, artifact_sha256, state, row_version, started_at
+		SELECT tenant_id, incident_id, artifact_id, artifact_sha256, state, row_version, started_at, policy_bundle_hash
 		FROM agent_workflows
 		WHERE id = ?
-	`, workflowID).Scan(&tenantID, &artifact, &artifactSHA, &workflowState, &rowVersion, &started)
+	`, workflowID).Scan(&tenantID, &incident, &artifact, &artifactSHA, &workflowState, &rowVersion, &started, &pbHash)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			err = errors.New("workflow not found")
-		}
+		// Older migrations may not expose policy_bundle_hash column.
+		err = db.QueryRowContext(ctx, `
+			SELECT tenant_id, incident_id, artifact_id, artifact_sha256, state, row_version, started_at
+			FROM agent_workflows
+			WHERE id = ?
+		`, workflowID).Scan(&tenantID, &incident, &artifact, &artifactSHA, &workflowState, &rowVersion, &started)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		err = errors.New("workflow not found")
 		return
 	}
+	if err != nil {
+		return
+	}
+	if incident > 0 {
+		incidentID = strconv.FormatInt(incident, 10)
+	}
 	artifactID = strconv.FormatInt(artifact, 10)
-	if started.Valid {
+	if started.Valid && !started.Time.IsZero() {
 		startedAt = started.Time.UTC()
+	} else {
+		startedAt = time.Now().UTC()
+	}
+	if pbHash.Valid {
+		policyBundleHash = pbHash.String
 	}
 	return
 }
@@ -291,14 +321,21 @@ func managedToolErrorStatus(err error) int {
 		errors.Is(err, toolgateway.ErrAgentBudgetExhausted),
 		errors.Is(err, toolgateway.ErrAgentDeadlineExceeded):
 		return http.StatusForbidden
-	case errors.Is(err, toolgateway.ErrIdempotencyConflict):
+	case errors.Is(err, toolgateway.ErrIdempotencyConflict),
+		errors.Is(err, candidate.ErrIdempotencyConflict):
 		return http.StatusConflict
+	case errors.Is(err, toolgateway.ErrPreconditionFailed),
+		errors.Is(err, candidate.ErrParentSHA256Mismatch),
+		errors.Is(err, candidate.ErrMaxAttemptsExceeded),
+		errors.Is(err, candidate.ErrPolicyObligationFailed),
+		errors.Is(err, candidate.ErrOriginalMutated):
+		return http.StatusPreconditionFailed
 	default:
 		return http.StatusBadRequest
 	}
 }
 
-func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
+func registerManagedAgentToolRoute(r chi.Router, db *sql.DB, store objectstore.ObjectStore) error {
 	if !strings.EqualFold(strings.TrimSpace(os.Getenv("SENTINEL_MANAGED_AGENT_INGRESS")), "true") &&
 		strings.TrimSpace(os.Getenv("SENTINEL_MANAGED_AGENT_INGRESS")) != "1" {
 		return nil
@@ -316,12 +353,15 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 	// IAP JWT subject is the bare agents.* subject; IAM bindings use principal://.
 	jwtSubject := strings.TrimPrefix(runtimeSubject, "principal://")
 
-	gateway, err := buildManagedReadToolGateway(db)
+	gateway, err := buildManagedToolGateway(db, store)
 	if err != nil {
 		return err
 	}
 	identityValidator := auth.NewAgentIdentityValidator(projectID)
 	iapVerifier := auth.NewIAPJWTVerifier(audience)
+	if jwkURL := strings.TrimSpace(os.Getenv("SENTINEL_IAP_JWK_URL")); jwkURL != "" {
+		iapVerifier.JWKURL = jwkURL
+	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		identity, ok := auth.AgentIdentityFromContext(req.Context())
@@ -351,7 +391,7 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 		}
 
 		workflowID := strings.TrimSpace(req.Header.Get("X-Workflow-ID"))
-		tenantID, artifactID, artifactSHA, workflowState, rowVersion, startedAt, err := deriveManagedWorkflowContext(req.Context(), db, workflowID)
+		tenantID, incidentID, artifactID, artifactSHA, workflowState, policyBundleHash, rowVersion, startedAt, err := deriveManagedWorkflowContext(req.Context(), db, workflowID)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_workflow_context"})
 			return
@@ -383,9 +423,11 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 			CallerAutonomyLevel:    map[auth.AutonomyLevel]int{auth.AutonomyA1: 1, auth.AutonomyA2: 2}[identity.AutonomyLevel],
 			WorkflowID:             workflowID,
 			WorkflowState:          workflowState,
+			IncidentID:             incidentID,
 			ArtifactID:             artifactID,
 			ArtifactSHA256:         artifactSHA,
 			ResourceVersion:        rowVersion,
+			PolicyBundleHash:       policyBundleHash,
 			AllowedTools:           append([]string(nil), identity.AllowedCapabilities...),
 			ExecutionMode:          "LIVE",
 			Timestamp:              now,
@@ -393,13 +435,21 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 			MaxWorkflowDurationSec: 120,
 		}
 
-		// The route currently exposes only read-only managed proof tools. Even
-		// though RemediationAgent's roster permits candidate creation elsewhere,
-		// the managed cloud endpoint cannot create candidates until the production
-		// candidate service is deliberately wired here in a later controlled step.
-		if body.ToolName == toolgateway.ToolRemediationCandidateCreate {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "managed_candidate_creation_not_enabled"})
-			return
+		expectedArtifactSHA := artifactSHA
+		if body.ExpectedArtifactSHA256 != "" {
+			expectedArtifactSHA = body.ExpectedArtifactSHA256
+		}
+		expectedRowVersion := rowVersion
+		if body.ExpectedRowVersion != nil {
+			expectedRowVersion = *body.ExpectedRowVersion
+		}
+		expectedWorkflowState := workflowState
+		if body.ExpectedWorkflowState != "" {
+			expectedWorkflowState = body.ExpectedWorkflowState
+		}
+		expectedPolicyBundle := policyBundleHash
+		if body.ExpectedPolicyBundle != "" {
+			expectedPolicyBundle = body.ExpectedPolicyBundle
 		}
 
 		toolReq := &toolgateway.ToolRequest{
@@ -408,15 +458,17 @@ func registerManagedAgentToolRoute(r chi.Router, db *sql.DB) error {
 			Args:           body.ToolArgs,
 			IdempotencyKey: idem,
 			ResourcePreconditions: &toolgateway.ResourcePreconditions{
-				ExpectedArtifactSHA256: artifactSHA,
-				ExpectedRowVersion:     rowVersion,
-				ExpectedWorkflowState:  workflowState,
+				ExpectedArtifactSHA256: expectedArtifactSHA,
+				ExpectedRowVersion:     expectedRowVersion,
+				ExpectedWorkflowState:  expectedWorkflowState,
+				ExpectedPolicyBundle:   expectedPolicyBundle,
 			},
 		}
 		resp, execErr := gateway.Execute(req.Context(), execCtx, toolReq, nil)
 		if execErr != nil {
 			writeJSON(w, managedToolErrorStatus(execErr), map[string]interface{}{
 				"error":       "tool_execution_denied",
+				"message":     execErr.Error(),
 				"error_type":  fmt.Sprintf("%T", execErr),
 				"workflow_id": workflowID,
 			})

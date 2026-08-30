@@ -11,6 +11,7 @@ import (
 
 	"sentinel-gateway/internal/candidate"
 	"sentinel-gateway/internal/domain"
+	"sentinel-gateway/internal/telemetry"
 	"sentinel-gateway/internal/toolgateway"
 	"sentinel-gateway/internal/verification"
 )
@@ -120,6 +121,12 @@ func (o *AgentOrchestrator) SetExecutionMode(mode string) {
 
 // ExecuteStage executes a bounded AI stage by invoking the Python ADK tier or deterministic fallback.
 func (o *AgentOrchestrator) ExecuteStage(ctx context.Context, req *AgentStageRequest) (*AgentStageResponse, error) {
+	ctx, span := telemetry.StartSpan(ctx, "sentinelflow.gateway.stage_invoke")
+	defer span.End()
+	span.SetAttribute("stage_type", string(req.StageType))
+	span.SetAttribute("workflow_id", req.WorkflowID)
+	span.SetAttribute("tenant_id", req.TenantID)
+
 	reqBytes, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal stage request: %w", err)
@@ -132,6 +139,11 @@ func (o *AgentOrchestrator) ExecuteStage(ctx context.Context, req *AgentStageReq
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Sentinel-Tenant", req.TenantID)
+	httpReq.Header.Set(telemetry.TraceParentHeader, span.FormatW3CTraceParent())
+	httpReq.Header.Set(telemetry.CorrelationIDHeader, span.TraceID)
+	if req.TraceID != "" {
+		httpReq.Header.Set("X-Trace-ID", req.TraceID)
+	}
 
 	resp, err := o.httpClient.Do(httpReq)
 	if err == nil && resp.StatusCode == http.StatusOK {
@@ -635,6 +647,7 @@ func (o *AgentOrchestrator) RunWorkflow(
 					ArtifactID:          fmt.Sprintf("%d", artifactID),
 					ArtifactSHA256:      currentArtifactSHA,
 					ResourceVersion:     attempt,
+					PolicyBundleHash:    currentPolicyBundleHash,
 					AllowedTools:        []string{toolgateway.ToolRemediationCandidateCreate},
 					ExecutionMode:       execMode,
 					Timestamp:           time.Now().UTC(),

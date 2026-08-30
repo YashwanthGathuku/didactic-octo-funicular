@@ -82,8 +82,8 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "incident.get",
             "workflow.get",
             "artifact.metadata.get",
-            "memory.retrieve",
-            "memory.profile.get",
+            "validation.findings.list_redacted",
+            "lens.query",
         ],
         memory_read=True,
         max_turns=5,
@@ -140,6 +140,7 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "artifact.metadata.get",
             "workflow.get",
             "memory.retrieve",
+            "remediation.candidate.create",
         ],
         memory_read=True,
         denied_capabilities=[
@@ -243,6 +244,7 @@ FIXED_AGENT_ROSTER: Dict[str, AgentManifest] = {
             "workflow.get",
             "memory.retrieve",
             "returnrisk.result.get",
+            "lens.query",
         ],
         denied_capabilities=[
             "artifact.release",

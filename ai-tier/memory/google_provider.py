@@ -35,18 +35,36 @@ class GoogleMemoryBankProvider(ManagedMemoryProvider):
         agent_id: str = "sentinelflow-agent",
         timeout_seconds: float = 5.0,
         max_retries: int = 3,
+        allowed_regions: Optional[List[str]] = None,
     ):
         self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent")
         self.location = location
         self.agent_id = agent_id
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
+        self.allowed_regions = allowed_regions
         self.base_url = (
             f"https://agentplatform.{self.location}.rep.googleapis.com/v1/projects/"
             f"{self.project_id}/locations/{self.location}/agents/{self.agent_id}/memoryBank"
         )
         self._auth_token: Optional[str] = None
         self._token_expiry: float = 0.0
+
+    def _check_sovereignty(self) -> None:
+        """Checks data sovereignty constraints before any memory operation.
+
+        Raises DataSovereigntyViolationError if the Memory Bank location is
+        outside the tenant's allowed regions. This is a typed failure — NOT a
+        silent degradation.
+        """
+        if self.allowed_regions is not None and self.location not in self.allowed_regions:
+            from guardrails.boundary import DataSovereigntyViolationError
+
+            raise DataSovereigntyViolationError(
+                message=f"Memory Bank region '{self.location}' is outside tenant's permitted regions",
+                target_region=self.location,
+                allowed_regions=self.allowed_regions,
+            )
 
     def _get_adc_token(self) -> str:
         """Retrieves or refreshes Google Cloud OAuth2 ADC token."""
@@ -119,6 +137,7 @@ class GoogleMemoryBankProvider(ManagedMemoryProvider):
 
     def ingest_event(self, event: MemoryEventEnvelope) -> IngestionResult:
         """Ingests event into Google Agent Platform Memory Bank."""
+        self._check_sovereignty()
         headers = {
             "X-Sentinel-Tenant-Scope": event.tenant_scope_token,
             "X-Sentinel-Event-Hash": event.event_hash,
@@ -164,6 +183,7 @@ class GoogleMemoryBankProvider(ManagedMemoryProvider):
 
     def retrieve_memories(self, query: MemoryQuery) -> List[MemoryHit]:
         """Retrieves and ranks memories from Google Memory Bank."""
+        self._check_sovereignty()
         headers = {
             "X-Sentinel-Tenant-Scope": query.tenant_scope_token,
             "X-Sentinel-Correlation-ID": query.correlation_id,

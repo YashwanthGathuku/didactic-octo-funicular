@@ -144,7 +144,7 @@ CREATE TABLE file_instances_new (
     size_bytes       INTEGER NOT NULL CHECK (size_bytes >= 0),
     sha256_hash      TEXT NOT NULL,
     status           TEXT NOT NULL
-        CHECK (status IN ('RECEIVED','VALIDATING','VALIDATED','QUARANTINED','APPROVED','RELEASED','REJECTED')),
+        CHECK (status IN ('RECEIVED','VALIDATING','VALIDATED','QUARANTINED','CANDIDATE','APPROVED','RELEASED','REJECTED')),
     -- A derived artifact points at the artifact it was produced from. The
     -- source is never mutated.
     derived_from_id  INTEGER REFERENCES file_instances(id),
@@ -159,7 +159,7 @@ INSERT INTO file_instances_new
     (id, tenant_id, expectation_id, filename, storage_path, size_bytes, sha256_hash, status, received_at, updated_at, created_at)
     SELECT id, 'TENANT-DEFAULT', expectation_id, filename, storage_path, size_bytes, sha256_hash,
            CASE
-             WHEN status IN ('RECEIVED','VALIDATING','VALIDATED','QUARANTINED','APPROVED','RELEASED','REJECTED') THEN status
+             WHEN status IN ('RECEIVED','VALIDATING','VALIDATED','QUARANTINED','CANDIDATE','APPROVED','RELEASED','REJECTED') THEN status
              ELSE 'QUARANTINED'   -- unknown legacy state fails closed
            END,
            received_at, received_at, received_at

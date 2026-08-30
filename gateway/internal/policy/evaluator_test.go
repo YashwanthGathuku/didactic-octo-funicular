@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -208,6 +209,75 @@ func TestPolicyEngine_SafetyBootstrapValidation(t *testing.T) {
 	_, err = NewEngine(tampered)
 	if err == nil {
 		t.Error("expected error when safety policy content hash is tampered")
+	}
+}
+
+func TestPolicyEngine_SafetyBootstrapValidation_SF_SAFE_007(t *testing.T) {
+	// Engine MUST refuse to boot when SF-SAFE-007 (data sovereignty) is absent.
+	// This proves sovereignty is a boot invariant, not runtime config.
+	allPolicies := SeedSafetyPolicies()
+
+	// Filter out SF-SAFE-007 while keeping SF-SAFE-001..006
+	withoutSov := make([]*PolicyDefinition, 0, len(allPolicies)-1)
+	for _, p := range allPolicies {
+		if p.PolicyID != "SF-SAFE-007" {
+			withoutSov = append(withoutSov, p)
+		}
+	}
+
+	_, err := NewEngine(withoutSov)
+	if err == nil {
+		t.Fatal("CRITICAL: engine booted without mandatory SF-SAFE-007 data sovereignty policy")
+	}
+
+	// Verify the error references SF-SAFE-007
+	if !strings.Contains(err.Error(), "SF-SAFE-007") {
+		t.Errorf("expected error to mention SF-SAFE-007, got: %v", err)
+	}
+}
+
+func TestPolicyEngine_SovereigntyDenyBeatsTenantAllow(t *testing.T) {
+	// Tenant-layer ALLOW (precedence 40) MUST NOT override SF-SAFE-007 DENY (precedence 20).
+	policies := SeedSafetyPolicies()
+
+	// Tenant attempts to allow cross-region data transfer
+	tenantOverride := &PolicyDefinition{
+		PolicyID:      "TENANT-SOV-OVERRIDE-001",
+		Version:       1,
+		Domain:        DomainEnterpriseAction,
+		Layer:         LayerTenant,
+		Priority:      999, // Maximum priority within tenant layer
+		Status:        StatusActive,
+		EffectiveFrom: DefaultSafetyEffectiveDate,
+		TenantID:      strPtr("TENANT-EU"),
+		Action:        ActionCrossRegionDataTransfer,
+		SubjectConstraints: SubjectConstraint{
+			Type: "*",
+		},
+		ResourceConstraints: ResourceConstraint{
+			Type: "*",
+		},
+		Effect:     DecisionAllow,
+		ReasonCode: "TENANT_PERMITS_CROSS_REGION",
+	}
+	policies = append(policies, tenantOverride)
+
+	engine, err := NewEngine(policies)
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	req := sampleRequest()
+	req.Action = ActionCrossRegionDataTransfer
+
+	dec, err := engine.Evaluate(req)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	// Safety DENY MUST dominate Tenant ALLOW
+	if dec.Decision != DecisionDeny {
+		t.Errorf("CRITICAL SAFETY BREACH: tenant allow overrode sovereignty deny! Got decision: %s", dec.Decision)
 	}
 }
 

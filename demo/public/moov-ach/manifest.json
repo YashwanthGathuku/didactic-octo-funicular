@@ -1,0 +1,27 @@
+{
+  "files": [
+    {
+      "name": "demo_clean_payroll.ach",
+      "records": 20,
+      "source_sha256": "938c80bc2b23941a9083bae666460e431879004fcd18b5d5afef931c73d5b6ec",
+      "staged_sha256": "938c80bc2b23941a9083bae666460e431879004fcd18b5d5afef931c73d5b6ec"
+    },
+    {
+      "name": "demo_corrupted_hash.ach",
+      "records": 20,
+      "source_sha256": "df225100796b0c1b97d8d4fb586b52dd04a1d9e647c5fc39c89573e5c9a56a5e",
+      "staged_sha256": "df225100796b0c1b97d8d4fb586b52dd04a1d9e647c5fc39c89573e5c9a56a5e"
+    },
+    {
+      "name": "demo_invalid_routing.ach",
+      "records": 20,
+      "source_sha256": "b8b8615c2c52f5967472353af0338f27c1dba8d36788191870791b447651d86d",
+      "staged_sha256": "b8b8615c2c52f5967472353af0338f27c1dba8d36788191870791b447651d86d"
+    }
+  ],
+  "format": "NACHA_94_CHAR_ASCII",
+  "source_commit": "UNSPECIFIED",
+  "source_type": "PUBLIC_OPEN_SOURCE_TEST_FIXTURE",
+  "source_url": "https://github.com/moov-io/ach",
+  "verified": 0
+}

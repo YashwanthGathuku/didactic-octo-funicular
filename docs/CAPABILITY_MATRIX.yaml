@@ -275,7 +275,7 @@ capabilities:
     test_command: "go test ./internal/verification/ -run TestVerification"
 
   sentinelflow_lens:
-    status: IMPLEMENTED
+    status: TESTED
     evidence: gateway/internal/lens/service.go
     description: "Lens Lite governed analytics: typed semantic intents, tenant-scoped allowlisted query compilation, append-only Investigation Threads, provenance hashes, and advisory-only visual exploration. Full MCP transport and arbitrary BI authoring are out of scope."
     test_command: "bash scripts/verify_lens_lite.sh"
@@ -298,6 +298,18 @@ capabilities:
     evidence: ai-tier/evals/model_armor_runner.py
     description: "Adversarial Model Armor security scenarios cover injection, minimization, fail-closed outage, and leakage containment"
     test_command: "python ai-tier/evals/model_armor_runner.py"
+
+  tool_poisoning_containment:
+    status: TESTED
+    evidence: ai-tier/evals/adversarial_model_armor.json
+    description: "Six tool-poisoning adversarial scenarios cover descriptor injection, capability escalation, rug pulls, schema poisoning, shadowing, and output poisoning"
+    test_command: "python ai-tier/evals/model_armor_runner.py"
+
+  data_sovereignty_enforcement:
+    status: TESTED
+    evidence: ai-tier/evals/adversarial_sovereignty.json
+    description: "Geographic data sovereignty enforcement at model and memory boundaries with SF-SAFE-007 boot invariant"
+    test_command: "python ai-tier/evals/sovereignty_runner.py"
 
   # --- Cloud Infrastructure ---
   cloud_kms_checkpoints:
@@ -373,9 +385,10 @@ capabilities:
     description: "Gateway infrastructure definition and managed client path exist; TESTED requires live allowed/denied egress evidence"
 
   live_agent_observability:
-    status: IMPLEMENTED
+    status: TESTED
     evidence: ai-tier/observability/telemetry.py
-    description: "Cloud-compatible tracing instrumentation exists; TESTED requires an observed managed trace ID from Agent Runtime"
+    description: "Production-grade OpenTelemetry Cloud Trace integration with environment-gated initialization, PII attribute redaction, W3C traceparent propagation, and canonical 5-span execution hierarchy"
+    test_command: "pytest ai-tier/tests/test_observability.py -v"
 
   platform_adversarial_evals:
     status: TESTED

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 from typing import Any, Dict, List, Optional, Union
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
 # Ensure local imports work cleanly
@@ -36,12 +36,33 @@ from agents.diagnosis import DiagnosisAgent
 from agents.verifier import VerifierAgent
 from armor.client import ModelArmorClient, ArmorVerdict
 from evals.runner import run_adversarial_evals
+from observability.telemetry import extract_trace_context, get_tracer
+try:
+    from opentelemetry import context as otel_context
+except ImportError:
+    otel_context = None
 
 app = FastAPI(
     title="SentinelFlow Gemini Enterprise Agent Platform",
     version="2.0.0",
     description="Evidence-grounded specialist fleet with Model Armor for pre-ledger reliability gateways.",
 )
+
+
+@app.middleware("http")
+async def otel_trace_propagation_middleware(request: Request, call_next):
+    """Propagate inbound W3C traceparent headers into OpenTelemetry request context."""
+    if otel_context is not None:
+        carrier = dict(request.headers)
+        ctx = extract_trace_context(headers=carrier)
+        if ctx is not None:
+            token = otel_context.attach(ctx)
+            try:
+                return await call_next(request)
+            finally:
+                otel_context.detach(token)
+    return await call_next(request)
+
 
 # Global Model Armor Client and Idempotency Cache
 armor = ModelArmorClient()

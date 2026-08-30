@@ -624,7 +624,7 @@ func NewRouterWithStore(db *sql.DB, cfg *Config, verifier *auth.Verifier, store 
 		registerOperationsRoutes(r, db, cfg)
 
 		// The AI agent fleet registry and execution invocation telemetry.
-		registerAgentRoutes(r, db)
+		registerAgentRoutes(r, db, store)
 
 		// SentinelFlow Lens: governed read-only analytics and append-only investigation threads.
 		registerLensRoutes(r, db)

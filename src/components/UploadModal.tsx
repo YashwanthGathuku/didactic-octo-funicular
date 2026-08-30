@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Loader2
 } from 'lucide-react';
+import { API_BASE_URL } from '../api/client';
 import { PRESET_OPTIONS, GeneratorPresetKey } from '../mockData/generator';
 import { ingestRawNacha, ApiIngestionResult } from '../services/api';
 
@@ -31,7 +32,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({ onClose, onFileIngeste
   React.useEffect(() => {
     const fetchPreset = async () => {
       try {
-        const res = await fetch(`http://localhost:8080/api/v1/generator/sample?preset=${selectedPreset}`);
+        const res = await fetch(`${API_BASE_URL}/generator/sample?preset=${selectedPreset}`);
         if (res.ok) {
           const data = await res.json();
           setPreviewContent(data.content || '');

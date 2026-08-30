@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"sentinel-gateway/internal/auth"
@@ -424,8 +425,46 @@ func RegisterCandidateTool(reg *Registry, candService CandidateServiceRunner) er
 		// Inject trusted execution context properties
 		req.TenantID = execCtx.TenantID
 		req.WorkflowID = execCtx.WorkflowID
+
+		if req.ParentArtifactID == 0 && execCtx.ArtifactID != "" {
+			if id, err := strconv.ParseInt(execCtx.ArtifactID, 10, 64); err == nil && id > 0 {
+				req.ParentArtifactID = id
+			}
+		}
+		if req.IncidentID == 0 && execCtx.IncidentID != "" {
+			if id, err := strconv.ParseInt(execCtx.IncidentID, 10, 64); err == nil && id > 0 {
+				req.IncidentID = id
+			}
+		}
 		if req.ExpectedParentSHA256 == "" {
 			req.ExpectedParentSHA256 = execCtx.ArtifactSHA256
+		} else if execCtx.ArtifactSHA256 != "" && req.ExpectedParentSHA256 != execCtx.ArtifactSHA256 {
+			return nil, fmt.Errorf("%w: expected parent SHA-256 mismatch (%s != %s)", ErrPreconditionFailed, req.ExpectedParentSHA256, execCtx.ArtifactSHA256)
+		}
+		if req.AttemptNumber == 0 {
+			if execCtx.ResourceVersion > 0 {
+				req.AttemptNumber = execCtx.ResourceVersion
+			} else {
+				req.AttemptNumber = 1
+			}
+		}
+		if req.AgentName == "" {
+			req.AgentName = execCtx.CallerID
+		}
+		if req.AgentVersion == "" {
+			req.AgentVersion = "1.0.0"
+		}
+		if req.PolicyDecisionHash == "" {
+			req.PolicyDecisionHash = execCtx.PolicyBundleHash
+		}
+		if req.PolicyDecisionID == "" {
+			req.PolicyDecisionID = fmt.Sprintf("POL-DEC-%s-%d", execCtx.WorkflowID, req.AttemptNumber)
+		}
+		if req.ToolManifestHash == "" {
+			req.ToolManifestHash = "man-hash-remed-create"
+		}
+		if req.Confidence == "" {
+			req.Confidence = "HIGH"
 		}
 
 		if candService == nil {

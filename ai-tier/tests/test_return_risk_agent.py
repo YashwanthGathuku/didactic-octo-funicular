@@ -62,6 +62,7 @@ def test_return_risk_manifest_conformance():
     assert "RETURN_EVENT_OBSERVED" in manifest.triggers
     assert "RETURN_RISK_ANALYSIS" in manifest.triggers
     assert "returnrisk.result.get" in manifest.allowed_tools
+    assert "lens.query" in manifest.allowed_tools
     assert "artifact.release" in manifest.denied_capabilities
     assert "incident.approve" in manifest.denied_capabilities
     assert "remediation.candidate.create" in manifest.denied_capabilities

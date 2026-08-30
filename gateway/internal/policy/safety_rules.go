@@ -21,6 +21,7 @@ var MandatorySafetyPolicyIDs = []string{
 	"SF-SAFE-004",
 	"SF-SAFE-005",
 	"SF-SAFE-006",
+	"SF-SAFE-007",
 }
 
 // SeedSafetyPolicies returns the foundational, immutable SentinelFlow safety policies.
@@ -179,6 +180,30 @@ func SeedSafetyPolicies() []*PolicyDefinition {
 			},
 			ReasonCode:      "CROSS_TENANT_FORBIDDEN",
 			SourceReference: "SGACA Architectural Law #6",
+			CreatedAt:       DefaultSafetyEffectiveDate,
+		},
+		// SF-SAFE-007: Cross-region data transfer violating tenant sovereignty is denied at system safety level
+		{
+			PolicyID:      "SF-SAFE-007",
+			Version:       1,
+			Domain:        DomainEnterpriseAction,
+			Layer:         LayerSentinelSafety,
+			Priority:      100,
+			Status:        StatusActive,
+			EffectiveFrom: DefaultSafetyEffectiveDate,
+			Action:        ActionCrossRegionDataTransfer,
+			SubjectConstraints: SubjectConstraint{
+				Type: "*",
+			},
+			ResourceConstraints: ResourceConstraint{
+				Type: "*",
+			},
+			Effect: DecisionDeny,
+			Prohibitions: []Prohibition{
+				{Type: ProhibitionCrossRegionDataTransfer, Description: "Cross-region data transfer violating tenant data sovereignty boundaries is prohibited"},
+			},
+			ReasonCode:      "DATA_SOVEREIGNTY_VIOLATION",
+			SourceReference: "SGACA Data Sovereignty Invariant",
 			CreatedAt:       DefaultSafetyEffectiveDate,
 		},
 	}

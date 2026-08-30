@@ -5,23 +5,143 @@
     "description": "Governed Agent Registry for SentinelFlow Pre-Ledger Financial Verification Fleet",
     "agents": [
       {
-        "agentId": "sentinelflow-runtime-fleet",
-        "displayName": "SentinelFlow Managed Runtime Fleet",
-        "version": "1.0.0",
+        "agentId": "IncidentCommanderAgent",
+        "displayName": "SentinelFlow Incident Commander Agent",
+        "version": "1.3.0",
         "framework": "GOOGLE_ADK",
         "modelFamily": "gemini-3.5-flash",
         "environment": "p11-dev",
-        "autonomyCeiling": "A2",
-        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "department": "Treasury Operations",
+        "autonomyCeiling": "A1",
         "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
         "registeredCapabilities": [
           "incident.get",
           "workflow.get",
           "artifact.metadata.get",
           "validation.findings.list_redacted",
+          "lens.query"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      },
+      {
+        "agentId": "DiagnosisAgent",
+        "displayName": "SentinelFlow Diagnosis Specialist",
+        "version": "1.2.1",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "department": "Payments Engineering",
+        "autonomyCeiling": "A1",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "registeredCapabilities": [
+          "incident.get",
+          "validation.findings.list_redacted",
+          "artifact.metadata.get",
+          "workflow.get",
+          "memory.retrieve"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      },
+      {
+        "agentId": "PolicySLAAgent",
+        "displayName": "SentinelFlow Policy & SLA Specialist",
+        "version": "1.1.0",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "department": "Compliance & Risk",
+        "autonomyCeiling": "A1",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "registeredCapabilities": [
+          "incident.get",
+          "workflow.get",
+          "artifact.metadata.get",
+          "memory.profile.get"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      },
+      {
+        "agentId": "MemoryAgent",
+        "displayName": "SentinelFlow Advisory Memory Specialist",
+        "version": "1.0.3",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "department": "Treasury Operations",
+        "autonomyCeiling": "A1",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "registeredCapabilities": [
+          "incident.get",
+          "workflow.get",
+          "artifact.metadata.get",
           "memory.retrieve",
-          "memory.profile.get",
-          "verification.result.get",
+          "memory.profile.get"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct",
+          "remediation.candidate.create",
+          "memory.write_direct",
+          "evidence.mint_authoritative",
+          "source.validate_authoritative",
+          "policy.override",
+          "candidate.verify"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      },
+      {
+        "agentId": "RemediationAgent",
+        "displayName": "SentinelFlow Remediation Specialist",
+        "version": "2.0.1",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "department": "Payments Engineering",
+        "autonomyCeiling": "A2",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "registeredCapabilities": [
+          "incident.get",
+          "validation.findings.list_redacted",
+          "artifact.metadata.get",
+          "workflow.get",
+          "memory.retrieve",
           "remediation.candidate.create"
         ],
         "deniedCapabilities": [
@@ -32,6 +152,71 @@
           "system.shell",
           "agent.create_dynamic",
           "artifact.write_direct"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      },
+      {
+        "agentId": "VerifierAgent",
+        "displayName": "SentinelFlow Verification Critic",
+        "version": "1.4.2",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "department": "Compliance & Risk",
+        "autonomyCeiling": "A1",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "registeredCapabilities": [
+          "incident.get",
+          "validation.findings.list_redacted",
+          "artifact.metadata.get",
+          "workflow.get",
+          "verification.result.get"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct",
+          "remediation.candidate.create"
+        ],
+        "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
+      },
+      {
+        "agentId": "ReturnRiskAgent",
+        "displayName": "SentinelFlow ACH Return Intelligence Specialist",
+        "version": "1.5.0",
+        "framework": "GOOGLE_ADK",
+        "modelFamily": "gemini-3.5-flash",
+        "environment": "p11-dev",
+        "department": "Compliance & Risk",
+        "autonomyCeiling": "A1",
+        "dataClassification": "FINANCIAL_HIGH_ASSURANCE",
+        "runtimeEndpoint": "projects/telos-agent/locations/us-central1/reasoningEngines/sentinelflow-ai-tier",
+        "registeredCapabilities": [
+          "incident.get",
+          "workflow.get",
+          "memory.retrieve",
+          "returnrisk.result.get",
+          "lens.query"
+        ],
+        "deniedCapabilities": [
+          "artifact.release",
+          "incident.approve",
+          "ledger.mutate",
+          "database.raw_sql",
+          "system.shell",
+          "agent.create_dynamic",
+          "artifact.write_direct",
+          "remediation.candidate.create",
+          "memory.write_direct",
+          "evidence.mint_authoritative",
+          "source.validate_authoritative",
+          "policy.override",
+          "candidate.verify"
         ],
         "nonAuthorityStatement": "Registry presence does not grant SentinelFlow application authority. SentinelFlow Go Control Plane remains sole deterministic authority."
       }

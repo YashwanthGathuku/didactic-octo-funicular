@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"sentinel-gateway/internal/auth"
+	"sentinel-gateway/internal/objectstore"
 )
 
 // AgentRecord represents a registered specialist agent.
@@ -46,7 +47,7 @@ type AgentInvocationRecord struct {
 	ModelArmorVerdict string     `json:"modelArmorVerdict,omitempty"` // ALLOWED, BLOCKED, FLAGGED
 }
 
-func registerAgentRoutes(r chi.Router, db *sql.DB) {
+func registerAgentRoutes(r chi.Router, db *sql.DB, store objectstore.ObjectStore) {
 	// P17 managed cloud ingress deliberately lives under the existing /api/v1
 	// router so it shares request-size, recovery, correlation and transport
 	// middleware. Browser/API bearer authentication lets ONLY this exact route
@@ -54,7 +55,7 @@ func registerAgentRoutes(r chi.Router, db *sql.DB) {
 	// then cryptographically verifies that assertion before decoding tool input.
 	// If the operator explicitly enables the route but its security configuration
 	// is incomplete, startup fails closed rather than exposing a weaker endpoint.
-	if err := registerManagedAgentToolRoute(r, db); err != nil {
+	if err := registerManagedAgentToolRoute(r, db, store); err != nil {
 		panic(fmt.Sprintf("managed agent tool ingress configuration: %v", err))
 	}
 

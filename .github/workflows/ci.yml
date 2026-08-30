@@ -249,7 +249,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install PyYAML
-        run: pip install pyyaml
+        run: pip install pyyaml pydantic
 
       - name: Verify Generated Submission Matches Capability Matrix
         run: python scripts/generate_docs.py --check
+
+      - name: Validate Agent Registry & Least-Privilege Manifest Conformance
+        run: python scripts/validate_agent_registry.py --check

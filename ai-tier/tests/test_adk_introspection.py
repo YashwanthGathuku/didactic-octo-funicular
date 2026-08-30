@@ -1,8 +1,11 @@
 """ADK Runtime Introspection and Object Model Integration Tests (SGACA Phase P06.5).
 
 Proves that all SentinelFlow agents and parallel workflows instantiate and execute
-using actual Google ADK runtime classes (Agent, ParallelAgent, InMemoryRunner).
+using actual Google ADK runtime classes (Agent, ParallelAgent, InMemoryRunner)
 """
+
+import json
+from pathlib import Path
 
 import google.adk.agents as adk_agents
 import google.adk.runners as adk_runners
@@ -10,6 +13,7 @@ import google.adk.runners as adk_runners
 from agents.commander import IncidentCommanderAgent
 from agents.diagnosis import DiagnosisAgent
 from agents.policy_sla import PolicySLAAgent
+from contracts.manifests import FIXED_AGENT_ROSTER
 from orchestrator.fleet import MultiAgentWorkflowOrchestrator
 
 
@@ -28,6 +32,7 @@ def test_adk_runtime_classes_and_manifest_roster_introspection():
     assert hasattr(commander, "adk_runner")
     assert isinstance(commander.adk_runner, adk_runners.InMemoryRunner)
 
+
     # 2. DiagnosisAgent Runtime Proof
     assert hasattr(diagnosis, "adk_agent")
     assert isinstance(diagnosis.adk_agent, adk_agents.Agent) or isinstance(
@@ -37,6 +42,7 @@ def test_adk_runtime_classes_and_manifest_roster_introspection():
     assert diagnosis.adk_agent.output_key == "diagnosis_result"
     assert hasattr(diagnosis, "adk_runner")
     assert isinstance(diagnosis.adk_runner, adk_runners.InMemoryRunner)
+
 
     # 3. PolicySLAAgent Runtime Proof
     assert hasattr(policy_sla, "adk_agent")
@@ -49,8 +55,29 @@ def test_adk_runtime_classes_and_manifest_roster_introspection():
     assert isinstance(policy_sla.adk_runner, adk_runners.InMemoryRunner)
 
 
+
+def test_agent_roster_manifests_and_registry_synchronization():
+    """Section 2: Verifies fleet manifests and GCP registry synchronization with Go canonical roster."""
+    from pathlib import Path
+    # 1. Manifests allowed_tools verification
+    assert "lens.query" in FIXED_AGENT_ROSTER["IncidentCommanderAgent"].allowed_tools
+    assert "lens.query" in FIXED_AGENT_ROSTER["ReturnRiskAgent"].allowed_tools
+    assert "returnrisk.result.get" in FIXED_AGENT_ROSTER["ReturnRiskAgent"].allowed_tools
+
+
+    # 2. GCP Agent Registry registeredCapabilities verification
+    registry_file = Path(__file__).resolve().parents[2] / "docs" / "registry" / "agent_registry_v1.json"
+    assert registry_file.exists()
+    registry_data = json.loads(registry_file.read_text(encoding="utf-8"))
+    agents_map = {a["agentId"]: a for a in registry_data["agentRegistry"]["agents"]}
+    assert len(agents_map) == 7
+    assert "lens.query" in agents_map["IncidentCommanderAgent"]["registeredCapabilities"]
+    assert "lens.query" in agents_map["ReturnRiskAgent"]["registeredCapabilities"]
+    assert "returnrisk.result.get" in agents_map["ReturnRiskAgent"]["registeredCapabilities"]
+
+
 def test_adk_parallel_agent_and_runner_introspection():
-    """Section 1: Verifies ADK ParallelAgent with distinct specialist output keys."""
+    """Section 3: Verifies ADK ParallelAgent with distinct specialist output keys."""
     orchestrator = MultiAgentWorkflowOrchestrator()
 
     assert hasattr(orchestrator, "adk_parallel_agent")

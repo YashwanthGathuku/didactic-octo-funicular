@@ -1,0 +1,18 @@
+{
+  "ach_rows_seen": 256,
+  "ground_truth_excluded_from_lens": true,
+  "ground_truth_file": "ibm_aml_ach_ground_truth.csv",
+  "ground_truth_sha256": "76c9958c93df4337a9087a7cf81bfac1eaacaf3e6d3e80625e6a055bf889a6b4",
+  "identifiers_pseudonymized": true,
+  "lens_file": "ibm_aml_ach_lens.csv",
+  "lens_sha256": "ec6343fb1304b6444ca4c33820192883022b2c4c39a421c37f90e275ea3881f2",
+  "reservoir_seed": 20260826,
+  "sample_max_rows": 100000,
+  "sample_rows": 256,
+  "source_name": "sample_ibm_aml.csv",
+  "source_rows_scanned": 500,
+  "source_sha256": "a9b3e7f699f686a071545eab252433ddde4d9c5a2bed030ad4350d3e6de26948",
+  "source_type": "PUBLIC_SYNTHETIC_IBM_AML",
+  "source_url": "https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml",
+  "verified": 0
+}
