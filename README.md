@@ -16,11 +16,11 @@
 
 > **Core principle:** **AI proposes → deterministic core decides → humans authorize.**
 >
-> SentinelFlow allows Gemini agents to investigate, reason, correlate context, and propose remediation without granting the model unilateral authority to mutate source payment artifacts, approve incidents, or release funds.
+> SentinelFlow lets Gemini agents investigate, reason, correlate context, and propose remediation without granting the model unilateral authority to mutate source payment artifacts, approve incidents, or release funds.
 
 ---
 
-## Demo & Cloud Proof
+## Project Demo & Cloud Proof
 
 | Resource | Link / Identifier | Purpose |
 | --- | --- | --- |
@@ -33,19 +33,56 @@
 
 ---
 
-## Why SentinelFlow Exists
+## About the Project
 
-High-consequence payment operations are a poor place to give a probabilistic model direct authority.
+SentinelFlow is a **governed autonomous financial-operations control plane** for payment-file reliability, incident investigation, remediation, and pre-ledger decision support.
 
-A financial-file incident may involve malformed fixed-width records, invalid routing checksums, mismatched control totals, duplicate submissions, return spikes, stale policy state, or adversarial text embedded inside otherwise valid business data. An LLM can be valuable for investigation and explanation, but arithmetic truth, policy truth, mutation authority, and final release need stronger guarantees.
+The system is designed around a simple but important observation: in regulated financial operations, an AI model can be extremely useful for investigation and reasoning while still being the wrong component to own arithmetic truth, policy truth, mutation authority, or final release.
 
-SentinelFlow separates those responsibilities:
+SentinelFlow therefore splits the problem into three layers:
 
-- **Deterministic financial truth** — Go validators and policy engines own parsing, arithmetic, invariants, hashes, and executable decisions.
-- **Bounded AI reasoning** — a fixed Google ADK fleet uses Gemini 3.5 Flash for diagnosis, context gathering, synthesis, and structured remediation proposals.
-- **Governed execution** — the Tool Gateway enforces identity, manifest membership, capability allowlists, autonomy bounds, policy, idempotency, preconditions, schemas, timeouts, and audit persistence.
-- **Independent verification** — remediation produces a new candidate artifact that is independently re-read and validated before approval.
-- **Human authority** — `VERIFIED`, `APPROVED`, and `RELEASED` are distinct states.
+1. **Deterministic financial truth** — Go services own parsing, arithmetic, control totals, hashes, state transitions, and executable policy.
+2. **Bounded autonomous reasoning** — Google ADK agents running Gemini 3.5 Flash diagnose incidents, retrieve governed context, synthesize explanations, and propose structured remediation.
+3. **Human financial authority** — irreversible release remains behind explicit approval and dual-control rules.
+
+The result is not a chatbot placed next to a payment system. It is an autonomous operations workflow whose AI can do useful work without becoming the authority that moves money.
+
+---
+
+## Inspiration & Real-World Context
+
+The project was inspired by the operational reality behind batch payment processing: when a payment file fails close to a settlement cutoff, the expensive part is rarely noticing that *something* is wrong. The expensive part is determining **what failed, what changed, whether the issue has happened before, whether a safe correction exists, and whether that correction can be trusted enough to release**.
+
+Three recurring classes of problems shaped SentinelFlow:
+
+### 1. Small inconsistencies can block high-value payment artifacts
+A single malformed record, routing checksum error, or mismatched batch control total can force operators into manual inspection even when the underlying file represents a large payroll or treasury run.
+
+### 2. The same incident spans multiple kinds of reasoning
+Operators may need to reconcile structural findings, policy and SLA constraints, historical partner behavior, prior incidents, return patterns, and remediation options at the same time. This is exactly where a specialist agent fleet can remove human toil.
+
+### 3. Autonomous AI creates a new authority problem
+Giving an agent enough permissions to be useful can also give it enough permissions to be dangerous. A prompt injection, stale memory, hallucinated calculation, replayed side effect, or compromised tool path must never become a financial release decision.
+
+That led to SentinelFlow's defining architecture:
+
+```text
+AI can investigate.
+AI can recommend.
+AI can propose a remediation.
+
+AI cannot unilaterally approve, mutate the original artifact, or release funds.
+```
+
+---
+
+## The Problem SentinelFlow Solves
+
+A financial-file incident may involve malformed fixed-width records, invalid routing checksums, mismatched control totals, duplicate submissions, return spikes, stale policy state, or adversarial text embedded inside otherwise valid business data.
+
+Traditional manual workflows force operations engineers to move between validators, logs, historical data, runbooks, policy documents, tickets, and approval systems. A naive LLM integration merely replaces that tool-switching with a conversational interface while introducing new risks.
+
+SentinelFlow instead automates the full investigation lifecycle while keeping financial authority outside the model boundary.
 
 ```text
 Financial event
@@ -186,7 +223,7 @@ Deterministic result
 Query hash + result hash + provenance
 ```
 
-Lens currently covers operational views such as return intelligence, incident trends, validation findings, file operations, and agent operations. Synthetic demo observations are explicitly marked as synthetic and **cannot satisfy authoritative financial evidence requirements**.
+Lens currently covers return intelligence, incident trends, validation findings, file operations, and agent operations. Synthetic demo observations are explicitly marked as synthetic and **cannot satisfy authoritative financial evidence requirements**.
 
 ### 7. Security and failure containment
 
@@ -198,6 +235,72 @@ Lens currently covers operational views such as return intelligence, incident tr
 - If the AI tier is unavailable, deterministic validation and quarantine remain authoritative.
 
 **AI failure cannot become financial failure.**
+
+---
+
+## How We Built It
+
+SentinelFlow was built in layers so that every new AI capability inherited an existing deterministic control boundary rather than creating a parallel path around it.
+
+### Step 1 — Domain research and failure modeling
+
+We started with the operational mechanics of NACHA files, ACH return semantics, routing validation, batch/file control totals, artifact lineage, dual control, and payment-operations failure modes. The goal was to define what must remain deterministic before introducing an LLM.
+
+This led to explicit distinctions such as:
+
+```text
+risk score        != financial decision
+memory recall     != evidence
+verification      != approval
+approval          != release
+```
+
+### Step 2 — Deterministic Go control plane
+
+The first executable layer was the Go control plane: parser, validator, policy engine, workflow state machine, audit chain, candidate generation, and independent verification.
+
+Important design requirements included fail-closed behavior, idempotency, optimistic concurrency, state binding, and preserving the original artifact during remediation.
+
+### Step 3 — Google ADK specialist fleet
+
+Instead of one general-purpose agent, we created a fixed roster of specialist agents with explicit roles and permissions. Each agent has a canonical manifest that constrains its tool access, autonomy tier, memory access, turn budget, timeout, output schema, and denied capabilities.
+
+The Incident Commander coordinates investigation while specialist agents perform diagnosis, policy/SLA interpretation, memory retrieval, remediation planning, independent critique, and return-risk analysis.
+
+### Step 4 — Governed model boundary and Model Armor
+
+Gemini inference was placed behind a shared guarded-model boundary that performs data minimization, trust partitioning, Model Armor screening, schema validation, evidence grounding, and failure classification.
+
+The important design choice is that a safe model output is still only an **AI output**. It does not become an executable financial decision until the deterministic control plane accepts the relevant operation.
+
+### Step 5 — Lens operational intelligence
+
+Lens was built to answer operational questions without exposing raw SQL authority to either the browser or the model. Natural-language intent is compiled into a typed semantic query, executed through the Tool Gateway, and persisted with query/result hashes and provenance.
+
+### Step 6 — Google Cloud deployment and proof
+
+The UI and Go gateway were containerized for Cloud Run, the ADK agent topology was deployed to Vertex AI Agent Runtime / Reasoning Engine, Model Armor was configured in `us-central1`, and reproducible demo/test data was staged in Cloud Storage.
+
+---
+
+## Research & Demo Data
+
+SentinelFlow deliberately separates realistic test data from authoritative evidence.
+
+### Moov ACH
+Used for standards-oriented NACHA fixtures and operational test vectors across common ACH record structures.
+
+### Moov ACH Test Harness
+Used as a reference for return, correction, reconciliation, trace-matching, and delayed-response scenarios.
+
+### IBM synthetic AML data
+Used for controlled historical-behavior experiments and analytics. Synthetic labels are treated as evaluation ground truth, not production evidence.
+
+### SentinelFlow deterministic scenarios
+Generated locally for specific failure modes such as malformed records, routing failures, control mismatches, duplicate-like operational scenarios, and adversarial text embedded inside valid business records.
+
+### Lens synthetic history
+Synthetic analytical rows are tagged non-authoritative by design. They can demonstrate trend discovery but cannot satisfy a financial control or mint trusted evidence.
 
 ---
 
@@ -219,6 +322,63 @@ SentinelFlow is submitted to the **All Things Agentic Hackathon — Fortified En
 | Local durable state | **SQLite** |
 | Local supporting services | **PostgreSQL 16 + MinIO** via Compose; repository migration remains intentionally scoped/documented |
 | Telemetry | **OpenTelemetry / Google Cloud Trace-compatible instrumentation** |
+
+---
+
+## Challenges We Ran Into
+
+### Keeping probabilistic reasoning away from deterministic financial truth
+The easiest architecture would have been to ask Gemini to inspect a file and decide what to do. That would also have been the least defensible architecture. We instead had to define exactly where model reasoning ends and deterministic authority begins.
+
+### Long-running workflow correctness
+Autonomous systems must survive retries, duplicate triggers, stale state, partial failures, and uncertain side effects. Idempotency and resource preconditions therefore became first-class parts of the workflow rather than afterthoughts.
+
+### Memory versus evidence
+Historical context is useful for diagnosis, but remembered information can be stale or wrong. SentinelFlow therefore allows memory to inform investigation while preventing memory from directly becoming authoritative evidence.
+
+### Secure remediation
+The system must be useful enough to propose and prepare repairs without allowing an agent to rewrite the artifact under investigation. The solution is immutable candidate derivation with explicit parent hashes and independent re-verification.
+
+### Prompt injection inside business data
+Financial files can contain untrusted text fields. SentinelFlow treats that content as untrusted input, screens model-bound content, and keeps financial decisions outside the LLM boundary even if the content reaches inference.
+
+### Honest demo provenance
+Synthetic data is useful for showing behavior but dangerous if presented as real-world evidence. The project explicitly tags synthetic observations and prevents them from satisfying financial evidence requirements.
+
+---
+
+## Accomplishments We're Proud Of
+
+- **A real multi-agent control architecture rather than a chat wrapper.** The seven-agent fleet operates inside an independently enforced capability model.
+- **Deterministic dominance over AI output.** Financial validation, policy, state transitions, verification, and release authority remain outside Gemini.
+- **Immutable remediation lineage.** The original artifact is preserved while proposed repairs become separately hashed candidates.
+- **Independent verification.** Candidate validation is re-run by deterministic Go code instead of trusting the agent that proposed the remediation.
+- **Enterprise-style safety controls.** Manifest allowlists, denied capabilities, Model Armor, data minimization, sovereignty checks, tenant scope, timeouts, and audit persistence are part of the execution path.
+- **Governed analytics.** Lens converts questions into typed semantic intent rather than arbitrary SQL and records reproducible query/result provenance.
+- **Live Google Cloud deployment evidence.** The project includes Cloud Run endpoints and a managed Vertex AI Agent Runtime resource for judging and demonstration.
+
+---
+
+## What We Learned
+
+- In regulated automation, **better authority boundaries matter more than simply asking the model to be careful**.
+- Agent memory is useful context, but **memory is not evidence**.
+- A probabilistic risk score can prioritize investigation, but **risk is not policy**.
+- Remediation should create immutable candidates with provenance, not rewrite evidence in place.
+- Failure recovery and idempotency matter as much as the happy path for long-running agents.
+- Multi-agent systems become more trustworthy when each specialist has narrow, inspectable permissions rather than one shared super-agent identity.
+- Guardrails improve safety, but the strongest protection is architectural: the model should never possess authority it does not need.
+
+---
+
+## What's Next
+
+1. **BigQuery / BigLake analytics** — move Lens from local analytical stores to governed large-scale historical analysis.
+2. **Real-time payment rails** — extend deterministic parsing and control concepts beyond batch ACH into streaming and ISO 20022-style payment messages.
+3. **Broader enterprise connectors** — expose governed capabilities through standardized enterprise integration layers while preserving the same Tool Gateway authority model.
+4. **Multi-region data-sovereignty deployment** — bind agent execution, memory, evidence, and model routing to regional policy constraints.
+5. **Additional deterministic remediation operations** — expand the safe operation allowlist while keeping original artifacts immutable.
+6. **Deeper operational observability** — richer end-to-end traces for agent dispatch, tool calls, policy decisions, retries, and verification state.
 
 ---
 
@@ -282,18 +442,6 @@ bash scripts/verify_submission_freeze.sh
 
 ---
 
-## Data & Demo Provenance
-
-SentinelFlow uses reproducible test and synthetic data rather than presenting synthetic rows as real financial evidence.
-
-- **Moov ACH** fixtures provide standards-oriented NACHA test artifacts.
-- **Moov ACH Test Harness** supports returns, corrections, reconciliation, delays, and trace/amount matching scenarios.
-- **IBM AML synthetic data** provides historical financial behavior for controlled analytics experiments.
-- **SentinelFlow-generated scenarios** create deterministic malformed/control-mismatch, routing, duplicate, and adversarial-content cases.
-- **Lens synthetic history** is explicitly tagged non-authoritative; it is useful for visualization and testing, not for satisfying a financial control.
-
----
-
 ## Repository Map
 
 ```text
@@ -308,17 +456,6 @@ SentinelFlow uses reproducible test and synthetic data rather than presenting sy
 ├── Architecture.png     # Judge-facing architecture diagram
 └── README.md
 ```
-
----
-
-## Design Lessons
-
-- In regulated automation, **better boundaries matter more than asking the model to be more careful**.
-- Agent memory is useful context, but **memory is not evidence**.
-- A probabilistic risk score can prioritize investigation, but **risk is not policy**.
-- Remediation should create immutable candidates with provenance, not rewrite evidence in place.
-- Failure recovery and idempotency matter as much as the happy path for long-running agents.
-- Enterprise agents become more useful when their tool authority is explicit, narrow, auditable, and independently enforceable.
 
 ---
 
