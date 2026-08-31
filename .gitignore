@@ -19,3 +19,4 @@ gateway/gw
 datasets/
 *.egg-info/
 .venv/
+demo-data/vendor/
