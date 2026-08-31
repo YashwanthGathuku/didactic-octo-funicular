@@ -193,14 +193,19 @@ func Load() (*Config, error) {
 	switch profile {
 	case ProfileLocalDemo:
 		// Defaults are permitted here, and only here.
-		cfg.BindAddress = env("SENTINEL_BIND_ADDRESS", "127.0.0.1")
+		isCloudRun := os.Getenv("K_SERVICE") != ""
+		defaultBind := "127.0.0.1"
+		if isCloudRun {
+			defaultBind = "0.0.0.0"
+		}
+		cfg.BindAddress = env("SENTINEL_BIND_ADDRESS", defaultBind)
 		if cfg.DatabaseURL == "" {
 			cfg.DatabaseURL = "./data/sentinel.db"
 		}
 		if cfg.AllowedOrigin == "" {
 			cfg.AllowedOrigin = "http://localhost:3000"
 		}
-		if cfg.BindAddress != "127.0.0.1" && cfg.BindAddress != "localhost" && cfg.BindAddress != "::1" {
+		if cfg.BindAddress != "127.0.0.1" && cfg.BindAddress != "localhost" && cfg.BindAddress != "::1" && (!isCloudRun || cfg.BindAddress != "0.0.0.0") {
 			problems = append(problems, fmt.Sprintf(
 				"SENTINEL_BIND_ADDRESS=%q: the local-demo profile may permit an unauthenticated API and must bind loopback only. Use SENTINEL_PROFILE=production to bind elsewhere",
 				cfg.BindAddress))
