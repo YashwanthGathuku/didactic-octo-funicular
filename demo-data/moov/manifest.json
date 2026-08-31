@@ -1,0 +1,14 @@
+{
+  "dataset_name": "Moov NACHA Operational Suite",
+  "license": "Apache-2.0",
+  "source": "https://github.com/moov-io/ach and moov-io/ach-test-harness",
+  "verified": true,
+  "files": [
+    "ccd.ach",
+    "ctx.ach",
+    "ppd-debit.ach",
+    "returns/batch-return.ach",
+    "returns/entry-return.ach",
+    "returns/r03-return.ach"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "dataset_name": "IBM AML Synthetic Dataset (HI-Small ACH Subset)",
+  "license": "CDLA-Sharing-1.0",
+  "source": "https://github.com/IBM/AML-Data",
+  "ground_truth_excluded_from_lens": true,
+  "identifiers_pseudonymized": true,
+  "verified": false,
+  "files": [
+    "ach-history-subset.csv",
+    "HI-Small_Trans.csv",
+    "ibm_aml_ach_ground_truth.csv"
+  ]
+}
