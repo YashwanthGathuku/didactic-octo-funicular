@@ -16,10 +16,11 @@
 
 import type { Page } from './types';
 
-/** Overridable at build time so a deployment is not pinned to localhost. */
 export const API_BASE_URL: string =
   (import.meta as { env?: Record<string, string> }).env?.VITE_API_BASE_URL ??
-  'http://localhost:8080/api/v1';
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+    ? '/api/v1'
+    : 'http://localhost:8080/api/v1');
 
 /**
  * Every way a request can end.
