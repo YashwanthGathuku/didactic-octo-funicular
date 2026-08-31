@@ -81,7 +81,7 @@ All SentinelFlow agents instantiate and execute through authentic Google ADK run
 | **`IncidentCommanderAgent`** | `google.adk.agents.Agent` (`LlmAgent`) | `gemini-3.5-flash` + `InMemoryRunner` | `output_key="commander_plan"` |
 | **`DiagnosisAgent`** | `google.adk.agents.Agent` (`LlmAgent`) | `gemini-3.5-flash` + `InMemoryRunner` | `output_key="diagnosis_result"` |
 | **`PolicySLAAgent`** | `google.adk.agents.Agent` (`LlmAgent`) | `gemini-3.5-flash` + `InMemoryRunner` | `output_key="policy_sla_result"` |
-| **`VerifierAgent`** | `google.adk.agents.Agent` (`LlmAgent`) | `gemini-2.5-flash` + `InMemoryRunner` | `output_key="verification_result"` (Advisory Critic) |
+| **`VerifierAgent`** | `google.adk.agents.Agent` (`LlmAgent`) | `gemini-3.5-flash` + `InMemoryRunner` | `output_key="verification_result"` (Advisory Critic) |
 | **`ParallelSpecialists`** | `google.adk.agents.ParallelAgent` | `sub_agents=[DiagnosisAgent, PolicySLAAgent]` | Disjoint output keys prevent state collision |
 
 Introspection tests in [`ai-tier/tests/test_adk_introspection.py`](file:///c:/Users/Gathu/Projects/fintech/ai-tier/tests/test_adk_introspection.py) verify class membership, runner wrapping, and distinct output key bindings.

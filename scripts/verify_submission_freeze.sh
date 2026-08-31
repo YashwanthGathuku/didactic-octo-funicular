@@ -14,20 +14,28 @@ if ! command -v go >/dev/null 2>&1 && command -v go.exe >/dev/null 2>&1; then
   GO_BIN="go.exe"
 fi
 
-PYTHON_BIN="python"
-if command -v python.exe >/dev/null 2>&1; then
-  PYTHON_BIN="python.exe"
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
+if [[ -f "$ROOT/ai-tier/.venv/Scripts/python.exe" ]]; then
+  PYTHON_BIN="$ROOT/ai-tier/.venv/Scripts/python.exe"
+  PYTEST_BIN="$ROOT/ai-tier/.venv/Scripts/pytest.exe"
+elif [[ -f "$ROOT/ai-tier/.venv/bin/python" ]]; then
+  PYTHON_BIN="$ROOT/ai-tier/.venv/bin/python"
+  PYTEST_BIN="$ROOT/ai-tier/.venv/bin/pytest"
+else
   PYTHON_BIN="python"
-fi
+  if command -v python.exe >/dev/null 2>&1; then
+    PYTHON_BIN="python.exe"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+  fi
 
-PYTEST_BIN="pytest"
-if ! command -v pytest >/dev/null 2>&1 && command -v pytest.exe >/dev/null 2>&1; then
-  PYTEST_BIN="pytest.exe"
-elif ! command -v pytest >/dev/null 2>&1; then
-  PYTEST_BIN="$PYTHON_BIN -m pytest"
+  PYTEST_BIN="pytest"
+  if ! command -v pytest >/dev/null 2>&1 && command -v pytest.exe >/dev/null 2>&1; then
+    PYTEST_BIN="pytest.exe"
+  elif ! command -v pytest >/dev/null 2>&1; then
+    PYTEST_BIN="$PYTHON_BIN -m pytest"
+  fi
 fi
 
 NPM_BIN="npm"
@@ -39,8 +47,9 @@ fi
 # Submission eligibility / P11 identity truth checks
 # ---------------------------------------------------------------------------
 echo "[1/12] Executable model-version guard"
-if grep -RInE --exclude-dir=.git --exclude='*.md' --exclude='*.json' --exclude='*.yaml' --exclude='*.yml' \
-  'gemini-(1\.5|2\.0|2\.5)' "$ROOT/ai-tier"; then
+if find "$ROOT/ai-tier" \( -name ".venv" -o -name "__pycache__" -o -name ".git" -o -name "node_modules" \) -prune -o \
+  -type f \( ! -name "*.md" ! -name "*.json" ! -name "*.yaml" ! -name "*.yml" \) \
+  -exec grep -InE 'gemini-(1\.5|2\.0|2\.5)' {} +; then
   echo "ERROR: legacy Gemini model found in executable AI-tier source" >&2
   exit 1
 fi
@@ -126,19 +135,19 @@ fi
 echo "[2/12] Go P11.5 managed-ingress authentication"
 (
   cd "$ROOT/gateway"
-  $GO_BIN test ./internal/auth/...
+  "$GO_BIN" test ./internal/auth/...
 )
 
 echo "[3/12] Python P11.5 managed runtime packaging"
 (
   cd "$ROOT"
-  $PYTEST_BIN ai-tier/tests/test_platform_runtime.py -v
+  "$PYTHON_BIN" -m pytest ai-tier/tests/test_platform_runtime.py -v
 )
 
 echo "[4/12] Managed Agent Runtime deployment dry-run"
 (
   cd "$ROOT/ai-tier"
-  $PYTHON_BIN -m runtime.deploy_agent_runtime \
+  "$PYTHON_BIN" -m runtime.deploy_agent_runtime \
     --project "${GOOGLE_CLOUD_PROJECT:-project-3687901b-8355-4073-ac3}" \
     --location "${GOOGLE_CLOUD_LOCATION:-us-central1}"
 )
@@ -146,60 +155,60 @@ echo "[4/12] Managed Agent Runtime deployment dry-run"
 echo "[5/12] P12.5 deterministic return-risk gate"
 (
   cd "$ROOT/gateway"
-  $GO_BIN test ./internal/returnrisk/...
+  "$GO_BIN" test ./internal/returnrisk/...
 )
 (
   cd "$ROOT"
-  $PYTEST_BIN ai-tier/tests/test_return_risk_agent.py -v
-  $PYTHON_BIN ai-tier/evals/return_runner.py
+  "$PYTHON_BIN" -m pytest ai-tier/tests/test_return_risk_agent.py -v
+  "$PYTHON_BIN" ai-tier/evals/return_runner.py
 )
 
 echo "[6/12] P13-P15 execution-control + Tool Gateway race gate"
 (
   cd "$ROOT/gateway"
-  $GO_BIN test ./internal/executioncontrol/... ./internal/toolgateway/...
+  "$GO_BIN" test ./internal/executioncontrol/... ./internal/toolgateway/...
 )
 
 echo "[7/12] Full Go internal regression"
 (
   cd "$ROOT/gateway"
-  $GO_BIN test ./internal/...
+  "$GO_BIN" test ./internal/...
 )
 
 echo "[8/12] Full Python AI-tier regression"
 (
   cd "$ROOT"
-  $PYTEST_BIN ai-tier/tests/ -v
+  "$PYTHON_BIN" -m pytest ai-tier/tests/ -v
 )
 
 echo "[9/12] Master adversarial evaluation"
 (
   cd "$ROOT"
-  $PYTHON_BIN ai-tier/evals/runner.py
+  "$PYTHON_BIN" ai-tier/evals/runner.py
 )
 
 echo "[10/12] Frontend unit tests"
 (
   cd "$ROOT"
-  $NPM_BIN test -- --run
+  "$NPM_BIN" test -- --run
 )
 
 echo "[11/12] Frontend production build"
 (
   cd "$ROOT"
-  $NPM_BIN run build
+  "$NPM_BIN" run build
 )
 
 echo "[12/12] Documentation & Registry synchronization"
 (
   cd "$ROOT"
-  $PYTHON_BIN scripts/generate_docs.py
-  $PYTHON_BIN scripts/generate_docs.py --check
-  $PYTHON_BIN scripts/validate_agent_registry.py --check
+  "$PYTHON_BIN" scripts/generate_docs.py
+  "$PYTHON_BIN" scripts/generate_docs.py --check
+  "$PYTHON_BIN" scripts/validate_agent_registry.py --check
 )
 
 echo "============================================================"
-echo " SUBMISSION HARDENING FREEZE LOCAL GATE PASSED"
+echo " SentinelFlow submission freeze checks PASSED"
 echo "============================================================"
 echo "Live Agent Runtime / Agent Identity / Agent Gateway / Registry /"
 echo "Memory Bank / Model Armor service / Cloud Trace remain separate"
