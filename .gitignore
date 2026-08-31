@@ -17,3 +17,5 @@ gateway/gw
 *.zip
 *.log
 datasets/
+*.egg-info/
+.venv/

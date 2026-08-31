@@ -96,7 +96,7 @@ class AgentIdentityProvider:
     ) -> AgentIdentityContext:
         validate_agent_roster_membership(agent_name)
         manifest = FIXED_AGENT_ROSTER[agent_name]
-        project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
+        project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3")
         principal, source = cls.get_runtime_principal(agent_name)
 
         return AgentIdentityContext(
@@ -125,7 +125,7 @@ class AgentIdentityProvider:
 
         validate_agent_roster_membership(agent_name)
         manifest = FIXED_AGENT_ROSTER[agent_name]
-        project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
+        project = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3")
 
         headers: Dict[str, str] = {
             "X-Sentinel-Agent-Name": agent_name,

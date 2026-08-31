@@ -42,7 +42,7 @@ class SentinelFlowLocalRuntimeAdapter:
     """Development adapter exposing fixed-roster metadata without fake execution."""
 
     def __init__(self, project_id: Optional[str] = None, region: str = "us-central1"):
-        self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
+        self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3")
         self.region = region or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
         self.tracer = get_tracer("sentinelflow.runtime.local-adapter")
         self.agents = {

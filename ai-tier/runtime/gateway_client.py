@@ -62,7 +62,7 @@ class AgentGatewayClient:
         timeout_seconds: float = 10.0,
     ):
         self.gateway_endpoint = gateway_endpoint or os.environ.get("AGENT_GATEWAY_ENDPOINT", "")
-        self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "telos-agent")
+        self.project_id = project_id or os.environ.get("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3")
         self.region = region or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
         self.mode: GatewayMode = mode
         self.platform_mode = AgentIdentityProvider.platform_mode()

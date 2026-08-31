@@ -15,6 +15,7 @@ Authority invariants remain unchanged:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import Any, Dict
 
 import google.adk.agents as adk_agents
@@ -29,7 +30,7 @@ from contracts.manifests import FIXED_AGENT_ROSTER
 
 
 MANAGED_ROOT_NAME = "IncidentCommanderAgent"
-MANAGED_MODEL = "gemini-3.5-flash"
+MANAGED_MODEL = os.getenv("SENTINEL_GEMINI_MODEL", "gemini-3.5-flash")
 
 
 @dataclass(frozen=True)
@@ -44,12 +45,12 @@ def _specialist_agents() -> Dict[str, Any]:
     """Builds the six fixed specialist ADK agents beneath the commander."""
 
     wrappers = {
-        "DiagnosisAgent": DiagnosisAgent(),
-        "PolicySLAAgent": PolicySLAAgent(),
-        "MemoryAgent": MemoryAgent(),
-        "RemediationAgent": RemediationAgent(),
-        "VerifierAgent": VerifierAgent(),
-        "ReturnRiskAgent": ReturnRiskAgent(),
+        "DiagnosisAgent": DiagnosisAgent(model_name=MANAGED_MODEL),
+        "PolicySLAAgent": PolicySLAAgent(model_name=MANAGED_MODEL),
+        "MemoryAgent": MemoryAgent(model_name=MANAGED_MODEL),
+        "RemediationAgent": RemediationAgent(model_name=MANAGED_MODEL),
+        "VerifierAgent": VerifierAgent(model_name=MANAGED_MODEL),
+        "ReturnRiskAgent": ReturnRiskAgent(model_name=MANAGED_MODEL),
     }
 
     agents: Dict[str, Any] = {}

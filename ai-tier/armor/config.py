@@ -39,7 +39,7 @@ class ModelArmorConfig(BaseModel):
     )
     project_id: str = Field(
         default_factory=lambda: os.getenv(
-            "SENTINEL_MODEL_ARMOR_PROJECT", os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent")
+            "SENTINEL_MODEL_ARMOR_PROJECT", os.getenv("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3")
         )
     )
     location: str = Field(

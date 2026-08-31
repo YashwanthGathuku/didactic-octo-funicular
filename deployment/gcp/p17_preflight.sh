@@ -5,7 +5,7 @@ set -euo pipefail
 # This script performs read-only configuration/auth/API checks. It never prints
 # OAuth tokens and never creates/enables/deletes resources.
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-telos-agent}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-project-3687901b-8355-4073-ac3}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 
 required_apis=(

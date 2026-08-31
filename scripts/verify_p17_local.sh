@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROJECT="${GOOGLE_CLOUD_PROJECT:-telos-agent}"
+PROJECT="${GOOGLE_CLOUD_PROJECT:-project-3687901b-8355-4073-ac3}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-central1}"
 
 printf '== SentinelFlow P17 local deployment-readiness gate ==\n'

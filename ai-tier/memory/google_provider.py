@@ -37,7 +37,7 @@ class GoogleMemoryBankProvider(ManagedMemoryProvider):
         max_retries: int = 3,
         allowed_regions: Optional[List[str]] = None,
     ):
-        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent")
+        self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3")
         self.location = location
         self.agent_id = agent_id
         self.timeout_seconds = timeout_seconds

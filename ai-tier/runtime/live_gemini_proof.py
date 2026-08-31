@@ -12,7 +12,7 @@ import json
 import os
 import time
 
-MODEL = "gemini-3.5-flash"
+MODEL = os.getenv("SENTINEL_GEMINI_MODEL", "gemini-3.5-flash")
 PROMPT = (
     "SentinelFlow P17 synthetic proof. Reply with a brief statement confirming that "
     "a deterministic financial control plane must remain authoritative over model output. "

@@ -22,7 +22,7 @@ def _args() -> argparse.Namespace:
     parser.add_argument("--engine-id", required=True, help="Reasoning Engine resource ID")
     parser.add_argument(
         "--project",
-        default=os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent"),
+        default=os.getenv("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3"),
         help="Google Cloud project ID",
     )
     parser.add_argument(

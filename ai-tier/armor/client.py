@@ -520,7 +520,7 @@ class ModelArmorClient:
         else:
             config = ModelArmorConfig(
                 custom_endpoint=endpoint,
-                project_id=project or os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent"),
+                project_id=project or os.getenv("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3"),
             )
             self._provider = GoogleModelArmorProvider(config)
 

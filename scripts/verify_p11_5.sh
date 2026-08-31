@@ -32,7 +32,7 @@ PY
 echo "[4/5] Agent Runtime deployment dry-run (must create no resources)"
 (
   cd "$ROOT/ai-tier"
-  python -m runtime.deploy_agent_runtime --project "${GOOGLE_CLOUD_PROJECT:-telos-agent}" --location "${GOOGLE_CLOUD_LOCATION:-us-central1}"
+  python -m runtime.deploy_agent_runtime --project "${GOOGLE_CLOUD_PROJECT:-project-3687901b-8355-4073-ac3}" --location "${GOOGLE_CLOUD_LOCATION:-us-central1}"
 )
 
 echo "[5/5] Submission model-version guard"

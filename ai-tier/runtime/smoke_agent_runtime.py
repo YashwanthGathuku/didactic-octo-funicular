@@ -30,7 +30,7 @@ SYNTHETIC_PROMPT = (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke-test deployed SentinelFlow Agent Runtime")
     parser.add_argument("--engine-id", required=True)
-    parser.add_argument("--project", default=os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent"))
+    parser.add_argument("--project", default=os.getenv("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3"))
     parser.add_argument("--location", default=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
     parser.add_argument("--user-id", default="sentinelflow-p17-smoke")
     parser.add_argument("--timeout-seconds", type=float, default=60.0)
@@ -54,29 +54,50 @@ def _safe_event_metadata(event: Any) -> dict[str, Any]:
 
 def _decode_sse(lines: list[str]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
+    # 1. Try line-by-line decoding (SSE data: or raw JSON lines)
     for line in lines:
         stripped = line.strip()
-        if not stripped.startswith("data:"):
-            continue
-        payload = stripped[5:].strip()
-        if not payload or payload == "[DONE]":
+        if stripped.startswith("data:"):
+            stripped = stripped[5:].strip()
+        if not stripped or stripped == "[DONE]":
             continue
         try:
-            value = json.loads(payload)
+            value = json.loads(stripped)
+            if isinstance(value, dict):
+                events.append(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        events.append(item)
         except json.JSONDecodeError:
             continue
-        if isinstance(value, dict):
-            events.append(value)
+
+    # 2. If line-by-line yielded nothing, attempt whole-payload JSON decode
+    if not events and lines:
+        try:
+            full_text = "\n".join(lines)
+            parsed = json.loads(full_text)
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict):
+                        events.append(item)
+            elif isinstance(parsed, dict):
+                events.append(parsed)
+        except json.JSONDecodeError:
+            pass
+
     return events
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    from runtime.managed_adk import MANAGED_MODEL
+
     plan = {
         "project": args.project,
         "location": args.location,
         "engine_id": args.engine_id,
         "method": "async_stream_query",
-        "model_requirement": "gemini-3.5-flash",
+        "model_requirement": MANAGED_MODEL,
         "synthetic_only": True,
     }
     if not args.execute:

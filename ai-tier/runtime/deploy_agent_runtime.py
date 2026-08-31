@@ -35,7 +35,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Deploy SentinelFlow to Google Agent Runtime")
     parser.add_argument(
         "--project",
-        default=os.getenv("GOOGLE_CLOUD_PROJECT", "telos-agent"),
+        default=os.getenv("GOOGLE_CLOUD_PROJECT", "project-3687901b-8355-4073-ac3"),
         help="Google Cloud project ID",
     )
     parser.add_argument(
@@ -113,11 +113,10 @@ def _build_config(args: argparse.Namespace, identity_type: Any) -> dict[str, Any
             "google-genai>=2.18.1,<3.0.0",
             "pydantic>=2.10.4,<3.0.0",
             "httpx>=0.27.0,<1.0.0",
+            "cloudpickle>=3.0.0",
         ],
         "staging_bucket": args.staging_bucket.strip(),
         "env_vars": {
-            "GOOGLE_CLOUD_PROJECT": args.project,
-            "GOOGLE_CLOUD_LOCATION": args.location,
             "GOOGLE_GENAI_USE_VERTEXAI": "TRUE",
             "SENTINEL_PLATFORM_MODE": "managed",
             "SENTINEL_AI_MODE": "live",

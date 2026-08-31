@@ -139,7 +139,7 @@ echo "[4/12] Managed Agent Runtime deployment dry-run"
 (
   cd "$ROOT/ai-tier"
   $PYTHON_BIN -m runtime.deploy_agent_runtime \
-    --project "${GOOGLE_CLOUD_PROJECT:-telos-agent}" \
+    --project "${GOOGLE_CLOUD_PROJECT:-project-3687901b-8355-4073-ac3}" \
     --location "${GOOGLE_CLOUD_LOCATION:-us-central1}"
 )
 
