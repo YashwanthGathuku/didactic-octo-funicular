@@ -107,7 +107,7 @@ Human authorization / dual control
 ## System Architecture
 
 <p align="center">
-  <a href="./Architecture.png">
+  <a href="./AArchitecture.png">
     <img src="./Architecture.png" alt="SentinelFlow architecture diagram" width="100%" />
   </a>
 </p>
