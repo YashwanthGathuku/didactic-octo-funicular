@@ -1,0 +1,11 @@
+﻿node_modules
+dist
+.git
+.venv
+*.db
+*.db-wal
+*.db-shm
+*.egg-info
+ai-tier/.venv
+gateway/sentinel-gateway
+gateway/gw
