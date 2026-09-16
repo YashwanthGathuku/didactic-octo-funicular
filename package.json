@@ -2,6 +2,7 @@
   "name": "sentinel-flow",
   "version": "1.0.0",
   "description": "Sentinel Flow: Financial File Reliability & Pre-Ledger Control Gateway",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
