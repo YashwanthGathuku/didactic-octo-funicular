@@ -7,7 +7,7 @@
 [![Multi-Agent](https://img.shields.io/badge/Agent%20Swarm-4%20Agents%20ReAct-8B5CF6?style=flat-square)](gateway/agent_swarm.go)
 [![Compliance](https://img.shields.io/badge/Compliance-SEC%2017a--4%20%7C%20SOX%20404-F59E0B?style=flat-square)](gateway/compliance.go)
 [![Podman](https://img.shields.io/badge/Containers-Podman%20%7C%20K8s-892CA0?style=flat-square&logo=podman)](podman-compose.yml)
-[![License](https://img.shields.io/badge/License-MIT-gray?style=flat-square)](LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)](LICENSE)
 
 > **Know every financial file that should arrive, prove whether it did, validate it before downstream use, and investigate exceptions with an approval-gated AI copilot.**
 
@@ -113,4 +113,4 @@ python evals/runner.py
 ---
 
 ## 📄 License
-MIT License. Built for institutional financial systems engineering and applied AI research.
+AGPL-3.0. Built for institutional financial systems engineering and applied AI research.
